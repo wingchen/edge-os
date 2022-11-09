@@ -14,6 +14,11 @@ I will gradually add in code when I am not working on my day job.
 - [ ] OTA: so that users will be able to deploy and update long running codes
 - [ ] Group Commands: so that theh users will be able to do map/reduce kind of command execution in edge machines altogether.
 
+# Supported SoCs (edge computers)
+
+- [ ] All of the SoCs with full Linux as their OS (all distributions, x86 and Arm)
+- [ ] The SoCs what run various Linux kernels (like Android but only with the `adb`)
+
 # Language Used
 
 - `server`: elixir, because I like the OTA from erlang
