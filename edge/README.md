@@ -8,7 +8,14 @@ To run this in your SoC and have it function normally, you will have to:
 
 # Target Features
 
-- [v] create device UUID if no uuid is found locally
+- [x] create device UUID if no uuid is found locally
 - [ ] connect back to mothership via websocket
 - [ ] allow remote ssh in even when the IoT device is behind firewall
 - [ ] allow whitelisted packets in and out of the device
+
+
+# Run test cases
+
+```
+RUST_LOG=debug cargo test -- --test-threads=1
+```
