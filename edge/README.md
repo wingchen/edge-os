@@ -13,6 +13,10 @@ To run this in your SoC and have it function normally, you will have to:
 - [ ] allow remote ssh in even when the IoT device is behind firewall
 - [ ] allow whitelisted packets in and out of the device
 
+# Env Vars
+
+- `EDGE_OS_EDGE_DIR`: full dir path to where the `edge` data is stored
+- `EDGE_OS_CLOUD_URL`: full websocket path to where the `edge` should connect to, exp: `wss://edge.sailoi.com`
 
 # Run test cases
 
