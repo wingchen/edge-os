@@ -1,8 +1,12 @@
-use log::{debug, info};
+use log::{debug, info, error};
 use std::env;
 use url;
+use std::process::Command;
+use std::process::Child;
+use std::sync::Arc;
 use futures_util::{future, pin_mut, StreamExt};
 use tokio::io::{AsyncReadExt};
+use tokio::sync::Mutex;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 
 mod config;
@@ -37,10 +41,32 @@ async fn main() {
     let (write, read) = ws_stream.split();
 
     let stdin_to_ws = stdin_rx.map(Ok).forward(write);
+    let websocat_process = Arc::new(Mutex::new(None));
+
     let ws_to_stdout = {
         read.for_each(|message| async {
+            // getting to websocat_process to see if that's populated already
+            let the_websocat_process = Arc::clone(&websocat_process);
+            let mut websocat_process_lock = the_websocat_process.lock().await;
+
             let data = message.unwrap();
             debug!("message: {}", data);
+
+            if data.to_string() == "START_SSH" {
+                if websocat_process_lock.is_some() {
+                    error!("websocat_process is already running, ignoring the command");
+                } else {
+                    *websocat_process_lock = create_websocat_process(local_working_dir.clone());
+                    debug!("websocat_process created at: {}", data);
+                }
+            } else if data.to_string() == "STOP_SSH" {
+                if websocat_process_lock.is_some() {
+                    websocat_process_lock.as_mut().unwrap().kill().expect("failed to kill websocat, leaving it hanging");
+                    *websocat_process_lock = None;
+                } else {
+                    error!("websocat_process is not running, nothing to stop");
+                }
+            }
         })
     };
 
@@ -61,4 +87,16 @@ async fn read_stdin(tx: futures_channel::mpsc::UnboundedSender<Message>) {
         buf.truncate(n);
         tx.unbounded_send(Message::binary(buf)).unwrap();
     }
+}
+
+fn create_websocat_process(local_working_dir : String) -> Option<Child> {
+    let websocat_path = format!("{}/websocat", local_working_dir);
+
+    let child = 
+        Command::new(websocat_path)
+            .arg("file.txt")
+            .spawn()
+            .expect("failed to execute websocat");
+
+    return Some(child);
 }
