@@ -94,7 +94,10 @@ fn create_websocat_process(local_working_dir : String) -> Option<Child> {
 
     let child = 
         Command::new(websocat_path)
-            .arg("file.txt")
+            .arg("-v")
+            .arg("--text")
+            .arg("ws://127.0.0.1:8080")
+            .arg("tcp:127.0.0.1:22")
             .spawn()
             .expect("failed to execute websocat");
 

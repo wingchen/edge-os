@@ -10,6 +10,7 @@ To run this in your SoC and have it function normally, you will have to:
 
 - [x] create device UUID if no uuid is found locally
 - [ ] connect back to mothership via websocket
+- [ ] check if the local ssh server is available
 - [ ] allow remote ssh in even when the IoT device is behind firewall
 - [ ] allow whitelisted packets in and out of the device
 
