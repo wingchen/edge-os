@@ -19,6 +19,13 @@ defmodule EdgeOsCloudWeb.Router do
 
     get "/", PageController, :index
     get "/devices", PageController, :devices
+
+    ive "/edges", EdgeLive.Index, :index
+    live "/edges/new", EdgeLive.Index, :new
+    live "/edges/:id/edit", EdgeLive.Index, :edit
+
+    live "/edges/:id", EdgeLive.Show, :show
+    live "/edges/:id/show/edit", EdgeLive.Show, :edit
   end
 
   # Other scopes may use custom stacks.

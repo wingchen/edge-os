@@ -1,0 +1,43 @@
+<h1>Listing Edges</h1>
+
+<%= if @live_action in [:new, :edit] do %>
+  <.modal return_to={Routes.edge_index_path(@socket, :index)}>
+    <.live_component
+      module={EdgeOsCloudWeb.EdgeLive.FormComponent}
+      id={@edge.id || :new}
+      title={@page_title}
+      action={@live_action}
+      edge={@edge}
+      return_to={Routes.edge_index_path(@socket, :index)}
+    />
+  </.modal>
+<% end %>
+
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Ip</th>
+      <th>Status</th>
+
+      <th></th>
+    </tr>
+  </thead>
+  <tbody id="edges">
+    <%= for edge <- @edges do %>
+      <tr id={"edge-#{edge.id}"}>
+        <td><%= edge.name %></td>
+        <td><%= edge.ip %></td>
+        <td><%= edge.status %></td>
+
+        <td>
+          <span><%= live_redirect "Show", to: Routes.edge_show_path(@socket, :show, edge) %></span>
+          <span><%= live_patch "Edit", to: Routes.edge_index_path(@socket, :edit, edge) %></span>
+          <span><%= link "Delete", to: "#", phx_click: "delete", phx_value_id: edge.id, data: [confirm: "Are you sure?"] %></span>
+        </td>
+      </tr>
+    <% end %>
+  </tbody>
+</table>
+
+<span><%= live_patch "New Edge", to: Routes.edge_index_path(@socket, :new) %></span>
