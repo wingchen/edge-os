@@ -1,41 +1,46 @@
 <section class="phx-hero">
-  <h1><%= gettext "Welcome to %{name}!", name: "Phoenix" %></h1>
-  <p>Peace of mind from prototype to production</p>
+   <h1><%= gettext "Welcome to %{name}!", name: "Edge OS" %></h1>
+   <p>Here are your recent trends.</p>
 </section>
-
-<section class="row">
-  <article class="column">
-    <h2>Resources</h2>
-    <ul>
-      <li>
-        <a href="https://hexdocs.pm/phoenix/overview.html">Guides &amp; Docs</a>
-      </li>
-      <li>
-        <a href="https://github.com/phoenixframework/phoenix">Source</a>
-      </li>
-      <li>
-        <a href="https://github.com/phoenixframework/phoenix/blob/v1.6/CHANGELOG.md">v1.6 Changelog</a>
-      </li>
-    </ul>
-  </article>
-  <article class="column">
-    <h2>Help</h2>
-    <ul>
-      <li>
-        <a href="https://elixirforum.com/c/phoenix-forum">Forum</a>
-      </li>
-      <li>
-        <a href="https://web.libera.chat/#elixir">#elixir on Libera Chat (IRC)</a>
-      </li>
-      <li>
-        <a href="https://twitter.com/elixirphoenix">Twitter @elixirphoenix</a>
-      </li>
-      <li>
-        <a href="https://elixir-slackin.herokuapp.com/">Elixir on Slack</a>
-      </li>
-      <li>
-        <a href="https://discord.gg/elixir">Elixir on Discord</a>
-      </li>
-    </ul>
-  </article>
-</section>
+<div class="row">
+   <!-- Area Chart -->
+   <div class="col-xl-8 col-lg-7">
+      <div class="card shadow mb-4">
+         <!-- Card Header - Dropdown -->
+         <div
+            class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+            <h6 class="m-0 font-weight-bold text-primary">Device Counts</h6>
+         </div>
+         <!-- Card Body -->
+         <div class="card-body">
+            <div class="chart-area">
+               <canvas id="myAreaChart"></canvas>
+            </div>
+         </div>
+      </div>
+   </div>
+   <!-- Pie Chart -->
+   <div class="col-xl-4 col-lg-5">
+      <div class="card shadow mb-4">
+         <!-- Card Header - Dropdown -->
+         <div
+            class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+            <h6 class="m-0 font-weight-bold text-primary">Current Devices</h6>
+         </div>
+         <!-- Card Body -->
+         <div class="card-body">
+            <div class="chart-pie pt-4 pb-2">
+               <canvas id="myPieChart"></canvas>
+            </div>
+            <div class="mt-4 text-center small">
+               <span class="mr-2">
+               <i class="fas fa-circle text-success"></i> Online
+               </span>
+               <span class="mr-2">
+               <i class="fas fa-circle text-primary"></i> Offline
+               </span>
+            </div>
+         </div>
+      </div>
+   </div>
+</div>
