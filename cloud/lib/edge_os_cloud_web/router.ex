@@ -18,6 +18,7 @@ defmodule EdgeOsCloudWeb.Router do
     pipe_through :browser
 
     get "/", PageController, :index
+    get "/devices", PageController, :devices
   end
 
   # Other scopes may use custom stacks.

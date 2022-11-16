@@ -4,4 +4,8 @@ defmodule EdgeOsCloudWeb.PageController do
   def index(conn, _params) do
     render(conn, "index.html")
   end
+
+  def devices(conn, _params) do
+    render(conn, "devices.html")
+  end
 end
