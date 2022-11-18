@@ -22,6 +22,24 @@ defmodule EdgeOsCloud.Device do
   end
 
   @doc """
+  Returns the list of active edges from user account.
+
+  ## Examples
+
+      iex> list_activ_account_edges()
+      [%Edge{}, ...]
+
+  """
+  def list_activ_account_edges do
+    query = from e in Edge,
+          where: e.deleted == false,
+          order_by: [desc: e.inserted_at],
+          select: e
+
+    Repo.all(query)
+  end
+
+  @doc """
   Gets a single edge.
 
   Raises `Ecto.NoResultsError` if the Edge does not exist.
@@ -86,7 +104,7 @@ defmodule EdgeOsCloud.Device do
 
   """
   def delete_edge(%Edge{} = edge) do
-    Repo.delete(edge)
+    update_edge(edge, %{deleted: true})
   end
 
   @doc """
