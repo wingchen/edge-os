@@ -18,14 +18,21 @@ defmodule EdgeOsCloudWeb.Router do
     pipe_through :browser
 
     get "/", PageController, :index
-    get "/devices", PageController, :devices
+    get "/login", PageController, :login
+    get "/logout", PageController, :logout
 
     live "/edges", EdgeLive.Index, :index
-    live "/edges/new", EdgeLive.Index, :new
     live "/edges/:id/edit", EdgeLive.Index, :edit
-
     live "/edges/:id", EdgeLive.Show, :show
-    live "/edges/:id/show/edit", EdgeLive.Show, :edit
+
+    live "/users", UserLive.Index, :index
+    live "/users/:id/edit", UserLive.Index, :edit
+    live "/users/:id", UserLive.Show, :show
+
+    live "/teams", TeamLive.Index, :index
+    live "/teams/new", TeamLive.Index, :new
+    live "/teams/:id/edit", TeamLive.Index, :edit
+    live "/teams/:id", TeamLive.Show, :show
   end
 
   # Other scopes may use custom stacks.

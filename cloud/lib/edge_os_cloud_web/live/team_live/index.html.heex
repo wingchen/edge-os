@@ -1,0 +1,59 @@
+<h1>Listing Teams</h1>
+
+<%= if @live_action in [:new, :edit] do %>
+  <.modal return_to={Routes.team_index_path(@socket, :index)}>
+    <.live_component
+      module={EdgeOsCloudWeb.TeamLive.FormComponent}
+      id={@team.id || :new}
+      title={@page_title}
+      action={@live_action}
+      team={@team}
+      return_to={Routes.team_index_path(@socket, :index)}
+    />
+  </.modal>
+<% end %>
+
+<!-- DataTales -->
+<div class="card shadow mb-4">
+    <div class="card-header py-3">
+        <h6 class="m-0 font-weight-bold text-primary">Teams</h6>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+              <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Admins</th>
+                    <th>Team</th>
+                    <th>Creator</th>
+                    <th>Created Time</th>
+                    <th>Actions</th>
+                  </tr>
+              </thead>
+              <tfoot>
+                  <tr>
+                    <th>Name</th>
+                    <th>Admins</th>
+                    <th>Team</th>
+                    <th>Creator</th>
+                    <th>Created Time</th>
+                    <th>Actions</th>
+                  </tr>
+              </tfoot>
+              <tbody>
+              <%= for team <- @teams do %>
+                <tr>
+                    <td><%= team.name %></td>
+                    <td><%= team.admins %></td>
+                    <td>belonging team</td>
+                    <td>creator</td>
+                    <td><%= team.inserted_at %></td>
+                    <td>actions</td>
+                </tr>
+              <% end %>
+              </tbody>
+            </table>
+        </div>
+    </div>
+</div>
