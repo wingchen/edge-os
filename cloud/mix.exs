@@ -54,6 +54,13 @@ defmodule EdgeOsCloud.MixProject do
       {:jason, "~> 1.2"},
       {:plug_cowboy, "~> 2.5"},
 
+      # time utils
+      {:timex, "~> 3.7"},
+
+      # oauth
+      {:ueberauth_google, "~> 0.10.1"},
+      {:ueberauth_github, "~> 0.8.1"},
+
       # reids
       {:redix, ">= 1.0.0"},
     ]

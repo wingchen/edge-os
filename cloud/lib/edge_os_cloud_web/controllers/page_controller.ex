@@ -6,12 +6,22 @@ defmodule EdgeOsCloudWeb.PageController do
   end
 
   def login(conn, _params) do
-    conn
-    |> put_root_layout({EdgeOsCloudWeb.LayoutView, "empty.html"})
-    |> render("login.html")
+    case get_session(conn, :current_user) do
+      nil -> 
+        conn
+        |> put_root_layout({EdgeOsCloudWeb.LayoutView, "empty.html"})
+        |> render("login.html")
+
+      _user ->
+        conn
+        |> redirect(to: "/")
+    end
   end
 
   def logout(conn, _params) do
-    render(conn, "devices.html")
+    conn
+    |> put_flash(:info, "You have been logged out!")
+    |> clear_session()
+    |> redirect(to: "/login")
   end
 end

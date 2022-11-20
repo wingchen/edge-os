@@ -35,6 +35,13 @@ defmodule EdgeOsCloudWeb.Router do
     live "/teams/:id", TeamLive.Show, :show
   end
 
+  scope "/auth", EdgeOsCloudWeb do
+    pipe_through :browser
+
+    get "/:provider", AuthController, :request
+    get "/:provider/callback", AuthController, :callback
+  end
+
   # Other scopes may use custom stacks.
   # scope "/api", EdgeOsCloudWeb do
   #   pipe_through :api

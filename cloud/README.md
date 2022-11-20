@@ -20,7 +20,16 @@ When it comes to compilation:
 mix compile --warnings-as-errors
 ```
 
-When it comes to testing locally.
+When it comes to testing locally, first set up your Linux Environment Variables for google and github login:
+
+```
+export GOOGLE_CLIENT_ID=something_google_client_id
+export GOOGLE_CLIENT_SECRET=something_google_client_secret
+export GITHUB_CLIENT_ID=something_github_client_id
+export GITHUB_CLIENT_SECRET=something_github_client_secret
+```
+
+Then run the following command to start the local server:
 
 ```
 docker-compose up && phx.server

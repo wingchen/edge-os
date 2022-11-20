@@ -1,9 +1,9 @@
 <main class="container">
-  <% unless is_nil(get_flash(@conn, :info)) do %>
+  <%= unless is_nil(get_flash(@conn, :info)) do %>
     <p class="alert alert-info" role="alert"><%= get_flash(@conn, :info) %></p>
   <% end %>
 
-  <% unless is_nil(get_flash(@conn, :error)) do %>
+  <%= unless is_nil(get_flash(@conn, :error)) do %>
     <p class="alert alert-info" role="alert"><%= get_flash(@conn, :error) %></p>
   <% end %>
 

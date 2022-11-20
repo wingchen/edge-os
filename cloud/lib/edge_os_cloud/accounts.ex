@@ -37,6 +37,18 @@ defmodule EdgeOsCloud.Accounts do
   """
   def get_user!(id), do: Repo.get!(User, id)
 
+  def get_user_via_email(email) do
+    query = from u in User,
+          where: u.email == ^email,
+          select: u
+
+    case Repo.all(query) do
+      [user] -> {:ok, user}
+      [] -> {:ok, nil}
+      _ -> raise "more than 1 user with eamil #{email} is found"
+    end
+  end
+
   @doc """
   Creates a user.
 
