@@ -36,12 +36,22 @@ defmodule EdgeOsCloud.UserFromAuth do
 
   defp basic_info(auth) do
     Logger.debug("getting auth #{inspect auth}")
-    %{
+    info = %{
       id: auth.uid, 
       name: name_from_auth(auth), 
       avatar: avatar_from_auth(auth),
       email: email_from_auth(auth),
     }
+
+    info = if is_nil(info.name) do
+      [holder_name | _else] = String.split(info.email, "@")
+      Map.put(info, :name, holder_name)
+    else
+      info
+    end
+
+    Logger.debug("created info #{inspect info}")
+    info
   end
 
   defp name_from_auth(auth) do

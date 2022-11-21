@@ -32,3 +32,5 @@ edge_os_cloud-*.tar
 npm-debug.log
 /assets/node_modules/
 
+# My local test scripts
+local.sh

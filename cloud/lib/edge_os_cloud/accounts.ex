@@ -7,6 +7,7 @@ defmodule EdgeOsCloud.Accounts do
   alias EdgeOsCloud.Repo
 
   alias EdgeOsCloud.Accounts.User
+  alias EdgeOsCloud.Accounts.UserAction
 
   @doc """
   Returns the list of users.
@@ -64,6 +65,24 @@ defmodule EdgeOsCloud.Accounts do
   def create_user(attrs \\ %{}) do
     %User{}
     |> User.changeset(attrs)
+    |> Repo.insert()
+  end
+
+  @doc """
+  Logs a user_action.
+
+  ## Examples
+
+      iex> log_user_action(%{field: value})
+      {:ok, %User{}}
+
+      iex> log_user_action(%{field: bad_value})
+      {:error, %Ecto.Changeset{}}
+
+  """
+  def log_user_action(attrs \\ %{}) do
+    %UserAction{}
+    |> UserAction.changeset(attrs)
     |> Repo.insert()
   end
 

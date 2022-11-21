@@ -27,6 +27,12 @@ defmodule EdgeOsCloudWeb.AuthController do
           {:ok, u} -> Accounts.update_user(u, %{updated_at: Timex.now() |> Timex.to_naive_datetime()})
         end
 
+        EdgeOsCloud.Accounts.log_user_action(%{
+          user: user.id,
+          action: "login",
+          meta: Jason.encode!(%{ip: EdgeOsCloud.RemoteIp.get(conn)})
+        })
+
         conn
         |> put_flash(:info, "Welcome to EdgeOS, #{user.name}")
         |> put_session(:current_user, user)

@@ -59,6 +59,12 @@
             </li>
 
             <li class="nav-item">
+                <a class="nav-link" href="/teams">
+                    <i class="fas fa-fw fa-people-arrows"></i>
+                    <span>Teams</span></a>
+            </li>
+
+            <li class="nav-item">
                 <a class="nav-link" href="/edges">
                     <i class="fas fa-fw fa-table"></i>
                     <span>Edges</span></a>
@@ -98,7 +104,7 @@
                         <li class="nav-item dropdown no-arrow">
                             <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button"
                                 data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-                                <span class="mr-2 d-none d-lg-inline text-gray-600 small">User</span>
+                                <span class="mr-2 d-none d-lg-inline text-gray-600 small">User Settings</span>
                                 <i class="fas fa-user-circle"></i>
                             </a>
                             <!-- Dropdown - User Information -->
@@ -107,10 +113,6 @@
                                 <a class="dropdown-item" href="/users">
                                     <i class="fas fa-id-badge fa-sm fa-fw mr-2 text-gray-400"></i>
                                     My Account
-                                </a>
-                                <a class="dropdown-item" href="/teams">
-                                    <i class="fas fa-people-arrows fa-sm fa-fw mr-2 text-gray-400"></i>
-                                    My Teams
                                 </a>
                                 <a class="dropdown-item" href="#" data-toggle="modal" data-target="#logoutModal">
                                     <i class="fas fa-sign-out-alt fa-sm fa-fw mr-2 text-gray-400"></i>
@@ -167,7 +169,7 @@
                         <span aria-hidden="true">×</span>
                     </button>
                 </div>
-                <div class="modal-body">Select "Logout" below if you are ready to end your current session.</div>
+                <div class="modal-body">Select "Logout" below if you are ready to end your current operation.</div>
                 <div class="modal-footer">
                     <button class="btn btn-secondary" type="button" data-dismiss="modal">Cancel</button>
                     <a class="btn btn-primary" href="/logout">Logout</a>
@@ -185,7 +187,6 @@
 
     <!-- Custom scripts for all pages-->
     <script src="/js/sb-admin-2.min.js"></script>
-
 </body>
 
 </html>
