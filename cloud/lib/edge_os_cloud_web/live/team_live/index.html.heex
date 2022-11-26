@@ -1,4 +1,4 @@
-<h1>Listing Teams</h1>
+<h1>Teams</h1>
 
 <%= if @live_action in [:new, :edit] do %>
   <.modal return_to={Routes.team_index_path(@socket, :index)}>
@@ -8,10 +8,42 @@
       title={@page_title}
       action={@live_action}
       team={@team}
+      current_user={@current_user}
       return_to={Routes.team_index_path(@socket, :index)}
     />
   </.modal>
 <% end %>
+
+<p>
+  <%= live_patch to: Routes.team_index_path(@socket, :new), class: "btn btn-primary btn-icon-split btn-sm", replace: false do %>
+    <span class="icon text-white-50">
+      <i class="fas fa-plus"></i>
+    </span>
+    <span class="text">New Team</span>
+  <% end %>
+</p>
+
+<!-- Modal -->
+<div class="modal fade" id="msg" tabindex="-1" aria-labelledby="msgLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="msgLabel">You are a member.</h5>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        You are a member of this team. You cannot edit anything. 
+        <br/>
+        Please reach out to admins for team editing.
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- DataTales -->
 <div class="card shadow mb-4">
@@ -23,9 +55,9 @@
             <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
               <thead>
                   <tr>
-                    <th>Name</th>
-                    <th>Admins</th>
                     <th>Team</th>
+                    <th>Admins</th>
+                    <th>Members</th>
                     <th>Creator</th>
                     <th>Created Time</th>
                     <th>Actions</th>
@@ -33,9 +65,9 @@
               </thead>
               <tfoot>
                   <tr>
-                    <th>Name</th>
-                    <th>Admins</th>
                     <th>Team</th>
+                    <th>Admins</th>
+                    <th>Members</th>
                     <th>Creator</th>
                     <th>Created Time</th>
                     <th>Actions</th>
@@ -45,11 +77,32 @@
               <%= for team <- @teams do %>
                 <tr>
                     <td><%= team.name %></td>
-                    <td><%= team.admins %></td>
-                    <td>belonging team</td>
+                    <td>
+                      <%= for name <- EdgeOsCloud.Accounts.get_user_names(team.admins) do %>
+                        <span class="badge bg-primary table"><%= name %></span>
+                      <% end %>
+                    </td>
+                    <td>
+                      <%= for name <- EdgeOsCloud.Accounts.get_user_names(team.members) do %>
+                        <span class="badge bg-primary table"><%= name %></span>
+                      <% end %>
+                    </td>
                     <td>creator</td>
                     <td><%= team.inserted_at %></td>
-                    <td>actions</td>
+                    <td>
+                      <%= if @current_user.id in team.admins do %>
+                        <%= live_patch to: Routes.team_index_path(@socket, :edit, team), class: "btn btn-warning btn-circle btn-sm", replace: false do %>
+                          <i class="fas fa-edit"></i>
+                        <% end %>
+                        <%= link to: "#", phx_click: "delete", phx_value_id: team.id, data: [confirm: "Are you sure?"], class: "btn btn-danger btn-circle btn-sm", replace: false do %>
+                          <i class="fas fa-trash"></i>
+                        <% end %>
+                      <% else %>
+                        <a href="#" class="btn btn-info btn-circle btn-sm" data-toggle="modal" data-target="#msg">
+                          <i class="fas fa-info-circle"></i>
+                        </a>
+                      <% end %>
+                    </td>
                 </tr>
               <% end %>
               </tbody>

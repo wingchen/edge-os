@@ -28,8 +28,6 @@ defmodule EdgeOsCloudWeb.LiveHelpers do
 
     ~H"""
     <div id="modal" class="alert alert-warning" role="alert">
-      <h4 class="alert-heading">Renmae Edge</h4>
-      <hr>
       <p class="mb-0">
         <%= render_slot(@inner_block) %>
       </p>

@@ -72,7 +72,7 @@ defmodule EdgeOsCloud.UserFromAuth do
 
   defp email_from_auth(auth) do
     if auth.info.email do
-      auth.info.email
+      String.downcase(auth.info.email)
     else
       raise "Cannot find user eamil from auth: #{inspect auth}"
     end

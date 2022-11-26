@@ -5,6 +5,8 @@ defmodule EdgeOsCloud.Accounts.Team do
   schema "teams" do
     field :admins, {:array, :integer}
     field :name, :string
+    field :members, {:array, :integer}
+    field :deleted, :boolean, default: false
 
     timestamps()
   end
@@ -12,7 +14,7 @@ defmodule EdgeOsCloud.Accounts.Team do
   @doc false
   def changeset(team, attrs) do
     team
-    |> cast(attrs, [:name, :admins])
-    |> validate_required([:name, :admins])
+    |> cast(attrs, [:name, :admins, :members, :deleted])
+    |> validate_required([:name, :admins, :members])
   end
 end

@@ -5,8 +5,13 @@ defmodule EdgeOsCloudWeb.UserLive.Index do
   alias EdgeOsCloud.Accounts.User
 
   @impl true
-  def mount(_params, _session, socket) do
-    {:ok, assign(socket, :users, list_users())}
+  def mount(_params, session, socket) do
+    user = Map.get(session, "current_user")
+    updated_socket = 
+      socket
+      |> assign(:users, list_users())
+      |> assign(:current_user, user)
+    {:ok, updated_socket}
   end
 
   @impl true

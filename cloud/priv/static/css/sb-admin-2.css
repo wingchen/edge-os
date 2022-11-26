@@ -1504,6 +1504,10 @@ pre code {
   border-top: 2px solid #e3e6f0;
 }
 
+.table span {
+  color: #FFFFFF;
+}
+
 .table-sm th,
 .table-sm td {
   padding: 0.3rem;

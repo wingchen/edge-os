@@ -9,6 +9,8 @@ defmodule EdgeOsCloud.Accounts do
   alias EdgeOsCloud.Accounts.User
   alias EdgeOsCloud.Accounts.UserAction
 
+  require Logger
+
   @doc """
   Returns the list of users.
 
@@ -47,6 +49,104 @@ defmodule EdgeOsCloud.Accounts do
       [user] -> {:ok, user}
       [] -> {:ok, nil}
       _ -> raise "more than 1 user with eamil #{email} is found"
+    end
+  end
+
+  def emails_to_user_ids(emails) do
+    query = from u in User,
+      where: u.email in ^emails,
+      select: u
+
+    # create a lookup table
+    email_id_map = Repo.all(query) |> Enum.map(fn u -> {u.email, u.id} end) |> Map.new(fn {k, v} -> {k, v} end)
+
+    # look up for ids
+    Enum.map(emails, fn e -> {e, email_id_map[e]} end) |> Map.new(fn {k, v} -> {k, v} end)
+  end
+
+  def get_user_names(id_list) do
+    cmds = Enum.map(id_list, fn i -> ["GET", "user_#{i}_name"] end)
+    {:ok, cached_results} = Redix.pipeline(Redis, cmds)
+
+    result_map = Enum.zip([id_list, cached_results])
+    |> Map.new(fn {k, v} -> {k, v} end)
+
+    Logger.debug("cached user names #{inspect result_map}")
+
+    not_cached_ids = Enum.filter(result_map, fn {_k, v} -> is_nil(v) end)
+    |> Enum.map(fn {k, _v} -> k end)
+    Logger.debug("not_cached_ids #{inspect not_cached_ids}")
+
+    if length(not_cached_ids) != 0 do
+      # query DB for the user names
+      query = from u in User,
+        where: u.id in ^not_cached_ids,
+        select: u
+
+      not_cached_id_users = Repo.all(query)
+      Logger.debug("not_cached_id_users #{inspect not_cached_id_users}")
+
+      # cache the result back
+      cache_cmds = Enum.map(not_cached_id_users, fn user -> ["SET", "user_#{user.id}_name", user.name, "EX", "3600"] end)
+      Logger.debug("cache_cmds #{inspect cache_cmds}")
+      {:ok, _} = Redix.pipeline(Redis, cache_cmds)
+
+      # update result_map with the db data
+      id_user_name_map = Enum.map(not_cached_id_users, fn user -> {user.id, user.name} end) |> Map.new(fn {k, v} -> {k, v} end)
+
+      result_map |> Enum.map(
+        fn {id, name} ->
+          if is_nil(name) do
+            Map.get(id_user_name_map, id)
+          else
+            name
+          end
+      end)
+    else
+      result_map |> Map.values()
+    end
+  end
+
+  def get_user_emails(id_list) do
+    cmds = Enum.map(id_list, fn i -> ["GET", "user_#{i}_email"] end)
+    {:ok, cached_results} = Redix.pipeline(Redis, cmds)
+
+    result_map = Enum.zip([id_list, cached_results])
+    |> Map.new(fn {k, v} -> {k, v} end)
+
+    Logger.debug("cached user emails #{inspect result_map}")
+
+    not_cached_ids = Enum.filter(result_map, fn {_k, v} -> is_nil(v) end)
+    |> Enum.map(fn {k, _v} -> k end)
+    Logger.debug("not_cached_ids #{inspect not_cached_ids}")
+
+    if length(not_cached_ids) != 0 do
+      # query DB for the user emails
+      query = from u in User,
+        where: u.id in ^not_cached_ids,
+        select: u
+
+      not_cached_id_users = Repo.all(query)
+      Logger.debug("not_cached_id_users #{inspect not_cached_id_users}")
+
+      # cache the result back
+      cache_cmds = Enum.map(not_cached_id_users, fn user -> ["SET", "user_#{user.id}_email", user.email] end)
+      Logger.debug("cache_cmds #{inspect cache_cmds}")
+      {:ok, _} = Redix.pipeline(Redis, cache_cmds)
+
+      # update result_map with the db data
+      id_user_email_map = Enum.map(not_cached_id_users, fn user -> {user.id, user.email} end) |> Map.new(fn {k, v} -> {k, v} end)
+
+      result_map |> Enum.map(
+        fn {id, email} ->
+          if is_nil(email) do
+            Map.get(id_user_email_map, id)
+          else
+            email
+          end
+      end)
+    else
+      result_map |> Map.values()
     end
   end
 
@@ -148,6 +248,15 @@ defmodule EdgeOsCloud.Accounts do
     Repo.all(Team)
   end
 
+  def list_teams_for_user(user_id) do
+    query = from t in Team,
+      where: t.deleted == false and (^user_id in t.admins or ^user_id in t.members),
+      order_by: [desc: t.inserted_at],
+      select: t
+
+    Repo.all(query)
+  end
+
   @doc """
   Gets a single team.
 
@@ -163,6 +272,7 @@ defmodule EdgeOsCloud.Accounts do
 
   """
   def get_team!(id), do: Repo.get!(Team, id)
+  def get_team(id), do: Repo.get(Team, id)
 
   @doc """
   Creates a team.
@@ -213,7 +323,7 @@ defmodule EdgeOsCloud.Accounts do
 
   """
   def delete_team(%Team{} = team) do
-    Repo.delete(team)
+    update_team(team, %{deleted: true})
   end
 
   @doc """

@@ -1,12 +1,18 @@
 defmodule EdgeOsCloudWeb.TeamLive.Index do
   use EdgeOsCloudWeb, :live_view
+  require Logger
 
   alias EdgeOsCloud.Accounts
   alias EdgeOsCloud.Accounts.Team
 
   @impl true
-  def mount(_params, _session, socket) do
-    {:ok, assign(socket, :teams, list_teams())}
+  def mount(_params, session, socket) do
+    user = Map.get(session, "current_user")
+    updated_socket = 
+      socket
+      |> assign(:teams, list_teams(user.id))
+      |> assign(:current_user, user)
+    {:ok, updated_socket}
   end
 
   @impl true
@@ -15,9 +21,13 @@ defmodule EdgeOsCloudWeb.TeamLive.Index do
   end
 
   defp apply_action(socket, :edit, %{"id" => id}) do
-    socket
-    |> assign(:page_title, "Edit Team")
-    |> assign(:team, Accounts.get_team!(id))
+    case Accounts.get_team(id) do
+      nil -> socket
+      team ->
+        socket
+        |> assign(:page_title, "Edit Team")
+        |> assign(:team, team)
+    end
   end
 
   defp apply_action(socket, :new, _params) do
@@ -34,13 +44,18 @@ defmodule EdgeOsCloudWeb.TeamLive.Index do
 
   @impl true
   def handle_event("delete", %{"id" => id}, socket) do
-    team = Accounts.get_team!(id)
-    {:ok, _} = Accounts.delete_team(team)
+    %{current_user: user} = socket.assigns
 
-    {:noreply, assign(socket, :teams, list_teams())}
+    case Accounts.get_team(id) do
+      nil -> raise "the team to be deleted does not exist"
+      team ->
+        {:ok, _} = Accounts.delete_team(team)
+    end
+
+    {:noreply, assign(socket, :teams, list_teams(user.id))}
   end
 
-  defp list_teams do
-    Accounts.list_teams()
+  defp list_teams(user_id) do
+    Accounts.list_teams_for_user(user_id)
   end
 end

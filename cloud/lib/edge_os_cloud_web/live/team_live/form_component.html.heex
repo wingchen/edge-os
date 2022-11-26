@@ -8,17 +8,29 @@
     phx-target={@myself}
     phx-change="validate"
     phx-submit="save">
-  
-    <%= label f, :name %>
-    <%= text_input f, :name %>
-    <%= error_tag f, :name %>
-  
-    <%= label f, :admins %>
-    <%= multiple_select f, :admins, ["1": 1, "2": 2] %>
-    <%= error_tag f, :admins %>
-  
-    <div>
-      <%= submit "Save", phx_disable_with: "Saving..." %>
+
+    <div class="form-group">
+      <label for="nameInput1">Name</label>
+      <%= text_input f, :name, class: "form-control", id: "nameInput1" %>
+      <%= error_tag f, :name %>
     </div>
+
+    <%= if @action == :edit do %>
+      <div class="form-group">
+        <label for="adminsInput1">Admins</label>
+        (use `,` as the separator between emails)
+        <%= textarea f, :admins, class: "form-control", id: "adminsInput1", 
+            value: EdgeOsCloudWeb.TeamLive.FormComponent.list_user_emails(@team.admins) %>
+      </div>
+    <%= end %>
+
+    <div class="form-group">
+      <label for="membersInput1">Members</label>
+      (use `,` as the separator between emails)
+      <%= textarea f, :members, class: "form-control", id: "membersInput1", 
+          value: EdgeOsCloudWeb.TeamLive.FormComponent.list_user_emails(@team.members) %>
+    </div>
+
+    <%= submit "Update", class: "btn-sm btn-primary", phx_disable_with: "Saving..." %>
   </.form>
 </div>

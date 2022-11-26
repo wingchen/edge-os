@@ -6,8 +6,13 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
   alias EdgeOsCloud.Device.Edge
 
   @impl true
-  def mount(_params, _session, socket) do
-    {:ok, assign(socket, :edges, list_edges())}
+  def mount(_params, session, socket) do
+    user = Map.get(session, "current_user")
+    updated_socket = 
+      socket
+      |> assign(:edges, list_edges())
+      |> assign(:current_user, user)
+    {:ok, updated_socket}
   end
 
   @impl true

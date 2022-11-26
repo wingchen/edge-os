@@ -32,6 +32,8 @@ defmodule EdgeOsCloudWeb.Router do
     live "/teams", TeamLive.Index, :index
     live "/teams/new", TeamLive.Index, :new
     live "/teams/:id/edit", TeamLive.Index, :edit
+    live "/teams/:id/admins", TeamLive.Index, :admins
+    live "/teams/:id/members", TeamLive.Index, :members
     live "/teams/:id", TeamLive.Show, :show
   end
 
