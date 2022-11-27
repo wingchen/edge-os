@@ -3,34 +3,23 @@ defmodule EdgeOsCloud.ETSocket do
   Websocket handler for Edge devices to connect in.
   """
   require Logger
-
-  # Tells the compiler we implement the `cowboy_websocket`
-  # behaviour. This will give warnings if our
-  # return types are notably incorrect or if we forget to implement a function.
-  # FUN FACT: when you `use MyAppWeb, :channel` in your normal Phoenix channel
-  #           implementations, this is done under the hood for you.
   @behaviour :cowboy_websocket
 
-  # entry point of the websocket socket. 
-  # WARNING: this is where you would need to do any authentication
-  #          and authorization. Since this handler is invoked BEFORE
-  #          our Phoenix router, it will NOT follow your pipelines defined there.
-  # 
-  # WARNING: this function is NOT called in the same process context as the rest of the functions
-  #          defined in this module. This is notably dissimilar to other gen_* behaviours.          
+  # entry point of the websocket socket.        
   @impl :cowboy_websocket
   def init(req, opts) do
     Logger.debug("init with #{inspect req} and #{inspect opts}")
+    # auth the edge connection and pass the edge identiy down to the state object
     {:cowboy_websocket, req, %{state_item: "here"}}
   end
 
   # as long as `init/2` returned `{:cowboy_websocket, req, opts}`
   # this function will be called. You can begin sending packets at this point.
-  # We'll look at how to do that in the `websocket_handle` function however.
-  # This function is where you might want to  implement `Phoenix.Presence`, schedule an `after_join` message etc.
   @impl :cowboy_websocket
   def websocket_init(state) do
     Logger.debug("websocket_init with #{inspect state}")
+    # mark the edge as connected
+    # also register to the process register so that other places can send messages to edges
     {[], state}
   end
 
@@ -50,15 +39,11 @@ defmodule EdgeOsCloud.ETSocket do
   @impl :cowboy_websocket
   def websocket_handle(frame, state)
 
-  # :ping is not handled for us like in Phoenix Channels. 
-  # We must explicitly send :pong messages back. 
   def websocket_handle(:ping, state) do
     Logger.debug("getting a ping from client, ponging back")
     {[:pong], state}
   end
 
-  # a message was delivered from a client. Here we handle it by just echoing it back
-  # to the client.
   def websocket_handle({:text, message}, state) do
     Logger.debug("getting message #{message} from client")
     {[{:text, message}], state}
@@ -83,6 +68,7 @@ defmodule EdgeOsCloud.ETSocket do
   def terminate(reason, req, state)
 
   def terminate(reason, req, state) do
+    # mark the edge as disconnected
     Logger.debug("terminating websocket with #{inspect reason}: #{inspect req}: #{inspect state}")
     :ok
   end
