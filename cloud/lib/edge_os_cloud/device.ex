@@ -7,6 +7,7 @@ defmodule EdgeOsCloud.Device do
   alias EdgeOsCloud.Repo
 
   alias EdgeOsCloud.Device.Edge
+  alias EdgeOsCloud.Accounts.Team
 
   @doc """
   Returns the list of edges.
@@ -26,14 +27,17 @@ defmodule EdgeOsCloud.Device do
 
   ## Examples
 
-      iex> list_activ_account_edges()
+      iex> list_active_account_edges(user.id)
       [%Edge{}, ...]
 
   """
-  def list_activ_account_edges do
+  def list_active_account_edges(user_id) do
     query = from e in Edge,
-          where: e.deleted == false,
-          order_by: [desc: e.inserted_at],
+          join: t in Team,
+          on: ^user_id in t.admins or ^user_id in t.members,
+          where: e.deleted == false and t.deleted == false,
+          preload: [team: t],
+          order_by: [desc: t.inserted_at],
           select: e
 
     Repo.all(query)

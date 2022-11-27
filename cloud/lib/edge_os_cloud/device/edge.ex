@@ -7,6 +7,7 @@ defmodule EdgeOsCloud.Device.Edge do
     field :name, :string
     field :status, :boolean
     field :deleted, :boolean, default: false
+    belongs_to :team, EdgeOsCloud.Accounts.Team
 
     timestamps()
   end
@@ -14,7 +15,7 @@ defmodule EdgeOsCloud.Device.Edge do
   @doc false
   def changeset(edge, attrs) do
     edge
-    |> cast(attrs, [:name, :ip, :status, :deleted])
-    |> validate_required([:name, :ip, :status])
+    |> cast(attrs, [:name, :ip, :status, :deleted, :team])
+    |> validate_required([:name, :ip, :status, :team])
   end
 end

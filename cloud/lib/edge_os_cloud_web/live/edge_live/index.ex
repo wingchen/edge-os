@@ -10,7 +10,7 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
     user = Map.get(session, "current_user")
     updated_socket = 
       socket
-      |> assign(:edges, list_edges())
+      |> assign(:edges, list_edges(user.id))
       |> assign(:current_user, user)
     {:ok, updated_socket}
   end
@@ -45,10 +45,12 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
     Logger.debug("deleting edge #{inspect id}")
     edge = Device.get_edge!(id)
     {:ok, _} = Device.delete_edge(edge)
-    {:noreply, assign(socket, :edges, list_edges())}
+
+    %{current_user: user} = socket.assigns
+    {:noreply, assign(socket, :edges, list_edges(user.id))}
   end
 
-  defp list_edges do
-    Device.list_activ_account_edges()
+  defp list_edges(user_id) do
+    Device.list_active_account_edges(user_id)
   end
 end

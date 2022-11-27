@@ -8,8 +8,10 @@ defmodule EdgeOsCloudWeb.PageController do
         conn
         |> redirect(to: "/login")
 
-      _user ->
-        render(conn, "index.html")
+      user ->
+        conn
+        |> assign(:current_user, user)
+        |> render("index.html")
     end
   end
 

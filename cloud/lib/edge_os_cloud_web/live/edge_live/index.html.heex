@@ -75,6 +75,7 @@
                 <thead>
                     <tr>
                         <th>Name</th>
+                        <th>Team</th>
                         <th>IPv4</th>
                         <th>Status</th>
                         <th>Status Since</th>
@@ -85,6 +86,7 @@
                 <tfoot>
                     <tr>
                         <th>Name</th>
+                        <th>Team</th>
                         <th>IPv4</th>
                         <th>Status</th>
                         <th>Status Since</th>
@@ -96,6 +98,7 @@
                     <%= for edge <- @edges do %>
                     <tr>
                         <td><%= edge.name %></td>
+                        <td><%= edge.team.name %></td>
                         <td><%= edge.ip %></td>
 
                         <%= if edge.status do %>
