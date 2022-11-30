@@ -22,7 +22,7 @@ I will gradually add in code when I am not working on my day job.
 # Language Used
 
 - `server`: elixir, because I like the OTA from erlang
-- `edge`: go or rust, probably going with `rust` first, because I like it better
+- `edge`: rust, because I wanna learn it
 
 # License
 

@@ -275,6 +275,17 @@ defmodule EdgeOsCloud.Accounts do
   def get_team(id), do: Repo.get(Team, id)
 
   @doc """
+  Gets the encrypted id hash from the team.
+  We pass this hash to edge through command line when the edge instance is being create.
+  And then when the edge is connecting back to the cloud, it provides this hash to the cloud to
+  tell the cloud what team this edge belongs to.
+  """
+  def get_team_id_hash(id) do
+    team = get_team!(id)
+    EdgeOsCloud.HashIdHelper.encode(team.id, EdgeOsCloud.System.get_setting!("id_hash_salt"))
+  end
+
+  @doc """
   Creates a team.
 
   ## Examples

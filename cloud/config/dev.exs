@@ -19,7 +19,8 @@ config :edge_os_cloud, EdgeOsCloud.Repo,
 # with esbuild to bundle .js and .css sources.
 dispatch = [
   _: [
-    {"/et", EdgeOsCloud.ETSocket, []},
+    {"/et", EdgeOsCloud.Sockets.ETSocket, []},
+    {"/ssh", EdgeOsCloud.Sockets.SSHSocketEdge, []},
     {:_, Phoenix.Endpoint.Cowboy2Handler, {EdgeOsCloudWeb.Endpoint, []}}
   ]
 ]

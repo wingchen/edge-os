@@ -7,6 +7,7 @@ defmodule EdgeOsCloud.Device do
   alias EdgeOsCloud.Repo
 
   alias EdgeOsCloud.Device.Edge
+  alias EdgeOsCloud.Device.EdgeSession
   alias EdgeOsCloud.Accounts.Team
 
   @doc """
@@ -59,6 +60,17 @@ defmodule EdgeOsCloud.Device do
   """
   def get_edge!(id), do: Repo.get!(Edge, id)
 
+  def get_with_uuid!(uuid) do
+    query = from e in Edge,
+          where: e.uuid == ^uuid,
+          select: e
+
+    [edge] = Repo.all(query)
+    edge
+  end
+
+  def get_edge_session!(id), do: Repo.get!(EdgeSession, id)
+
   @doc """
   Creates a edge.
 
@@ -77,6 +89,12 @@ defmodule EdgeOsCloud.Device do
     |> Repo.insert()
   end
 
+  def create_edge_session(attrs \\ %{}) do
+    %EdgeSession{}
+    |> EdgeSession.changeset(attrs)
+    |> Repo.insert()
+  end
+
   @doc """
   Updates a edge.
 
@@ -92,6 +110,12 @@ defmodule EdgeOsCloud.Device do
   def update_edge(%Edge{} = edge, attrs) do
     edge
     |> Edge.changeset(attrs)
+    |> Repo.update()
+  end
+
+  def update_edge_session(%EdgeSession{} = session, attrs) do
+    session
+    |> EdgeSession.changeset(attrs)
     |> Repo.update()
   end
 

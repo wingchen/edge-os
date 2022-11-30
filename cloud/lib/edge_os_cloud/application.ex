@@ -21,6 +21,11 @@ defmodule EdgeOsCloud.Application do
 
       # Start the connection to redis
       {Redix, {Application.get_env(:redix, :uri), [name: Redis]}},
+
+      # Start the ssh processes registry
+      {Registry, name: EdgeOsCloud.SSHRegistry, keys: :unique},
+
+      EdgeOsCloud.Sockets.SSHSocketServer,
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html

@@ -1,4 +1,4 @@
-defmodule EdgeOsCloud.ETSocket do
+defmodule EdgeOsCloud.Sockets.ETSocket do
   @moduledoc """
   Websocket handler for Edge devices to connect in.
   """
@@ -46,7 +46,16 @@ defmodule EdgeOsCloud.ETSocket do
 
   def websocket_handle({:text, message}, state) do
     Logger.debug("getting message #{message} from client")
+    handel_message(String.split(message, " "))
     {[{:text, message}], state}
+  end
+
+  def handel_message(["ET_CONNECT", _edge_uuid, team_hash]) do
+    _team = EdgeOsCloud.HashIdHelper.decode(team_hash, EdgeOsCloud.System.get_setting!("id_hash_salt"))
+           |> EdgeOsCloud.Accounts.get_team!()
+
+    # check if edge is in team, add it in if not
+
   end
 
   # This function is where we will process all *other* messages that get delivered to the

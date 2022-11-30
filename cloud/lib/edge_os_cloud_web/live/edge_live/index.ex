@@ -50,6 +50,19 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
     {:noreply, assign(socket, :edges, list_edges(user.id))}
   end
 
+  @impl true
+  def handle_event("ssh", %{"id" => id}, socket) do
+    Logger.debug("ssh to edge #{inspect id}")
+    _edge = Device.get_edge!(id)
+
+    # Logger.debug("before ssh server")
+    # {:ok, pid} = GenServer.start_link(EdgeOsCloud.Sockets.SSHSocketServer, [3351])
+    # Logger.debug("ssh server pid #{inspect pid}")
+
+    %{current_user: user} = socket.assigns
+    {:noreply, assign(socket, :edges, list_edges(user.id))}
+  end
+
   defp list_edges(user_id) do
     Device.list_active_account_edges(user_id)
   end

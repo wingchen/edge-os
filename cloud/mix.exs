@@ -54,6 +54,12 @@ defmodule EdgeOsCloud.MixProject do
       {:jason, "~> 1.2"},
       {:plug_cowboy, "~> 2.5"},
 
+      # edge id
+      {:hashids, "~> 2.0"},
+
+      # uuid
+      { :uuid, "~> 1.1" },
+
       # time utils
       {:timex, "~> 3.7"},
 
