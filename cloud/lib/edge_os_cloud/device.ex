@@ -8,6 +8,7 @@ defmodule EdgeOsCloud.Device do
 
   alias EdgeOsCloud.Device.Edge
   alias EdgeOsCloud.Device.EdgeSession
+  alias EdgeOsCloud.Device.EdgeActivity
   alias EdgeOsCloud.Accounts.Team
 
   @doc """
@@ -60,13 +61,23 @@ defmodule EdgeOsCloud.Device do
   """
   def get_edge!(id), do: Repo.get!(Edge, id)
 
-  def get_with_uuid!(uuid) do
+  def get_edge_with_uuid(uuid) do
     query = from e in Edge,
           where: e.uuid == ^uuid,
           select: e
 
-    [edge] = Repo.all(query)
-    edge
+    case Repo.all(query) do
+      [edge] -> {:ok, edge}
+      [] -> {:ok, nil}
+      _ -> raise "error getting edge with uuid #{uuid}"
+    end
+  end
+
+  def get_edge_with_uuid!(uuid) do
+    case get_edge_with_uuid(uuid) do
+      {:ok, edge} -> edge
+      _ -> raise "cannot get edge with uuid: #{uuid}"
+    end
   end
 
   def get_edge_session!(id), do: Repo.get!(EdgeSession, id)
@@ -92,6 +103,12 @@ defmodule EdgeOsCloud.Device do
   def create_edge_session(attrs \\ %{}) do
     %EdgeSession{}
     |> EdgeSession.changeset(attrs)
+    |> Repo.insert()
+  end
+
+  def create_edge_activity(attrs \\ %{}) do
+    %EdgeActivity{}
+    |> EdgeActivity.changeset(attrs)
     |> Repo.insert()
   end
 

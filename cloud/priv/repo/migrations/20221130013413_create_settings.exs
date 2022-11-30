@@ -10,8 +10,5 @@ defmodule EdgeOsCloud.Repo.Migrations.CreateSettings do
     end
 
     create index(:settings, [:key])
-
-    # generate a default salt for system ids
-    EdgeOsCloud.System.get_setting("id_hash_salt")
   end
 end

@@ -1,6 +1,9 @@
 defmodule EdgeOsCloud.Sockets.ETSocket do
   @moduledoc """
   Websocket handler for Edge devices to connect in.
+
+  Here comes a sample connection from edge:
+  wss://edgeos.sailoi.com/et?uuid=<edge_uuid>&team_hash=<team_hash>&password=<edge_password>
   """
   require Logger
   @behaviour :cowboy_websocket
@@ -9,8 +12,37 @@ defmodule EdgeOsCloud.Sockets.ETSocket do
   @impl :cowboy_websocket
   def init(req, opts) do
     Logger.debug("init with #{inspect req} and #{inspect opts}")
-    # auth the edge connection and pass the edge identiy down to the state object
-    {:cowboy_websocket, req, %{state_item: "here"}}
+    query = URI.query_decoder(req.qs) |> Enum.to_list() |> Map.new(fn {k, v} -> {k, v} end)
+
+    # if there is no team or there is decoding error, we will error out and disconnect
+    # team_hash serves as some sort of password for the edge
+    team = EdgeOsCloud.HashIdHelper.decode(query["team_hash"], EdgeOsCloud.System.get_setting!("id_hash_salt"))
+           |> EdgeOsCloud.Accounts.get_team!()
+
+    edge = case EdgeOsCloud.Device.get_edge_with_uuid(query["uuid"]) do
+      {:ok, nil} -> 
+        {:ok, edge} = EdgeOsCloud.Device.create_edge(%{
+          ip: EdgeOsCloud.RemoteIp.get_websocket(req),
+          name: "edge-#{String.slice(query["uuid"], 0..10)}",
+          salt: UUID.uuid4(),
+          password: query["password"],
+          team_id: team.id,
+          uuid: query["uuid"],
+          status: true,
+        })
+        edge
+
+      {:ok, edge} -> 
+        if edge.password != query["password"] do
+          raise "cannot auth edge uuid #{query["uuid"]}"
+        end
+
+        {:ok, edge} = EdgeOsCloud.Device.update_edge(edge, %{status: true})
+        edge
+    end
+
+    {:ok, _} = EdgeOsCloud.Device.create_edge_activity(%{edge_id: edge.id, activity: "connected"})
+    {:cowboy_websocket, req, %{team: team, edge: edge}}
   end
 
   # as long as `init/2` returned `{:cowboy_websocket, req, opts}`
@@ -50,12 +82,8 @@ defmodule EdgeOsCloud.Sockets.ETSocket do
     {[{:text, message}], state}
   end
 
-  def handel_message(["ET_CONNECT", _edge_uuid, team_hash]) do
-    _team = EdgeOsCloud.HashIdHelper.decode(team_hash, EdgeOsCloud.System.get_setting!("id_hash_salt"))
-           |> EdgeOsCloud.Accounts.get_team!()
-
-    # check if edge is in team, add it in if not
-
+  def handel_message(param_list) do
+    Logger.debug("param_list #{inspect param_list}") 
   end
 
   # This function is where we will process all *other* messages that get delivered to the
@@ -76,9 +104,13 @@ defmodule EdgeOsCloud.Sockets.ETSocket do
   @impl :cowboy_websocket
   def terminate(reason, req, state)
 
-  def terminate(reason, req, state) do
-    # mark the edge as disconnected
-    Logger.debug("terminating websocket with #{inspect reason}: #{inspect req}: #{inspect state}")
+  def terminate(reason, _req, %{edge: edge}) do
+    EdgeOsCloud.Device.update_edge(edge, %{status: false})
+    {:ok, _} = EdgeOsCloud.Device.create_edge_activity(%{edge_id: edge.id, activity: "disconnected", meta: "#{inspect reason}"})
     :ok
+  end
+
+  def terminate(reason, req, state) do
+    Logger.info("terminating websocket with #{inspect reason}: #{inspect req}: #{inspect state}")
   end
 end

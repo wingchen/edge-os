@@ -15,9 +15,6 @@ defmodule EdgeOsCloudWeb.TeamLive.FormComponent do
 
   @impl true
   def handle_event("validate", %{"team" => team_params}, socket) do
-    # replace the members and admins into team_params too
-    team_params = fill_in_user_as_admin_member_if_empty(socket, team_params)
-
     changeset =
       socket.assigns.team
       |> Accounts.change_team(team_params)
@@ -76,14 +73,14 @@ defmodule EdgeOsCloudWeb.TeamLive.FormComponent do
     %{current_user: user} = socket.assigns
 
     # add user admin id in if there is no value there
-    team_params = if is_list(team_params["admins"]) and (is_nil(team_params["admins"]) or length(team_params["admins"]) == 0) do
+    team_params = if (is_list(team_params["admins"]) and length(team_params["admins"])) == 0 or is_nil(team_params["admins"]) do
       Map.put(team_params, "admins", [user.id])
     else
       team_params
     end
 
     # add user member id in if there is no value there
-    team_params = if is_list(team_params["members"]) and (is_nil(team_params["members"]) or length(team_params["members"]) == 0) do
+    team_params = if (is_list(team_params["members"]) and length(team_params["members"])) == 0 or is_nil(team_params["members"]) do
       Map.put(team_params, "members", [user.id])
     else
       team_params

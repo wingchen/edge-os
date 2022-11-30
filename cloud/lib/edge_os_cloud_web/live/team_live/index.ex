@@ -24,6 +24,8 @@ defmodule EdgeOsCloudWeb.TeamLive.Index do
     case Accounts.get_team(id) do
       nil -> socket
       team ->
+        Logger.warn("team_hash for debugging ws #{EdgeOsCloud.HashIdHelper.encode(team.id, EdgeOsCloud.System.get_setting!("id_hash_salt"))}")
+
         socket
         |> assign(:page_title, "Edit Team")
         |> assign(:team, team)
