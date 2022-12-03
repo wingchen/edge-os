@@ -46,11 +46,11 @@ pub async fn get_websocat(local_working_dir : String) {
    }
 }
 
-pub fn get_device_id(local_working_dir : String) -> String {
-   let id_path = format!("{}/device_id", local_working_dir);
-   debug!("looking for existing id at: {id_path}");
+fn get_or_create_config_content(local_working_dir : String, path : String) -> String {
+   let content_path = format!("{}/{}", local_working_dir, path);
+   debug!("looking for existing content at: {content_path}");
 
-   let (device_id, is_new) = match fs::read_to_string(id_path.clone()) {
+   let (content, is_new) = match fs::read_to_string(content_path.clone()) {
       Ok(id) => (id, false),
       Err(_error) => (Uuid::new_v4().to_string(), true),
    };
@@ -58,10 +58,18 @@ pub fn get_device_id(local_working_dir : String) -> String {
    if is_new {
       // create the file for a new device
       fs::create_dir_all(local_working_dir).unwrap_or_else(|e| panic!("Error creating dir: {}", e));
-      fs::write(id_path, device_id.clone()).unwrap_or_else(|e| panic!("Error writing id file: {}", e));
+      fs::write(content_path, content.clone()).unwrap_or_else(|e| panic!("Error writing id file: {}", e));
    }
 
-   return device_id;
+   return content;
+}
+
+pub fn get_device_id(local_working_dir : String) -> String {
+   return get_or_create_config_content(local_working_dir, "/device_id".to_string());
+}
+
+pub fn get_device_password(local_working_dir : String) -> String {
+   return get_or_create_config_content(local_working_dir, "/device_password".to_string());
 }
 
 #[cfg(test)]
