@@ -40,6 +40,10 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
     |> assign(:edge, nil)
   end
 
+  def get_topic(edge_id) do
+    "et_edge_id_#{edge_id}_to_edge"
+  end
+
   @impl true
   def handle_event("delete", %{"id" => id}, socket) do
     Logger.debug("deleting edge #{inspect id}")
@@ -53,13 +57,29 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
   @impl true
   def handle_event("ssh", %{"id" => id}, socket) do
     Logger.debug("ssh to edge #{inspect id}")
-    _edge = Device.get_edge!(id)
-
-    # Logger.debug("before ssh server")
-    # {:ok, pid} = GenServer.start_link(EdgeOsCloud.Sockets.SSHSocketServer, [3351])
-    # Logger.debug("ssh server pid #{inspect pid}")
-
+    edge = Device.get_edge!(id)
     %{current_user: user} = socket.assigns
+
+    Logger.debug("handle_event .whereis #{inspect Process.whereis(String.to_atom(get_topic(edge.id)))}")
+    send(Process.whereis(String.to_atom(get_topic(edge.id))), "hello world")
+
+    # case :syn.lookup(:edges, websocket_pid_str) do
+    #   :undefined ->
+    #     Logger.error("cannot find the pid for websocket process for edge #{inspect websocket_pid_str}")
+    #     Logger.error("index registered #{inspect :syn.registry_count(:edges)}")
+
+    #   {websocket_pid, :undefined} ->
+    #     {:ok, _session} = Device.create_edge_session(%{
+    #       edge_id: edge.id,
+    #       user_id: user.id,
+    #       host: "127.0.0.1",
+    #       port: 123123,
+    #     })
+
+    #     Logger.error("commading to edge #{edge.id} for ssh")
+    #     send websocket_pid, {:ok, "time for ssh"}
+    # end
+
     {:noreply, assign(socket, :edges, list_edges(user.id))}
   end
 

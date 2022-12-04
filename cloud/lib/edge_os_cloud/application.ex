@@ -13,7 +13,7 @@ defmodule EdgeOsCloud.Application do
       # Start the Telemetry supervisor
       EdgeOsCloudWeb.Telemetry,
       # Start the PubSub system
-      {Phoenix.PubSub, name: EdgeOsCloud.PubSub},
+      {Phoenix.PubSub, name: EdgeOsCloud.PubSub, adapter: Phoenix.PubSub.PG2},
       # Start the Endpoint (http/https)
       EdgeOsCloudWeb.Endpoint,
       # Start a worker by calling: EdgeOsCloud.Worker.start_link(arg)
@@ -21,11 +21,6 @@ defmodule EdgeOsCloud.Application do
 
       # Start the connection to redis
       {Redix, {Application.get_env(:redix, :uri), [name: Redis]}},
-
-      # Start the ssh processes registry
-      {Registry, name: EdgeOsCloud.SSHRegistry, keys: :unique},
-
-      EdgeOsCloud.Sockets.SSHSocketServer,
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html

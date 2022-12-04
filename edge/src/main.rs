@@ -33,8 +33,8 @@ async fn main() {
     };
 
     let cloud_server_url = match env::var("EDGE_OS_CLOUD_URL") {
-        Ok(cloud_url) => format!("{}/et?team_hash={}&uuid={}&password={}", cloud_url, team_hash, uuid, password),
-        Err(_e) => format!("ws://localhost:4000/et?team_hash={}&uuid={}&password={}", team_hash, uuid, password),
+        Ok(cloud_url) => format!("{}/et/{}/{}/{}/websocket", cloud_url, team_hash, uuid, password),
+        Err(_e) => format!("ws://localhost:4000/et/{}/{}/{}/websocket", team_hash, uuid, password),
     };
 
     info!("Connecting to: {cloud_server_url}");
@@ -73,7 +73,7 @@ async fn main() {
                     error!("websocat_process is not running, nothing to stop");
                 }
             } else if data_str == "" {
-                // do nothing, it's a ping/pong message
+                // debug!("websocat getting pong back");
             } else {
                 warn!("unknown message: {}", data_str);
             }

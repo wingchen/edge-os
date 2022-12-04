@@ -15,7 +15,7 @@ defmodule EdgeOsCloud.Sockets.SSHSocketServer do
     session_id = Keyword.get(ops, :session_id, 0)
     Logger.info("starting ssh servers at #{inspect session_port}")
 
-    {:ok, _} = Registry.register(EdgeOsCloud.SSHRegistry, get_pid(session_id), session_id)
+    # true = Process.register(self(), get_pid(session_id))
     GenServer.start_link(__MODULE__, [session_port, session_id], [])
   end
 

@@ -13,9 +13,9 @@ defmodule EdgeOsCloud.RemoteIp do
     end
   end
 
-  def get_websocket(request) do
-    if request.peer do
-      case request.peer do
+  def get_from_peer(peer) do
+    if peer do
+      case peer do
         {{one, two, three, four}, port} -> "#{one}.#{two}.#{three}.#{four}:#{port}"
         others ->
           Logger.warn("cannot get remote ip address from websocket connection: #{inspect others}")
