@@ -136,6 +136,15 @@ defmodule EdgeOsCloud.Device do
     |> Repo.update()
   end
 
+  def append_edge_session_action(session_id, action) do
+    {1, _} = from(es in EdgeSession, where: es.id == ^session_id, update: [push: [actions: ^action]])
+    |> Repo.update_all([])
+  end
+
+  def get_session_id_hash(edge, session_id) do
+    EdgeOsCloud.HashIdHelper.encode(session_id, edge.salt)
+  end
+
   @doc """
   Deletes a edge.
 

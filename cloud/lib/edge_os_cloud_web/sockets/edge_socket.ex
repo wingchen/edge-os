@@ -21,11 +21,6 @@ defmodule EdgeOsCloud.Sockets.EdgeSocket do
     {:ok, %{team_hash: team_hash, uuid: uuid, password: password, connect_info: connect_info}}
   end
 
-  def connect(state) do
-    Logger.debug("simple connection with #{inspect state}")
-    {:ok, %{}}
-  end
-
   def init(%{team_hash: team_hash, uuid: uuid, password: password, connect_info: connect_info}) do
   	# if there is no team or there is decoding error, we will error out and disconnect
     # team_hash serves as some sort of password for the edge
@@ -68,8 +63,8 @@ defmodule EdgeOsCloud.Sockets.EdgeSocket do
     {:ok, state}
   end
 
-  def handle_info(message, state) do
-  	Logger.info("aaff #{inspect message} handle_info #{inspect state}")
+  def handle_info(message, %{edge: edge} = state) do
+  	Logger.info("sending edge: #{edge.id} with message: #{inspect message}")
     {:push, {:text, message}, state}
   end
 

@@ -5,10 +5,10 @@ defmodule EdgeOsCloud.Device.EdgeSession do
   schema "edge_sessions" do
     belongs_to :edge, EdgeOsCloud.Device.Edge
     belongs_to :user, EdgeOsCloud.Accounts.User
-    field :stage, :integer
     field :reason, :string
     field :host, :string
     field :port, :integer
+    field :actions, {:array, :integer}
 
     timestamps()
   end
@@ -16,7 +16,7 @@ defmodule EdgeOsCloud.Device.EdgeSession do
   @doc false
   def changeset(edge_session, attrs) do
     edge_session
-    |> cast(attrs, [:edge_id, :user_id, :stage, :reason, :host, :port])
+    |> cast(attrs, [:edge_id, :user_id, :actions, :reason, :host, :port])
     |> validate_required([:edge_id, :user_id, :host, :port])
   end
 end

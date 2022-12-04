@@ -60,25 +60,24 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
     edge = Device.get_edge!(id)
     %{current_user: user} = socket.assigns
 
-    Logger.debug("handle_event .whereis #{inspect Process.whereis(String.to_atom(get_topic(edge.id)))}")
-    send(Process.whereis(String.to_atom(get_topic(edge.id))), "hello world")
+    websocket_pid_atom = String.to_atom(get_topic(edge.id))
 
-    # case :syn.lookup(:edges, websocket_pid_str) do
-    #   :undefined ->
-    #     Logger.error("cannot find the pid for websocket process for edge #{inspect websocket_pid_str}")
-    #     Logger.error("index registered #{inspect :syn.registry_count(:edges)}")
+    case Process.whereis(websocket_pid_atom) do
+      nil ->
+        Logger.error("cannot find the pid for websocket process for edge #{inspect websocket_pid_atom}")
 
-    #   {websocket_pid, :undefined} ->
-    #     {:ok, _session} = Device.create_edge_session(%{
-    #       edge_id: edge.id,
-    #       user_id: user.id,
-    #       host: "127.0.0.1",
-    #       port: 123123,
-    #     })
+      websocket_pid ->
+        {:ok, session} = Device.create_edge_session(%{
+          edge_id: edge.id,
+          user_id: user.id,
+          host: "127.0.0.1",
+          port: 123123,
+        })
 
-    #     Logger.error("commading to edge #{edge.id} for ssh")
-    #     send websocket_pid, {:ok, "time for ssh"}
-    # end
+        cmd = "SSH #{Device.get_session_id_hash(edge, session.id)} #{}"
+        Logger.info("commading to edge #{edge.id} with command #{cmd}")
+        send(websocket_pid, cmd)
+    end
 
     {:noreply, assign(socket, :edges, list_edges(user.id))}
   end
