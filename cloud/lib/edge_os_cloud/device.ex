@@ -145,6 +145,10 @@ defmodule EdgeOsCloud.Device do
     EdgeOsCloud.HashIdHelper.encode(session_id, edge.salt)
   end
 
+  def get_session_id_from_hash(edge, session_hash) do
+    EdgeOsCloud.HashIdHelper.decode(session_hash, edge.salt)
+  end
+
   @doc """
   Deletes a edge.
 

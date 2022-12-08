@@ -74,7 +74,7 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
           port: 123123,
         })
 
-        cmd = "SSH #{Device.get_session_id_hash(edge, session.id)} #{}"
+        cmd = "SSH #{Device.get_session_id_hash(edge, session.id)}"
         Logger.info("commading to edge #{edge.id} with command #{cmd}")
         send(websocket_pid, cmd)
     end

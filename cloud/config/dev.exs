@@ -15,7 +15,7 @@ config :edge_os_cloud, EdgeOsCloudWeb.Endpoint,
   # Binding to loopback ipv4 address prevents access from other machines.
   # Change to `ip: {0, 0, 0, 0}` to allow access from other machines.
   http: [
-    ip: {127, 0, 0, 1}, 
+    ip: {0, 0, 0, 0},
     port: 4000,
   ],
   check_origin: false,
@@ -63,7 +63,7 @@ config :edge_os_cloud, EdgeOsCloudWeb.Endpoint,
   ]
 
 config :redix,
-  uri: "redis://:redispassword@localhost:6379/0"
+  uri: "redis://:redispassword@localhost:7777/0"
 
 # Do not include metadata nor timestamps in development logs
 config :logger, :console, format: "[$level] $message\n"

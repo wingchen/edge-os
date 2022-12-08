@@ -15,7 +15,7 @@ config :edge_os_cloud, EdgeOsCloud.Repo,
   pool_size: 10
 
 config :redix,
-  uri: "redis://:redispassword@localhost:6379/0"
+  uri: "redis://:redispassword@localhost:7777/0"
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.

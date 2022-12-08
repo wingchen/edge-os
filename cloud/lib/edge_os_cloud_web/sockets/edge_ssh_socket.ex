@@ -16,17 +16,17 @@ defmodule EdgeOsCloud.Sockets.EdgeSSHSocket do
 
   def connect(
     %{
-      params: %{"ssh_token" => ssh_token, "uuid" => uuid},
+      params: %{"session_id" => session_id, "uuid" => uuid},
       connect_info: connect_info,
     } = state) do
 
     Logger.debug("new edge connection with #{inspect state}")
-    {:ok, %{ssh_token: ssh_token, uuid: uuid, connect_info: connect_info}}
+    {:ok, %{session_id: session_id, uuid: uuid, connect_info: connect_info}}
   end
 
-  def init(%{ssh_token: ssh_token, uuid: uuid, connect_info: _connect_info}) do
+  def init(%{session_id: session_id, uuid: uuid, connect_info: _connect_info}) do
     edge = EdgeOsCloud.Device.get_edge_with_uuid!(uuid)
-    session = EdgeOsCloud.HashIdHelper.decode(ssh_token, edge.salt)
+    session = EdgeOsCloud.HashIdHelper.decode(session_id, edge.salt)
           |> EdgeOsCloud.Device.get_edge_session!()
 
     if session.edge_id == edge.id do

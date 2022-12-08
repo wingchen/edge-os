@@ -1,8 +1,9 @@
-use log::{debug, info, error, warn};
+use log::{debug, info, warn, error};
 use std::env;
 use url;
 use std::process::Command;
 use std::process::Child;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::{thread, time};
 use futures_util::{future, pin_mut, StreamExt};
@@ -32,12 +33,14 @@ async fn main() {
         Err(_e) => "Q6rL8ENP9lYV97wzpxKGR2ybZ".to_string(),
     };
 
-    let cloud_server_url = match env::var("EDGE_OS_CLOUD_URL") {
-        Ok(cloud_url) => format!("{}/et/{}/{}/{}/websocket", cloud_url, team_hash, uuid, password),
-        Err(_e) => format!("ws://localhost:4000/et/{}/{}/{}/websocket", team_hash, uuid, password),
+    let cloud = match env::var("EDGE_OS_CLOUD_URL") {
+        Ok(cloud_url) => cloud_url,
+        Err(_e) => "ws://localhost:4000".to_string(),
     };
 
+    let cloud_server_url = format!("{}/et/{}/{}/{}/websocket", cloud, team_hash, uuid, password);
     info!("Connecting to: {cloud_server_url}");
+
     let url = url::Url::parse(&cloud_server_url).unwrap();
     let (stdin_tx, stdin_rx) = futures_channel::mpsc::unbounded();
     tokio::spawn(start_pinging(stdin_tx));
@@ -56,26 +59,29 @@ async fn main() {
             let the_websocat_process = Arc::clone(&websocat_process);
             let mut websocat_process_lock = the_websocat_process.lock().await;
 
-            let data_str = message.unwrap().to_string();
+            let command_str = message.unwrap().to_string();
+            let command_split: Vec<&str> = command_str.split_whitespace().collect();
 
-            if data_str == "START_SSH" {
-                if websocat_process_lock.is_some() {
-                    error!("websocat_process is already running, ignoring the command");
-                } else {
-                    *websocat_process_lock = create_websocat_process(local_working_dir.clone());
-                    debug!("websocat_process created at: {}", data_str);
-                }
-            } else if data_str == "STOP_SSH" {
-                if websocat_process_lock.is_some() {
-                    websocat_process_lock.as_mut().unwrap().kill().expect("failed to kill websocat, leaving it hanging");
-                    *websocat_process_lock = None;
-                } else {
-                    error!("websocat_process is not running, nothing to stop");
-                }
-            } else if data_str == "" {
-                // debug!("websocat getting pong back");
-            } else {
-                warn!("unknown message: {}", data_str);
+            match &command_split[..] {
+                [""] => debug!("websocat getting pong back"),
+                ["SSH", session_id] => {
+                    if websocat_process_lock.is_some() {
+                        error!("websocat_process is already running, ignoring the command");
+                    } else {
+                        *websocat_process_lock = create_websocat_process(cloud.clone(), local_working_dir.clone(), uuid.clone(), session_id.to_string());
+                        info!("websocat_process created at: {}", command_str);
+                    }
+                },
+                ["STOP_SSH", session_id] => {
+                    if websocat_process_lock.is_some() {
+                        websocat_process_lock.as_mut().unwrap().kill().expect("failed to kill websocat, leaving it hanging");
+                        *websocat_process_lock = None;
+                        info!("websocat_process stopped at: {}", command_str);
+                    } else {
+                        error!("websocat_process is not running, nothing to stop");
+                    }
+                },
+                _ => warn!("unknown message: {}", command_str),
             }
         })
     };
@@ -111,14 +117,16 @@ async fn read_stdin(tx: futures_channel::mpsc::UnboundedSender<Message>) {
     }
 }
 
-fn create_websocat_process(local_working_dir : String) -> Option<Child> {
+fn create_websocat_process(cloud: String, local_working_dir: String, uuid: String, session_id: String) -> Option<Child> {
     let websocat_path = format!("{}/websocat", local_working_dir);
+    let ssh_websocket_url = format!("{}/e-ssh/{}/{}/websocket", cloud, uuid, session_id);
+    info!("ssh connecting to: {ssh_websocket_url}");
 
     let child = 
         Command::new(websocat_path)
             .arg("-v")
             .arg("--text")
-            .arg("ws://127.0.0.1:8080")
+            .arg(ssh_websocket_url)
             .arg("tcp:127.0.0.1:22")
             .spawn()
             .expect("failed to execute websocat");
