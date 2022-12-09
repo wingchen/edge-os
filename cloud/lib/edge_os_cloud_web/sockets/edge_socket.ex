@@ -71,8 +71,19 @@ defmodule EdgeOsCloud.Sockets.EdgeSocket do
   def terminate(reason, %{edge: edge} = _state) do
   	Logger.debug("terminating edge #{edge.id} listening process #{inspect reason}")
   	EdgeOsCloud.Device.update_edge(edge, %{status: false})
+
     {:ok, _} = EdgeOsCloud.Device.create_edge_activity(%{edge_id: edge.id, activity: "disconnected", meta: "#{inspect reason}"})
 
+    case reason do
+      {:crash, :error, summary} ->
+        Logger.debug("edge #{edge.id} terminated abnormally with summary #{inspect summary}")
+        {:ok, _} = EdgeOsCloud.Device.create_edge_activity(%{edge_id: edge.id, activity: "disconnected", meta: "#{inspect summary}" |> String.slice(0..200)})
+
+      _ ->
+        {:ok, _} = EdgeOsCloud.Device.create_edge_activity(%{edge_id: edge.id, activity: "disconnected", meta: "#{inspect reason}"})
+    end
+
+    Process.unregister(get_pid(edge.id))
     :ok
   end
 

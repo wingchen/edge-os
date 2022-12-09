@@ -40,10 +40,10 @@ defmodule EdgeOsCloud.Sockets.EdgeSSHSocket do
     Logger.debug("edge ssh listening process registered as #{inspect get_pid(session.id)}")
     Device.append_edge_session_action(session.id, EdgeSessionStage.edge_connected)
     
-    {:ok, %{edge: edge, session: session}}
+    {:ok, %{edge: edge, session: session, message_queue: []}}
   end
 
-  def handle_in({message, _opts}, %{session: session} = state) do
+  def handle_in({message, _opts}, %{session: session, message_queue: message_queue} = state) do
     Logger.debug("new ssh message from session #{session.id} message: #{inspect message}")
     # TODO: pass it to the tcp sockets part
 
@@ -55,7 +55,24 @@ defmodule EdgeOsCloud.Sockets.EdgeSSHSocket do
       state
     end
 
-    {:ok, state}
+    updated_message_queue = message_queue ++ [message]
+
+    # put the message in the queue if the ssh is not yet connected
+    updated_message_queue = case Process.whereis(EdgeOsCloud.Sockets.SSHSocketServer.get_pid(session.id)) do
+      nil ->
+        Logger.error("cannot find the pid for SSHSocketServer process for session #{inspect session.id}")
+        # keep the appended messages
+        updated_message_queue
+
+      ssh_connection_pid ->
+        # send all the messages to the other side with 1 IO
+        payload = Enum.join(updated_message_queue, "\n")
+        send(ssh_connection_pid, payload)
+        []
+    end
+
+    Logger.debug("updated_message_queue for session #{session.id} is #{inspect updated_message_queue}")
+    {:ok, Map.put(state, :message_queue, updated_message_queue)}
   end
 
   def handle_info(message, %{session: session} = state) do
@@ -75,7 +92,14 @@ defmodule EdgeOsCloud.Sockets.EdgeSSHSocket do
   def terminate(reason, %{session: session} = _state) do
     Logger.debug("terminating session #{session.id} listening process #{inspect reason}")
     Device.append_edge_session_action(session.id, EdgeSessionStage.edge_disconnected)
-    {:ok, _} = Device.update_edge_session(session, %{reason: "#{inspect reason}"})
+
+    case reason do
+      {:crash, :error, summary} ->
+        Logger.error("session #{session.id} terminated abnormally with summary #{inspect summary}")
+        {:ok, _} = Device.update_edge_session(session, %{reason: "#{inspect summary}" |> String.slice(0..200)})
+    end
+
+    Process.unregister(get_pid(session.id))
     :ok
   end
 end

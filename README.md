@@ -13,6 +13,7 @@ I will gradually add in code when I am not working on my day job.
 - [ ] Metrics: user defined metrics that can be sent to EdgeOS via file socket
 - [ ] Security: to make sure that we control where packets can be sent and received
 - [ ] OTA: so that users will be able to deploy and update long running codes
+- [ ] OTA self: EdgeOS will be able to update itself
 - [ ] Group Commands: so that theh users will be able to do map/reduce kind of command execution in edge machines altogether.
 - [ ] File Upload: user file upload to the system for more server processing
 

@@ -44,7 +44,7 @@ https://github.com/StartBootstrap/startbootstrap-sb-admin-2
 
 - [ ] configure db connections with env vars
 - [ ] configure redis connections with env vars
-- [ ] stand up websocket server for edges
-- [ ] mark the edges as online when they connect through websocket
+- [x] stand up websocket server for edges
+- [x] mark the edges as online when they connect through websocket
 - [ ] allow remote ssh connections to the edges
 - [ ] make sure error happens if ssh connection is not established correctly

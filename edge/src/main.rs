@@ -2,7 +2,6 @@ use log::{debug, info, warn, error};
 use std::env;
 use url;
 use std::process::Command;
-use std::process::Child;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::{thread, time};
@@ -10,6 +9,7 @@ use futures_util::{future, pin_mut, StreamExt};
 use tokio::io::{AsyncReadExt};
 use tokio::sync::Mutex;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
+use sysinfo::{PidExt, Pid, ProcessExt, System, SystemExt, Process};
 
 mod config;
 
@@ -51,36 +51,55 @@ async fn main() {
     let (write, read) = ws_stream.split();
 
     let stdin_to_ws = stdin_rx.map(Ok).forward(write);
-    let websocat_process = Arc::new(Mutex::new(None));
+    let process_map: HashMap<String, u32> = HashMap::new();
+    let websocat_process_map = Arc::new(Mutex::new(process_map));
 
     let ws_to_stdout = {
         read.for_each(|message| async {
             // getting to websocat_process to see if that's populated already
-            let the_websocat_process = Arc::clone(&websocat_process);
-            let mut websocat_process_lock = the_websocat_process.lock().await;
+            let process_map = Arc::clone(&websocat_process_map);
+            let mut locked_websocat_process_map = process_map.lock().await;
 
             let command_str = message.unwrap().to_string();
             let command_split: Vec<&str> = command_str.split_whitespace().collect();
 
             match &command_split[..] {
-                [""] => debug!("websocat getting pong back"),
+                [""] => {
+                    // it's a pong response, 
+                    // use it to clean up outstanding websocat_processes a bit
+                    let system = System::new_all();
+                    let processes = system.processes();
+                    locked_websocat_process_map.retain(|_, v| is_websocat_process(processes, *v));
+
+                    handle_pong();
+                },
+
                 ["SSH", session_id] => {
-                    if websocat_process_lock.is_some() {
-                        error!("websocat_process is already running, ignoring the command");
-                    } else {
-                        *websocat_process_lock = create_websocat_process(cloud.clone(), local_working_dir.clone(), uuid.clone(), session_id.to_string());
-                        info!("websocat_process created at: {}", command_str);
+                    let session_id_str = session_id.to_string();
+
+                    match locked_websocat_process_map.get(&session_id_str) {
+                        Some(&_process_id) => error!("websocat_process is already running, ignoring the command"),
+                        None => {
+                            let process_id = create_websocat_process(cloud.clone(), local_working_dir.clone(), uuid.clone(), session_id_str.clone());
+                            locked_websocat_process_map.insert(session_id_str.clone(), process_id);
+                            info!("websocat_process created at: {}", command_str);
+                        }
                     }
                 },
+
                 ["STOP_SSH", session_id] => {
-                    if websocat_process_lock.is_some() {
-                        websocat_process_lock.as_mut().unwrap().kill().expect("failed to kill websocat, leaving it hanging");
-                        *websocat_process_lock = None;
-                        info!("websocat_process stopped at: {}", command_str);
-                    } else {
-                        error!("websocat_process is not running, nothing to stop");
+                    let session_id_str = session_id.to_string();
+
+                    match locked_websocat_process_map.get(&session_id_str) {
+                        Some(&process_id) => {
+                            kill_websocat_process(process_id);
+                            locked_websocat_process_map.remove(&session_id_str);
+                            info!("websocat_process for session {} removed", session_id);
+                        },
+                        None => error!("websocat_process is not running, nothing to stop"),
                     }
                 },
+
                 _ => warn!("unknown message: {}", command_str),
             }
         })
@@ -103,7 +122,7 @@ async fn start_pinging(tx: futures_channel::mpsc::UnboundedSender<Message>) {
 }
 
 // Helper method which will read data from stdin and send it along the
-// sender provided.
+// sender provided. This function is used for test only.
 async fn read_stdin(tx: futures_channel::mpsc::UnboundedSender<Message>) {
     let mut stdin = tokio::io::stdin();
     loop {
@@ -117,7 +136,7 @@ async fn read_stdin(tx: futures_channel::mpsc::UnboundedSender<Message>) {
     }
 }
 
-fn create_websocat_process(cloud: String, local_working_dir: String, uuid: String, session_id: String) -> Option<Child> {
+fn create_websocat_process(cloud: String, local_working_dir: String, uuid: String, session_id: String) -> u32 {
     let websocat_path = format!("{}/websocat", local_working_dir);
     let ssh_websocket_url = format!("{}/e-ssh/{}/{}/websocket", cloud, uuid, session_id);
     info!("ssh connecting to: {ssh_websocket_url}");
@@ -126,10 +145,37 @@ fn create_websocat_process(cloud: String, local_working_dir: String, uuid: Strin
         Command::new(websocat_path)
             .arg("-v")
             .arg("--text")
+            .arg("--ping-interval=20")
             .arg(ssh_websocket_url)
             .arg("tcp:127.0.0.1:22")
             .spawn()
             .expect("failed to execute websocat");
 
-    return Some(child);
+    return child.id();
+}
+
+fn kill_websocat_process(pid: u32) {
+    let system = System::new_all();
+
+    if is_websocat_process(system.processes(), pid) {
+        info!("killing websocat_process {}", pid);
+        system.process(Pid::from_u32(pid)).unwrap().kill();
+    } else {
+        error!("websocat_process {} does not exist, ignoring", pid)
+    }
+}
+
+fn is_websocat_process(processes: &HashMap<Pid, Process>, pid: u32) -> bool {
+    for (ppid, process) in &*processes {
+        if pid.to_string() == ppid.to_string() && process.name().contains("websocat") {
+            debug!("found websocat_process {}", pid);
+            return true;
+        }
+    }
+
+    return false;
+}
+
+fn handle_pong() {
+    // debug!("websocat getting pong back");
 }
