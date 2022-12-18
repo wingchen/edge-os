@@ -8,10 +8,20 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
   @impl true
   def mount(_params, session, socket) do
     user = Map.get(session, "current_user")
+    peer_data = get_connect_info(socket, :peer_data)
+    Logger.debug("liveview socket peer_data #{inspect peer_data}")
+
+    user_ip = case peer_data do
+      nil -> {127, 0, 0, 1}
+      peer_data -> peer_data.address
+    end
+
     updated_socket = 
       socket
       |> assign(:edges, list_edges(user.id))
       |> assign(:current_user, user)
+      |> assign(:user_ip, user_ip)
+
     {:ok, updated_socket}
   end
 
@@ -58,7 +68,7 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
   def handle_event("ssh", %{"id" => id}, socket) do
     Logger.debug("ssh to edge #{inspect id}")
     edge = Device.get_edge!(id)
-    %{current_user: user} = socket.assigns
+    %{current_user: user, user_ip: user_ip} = socket.assigns
 
     websocket_pid_atom = String.to_atom(get_topic(edge.id))
 
@@ -67,16 +77,27 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
         Logger.error("cannot find the pid for websocket process for edge #{inspect websocket_pid_atom}")
 
       websocket_pid ->
-        {:ok, session} = Device.create_edge_session(%{
-          edge_id: edge.id,
-          user_id: user.id,
-          host: "127.0.0.1",
-          port: 123123,
-        })
+        ssh_port = EdgeOsCloud.Sockets.TCPPortSelector.get_port()
 
-        cmd = "SSH #{Device.get_session_id_hash(edge, session.id)}"
-        Logger.info("commading to edge #{edge.id} with command #{cmd}")
-        send(websocket_pid, cmd)
+        if is_nil(ssh_port) do
+          Logger.error("no available port found for ssh session on edge #{edge.id}")
+        else
+          # tell the edge to connect in for ssh bridging
+          {:ok, session} = Device.create_edge_session(%{
+            edge_id: edge.id,
+            user_id: user.id,
+            host: "127.0.0.1",
+            port: ssh_port,
+          })
+
+          cmd = "SSH #{Device.get_session_id_hash(edge, session.id)}"
+          Logger.info("commading to edge #{edge.id} with command #{cmd}")
+          send(websocket_pid, cmd)
+
+          # start a cloud ssh server to handle bridging
+          # we choose not to supervise it for now
+          EdgeOsCloud.Sockets.UserSSHSocket.start_link(session_port: ssh_port, session_id: session.id, user_ip: user_ip)
+        end
     end
 
     {:noreply, assign(socket, :edges, list_edges(user.id))}

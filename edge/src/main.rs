@@ -144,7 +144,8 @@ fn create_websocat_process(cloud: String, local_working_dir: String, uuid: Strin
     let child = 
         Command::new(websocat_path)
             .arg("-v")
-            .arg("--text")
+            // .arg("--oneshot")
+            .arg("--binary")
             .arg("--ping-interval=20")
             .arg(ssh_websocket_url)
             .arg("tcp:127.0.0.1:22")
