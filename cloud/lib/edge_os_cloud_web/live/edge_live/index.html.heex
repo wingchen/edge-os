@@ -4,9 +4,24 @@
   <.modal return_to={Routes.edge_index_path(@socket, :index)} class="modal fade" id="editEdgeModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLongTitle" aria-hidden="true">
     <.live_component
       module={EdgeOsCloudWeb.EdgeLive.FormComponent}
-      id={@edge.id || :new}
+      id={@edge.id}
       title={@page_title}
       action={@live_action}
+      edge={@edge}
+      return_to={Routes.edge_index_path(@socket, :index)}
+    />
+  </.modal>
+<% end %>
+
+<%= if @live_action in [:ssh] do %>
+  <.modal return_to={Routes.edge_index_path(@socket, :index)} class="modal fade" id="editSSHModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLongTitle" aria-hidden="true">
+    <.live_component
+      module={EdgeOsCloudWeb.EdgeLive.SSHComponent}
+      id={@edge.id}
+      title={@page_title}
+      action={@live_action}
+      current_user={@current_user}
+      user_ip={@user_ip}
       edge={@edge}
       return_to={Routes.edge_index_path(@socket, :index)}
     />
@@ -21,7 +36,7 @@
     <span class="text">New Edge</span>
   </a>
 
-  <!-- Modal -->
+  <!-- Modals -->
   <div class="modal fade" id="newEdgeModal" tabindex="-1" role="dialog" aria-labelledby="newEdgeModalTitle" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered modal-lg" role="document">
       <div class="modal-content">
@@ -115,11 +130,11 @@
                             <% end %>
 
                           <%= if edge.status do %>
-                            <%= link to: "#", phx_click: "ssh", phx_value_id: edge.id, data: [confirm: "Are you sure?"], class: "btn btn-primary btn-circle btn-sm", replace: false do %>
-                                <i class="fas fa-link"></i>
+                            <%= live_patch to: Routes.edge_index_path(@socket, :ssh, edge), class: "btn btn-primary btn-circle btn-sm", replace: false do %>
+                                <i class="fas fa-edit"></i>
                             <% end %>
 
-                            <%= link to: "#", phx_click: "delete", phx_value_id: edge.id, data: [confirm: "Are you sure?"], class: "btn btn-danger btn-circle btn-sm", replace: false do %>
+                            <%= link to: "#", phx_click: "delete", phx_value_id: edge.id, data: [confirm: "Edge is about to be deleted. Are you sure?"], class: "btn btn-danger btn-circle btn-sm", replace: false do %>
                                 <i class="fas fa-trash"></i>
                             <% end %>
                           <% else %>

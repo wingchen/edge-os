@@ -32,9 +32,10 @@ defmodule EdgeOsCloud.Sockets.UserSSHSocket do
     # start a listening to tcp connections from user_ip
     {:ok, listen_socket} = :gen_tcp.listen(
                             session_port, [:binary, {:packet, 0}, {:active, true}, {:ip, user_ip}])
-    {:ok, socket} = :gen_tcp.accept(listen_socket)
 
     true = Process.register(self(), get_pid(session_id))
+    {:ok, socket} = :gen_tcp.accept(listen_socket)
+
     Logger.info("tcp server for ssh session #{inspect session_id} started at #{inspect session_port}. waiting for user to connect in")
     {:ok, %{session_port: session_port, socket: socket, session_id: session_id}}
   end

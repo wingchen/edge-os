@@ -9,7 +9,6 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
   def mount(_params, session, socket) do
     user = Map.get(session, "current_user")
     peer_data = get_connect_info(socket, :peer_data)
-    Logger.debug("liveview socket peer_data #{inspect peer_data}")
 
     user_ip = case peer_data do
       nil -> {127, 0, 0, 1}
@@ -36,6 +35,12 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
     |> assign(:edge, Device.get_edge!(id))
   end
 
+  defp apply_action(socket, :ssh, %{"id" => id}) do
+    socket
+    |> assign(:page_title, "SSH into Edge")
+    |> assign(:edge, Device.get_edge!(id))
+  end
+
   defp apply_action(socket, :new, _params) do
     Logger.info("new edge!!!")
 
@@ -50,10 +55,6 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
     |> assign(:edge, nil)
   end
 
-  def get_topic(edge_id) do
-    "et_edge_id_#{edge_id}_to_edge"
-  end
-
   @impl true
   def handle_event("delete", %{"id" => id}, socket) do
     Logger.debug("deleting edge #{inspect id}")
@@ -65,42 +66,39 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
   end
 
   @impl true
-  def handle_event("ssh", %{"id" => id}, socket) do
-    Logger.debug("ssh to edge #{inspect id}")
-    edge = Device.get_edge!(id)
-    %{current_user: user, user_ip: user_ip} = socket.assigns
+  def handle_info({:check_ssh_readiness, session_id, counter}, socket) do
+    if counter >= 3 do
+      Logger.warn("timeout trying to establish ssh session for #{session_id}. updating the UI")
+      note = "We are not seeing the rigth processes from edge and server launched. Please contact the system admin if this keeps happening."
+      socket = push_event(socket, "ssh_error", %{title: "Timeout! SSH tunnel NOT established", note: note})
+      {:noreply, socket}
+    else
+      if is_session_ready(session_id) do
+        Logger.debug("ssh session for #{session_id} is ready. updating the UI")
+        socket = push_event(socket, "step3", %{title: "SSH tunnel established", note: "Please use the following ssh command: ..."})
+        {:noreply, socket}
+      else
+        # schedule for the next check
+        Logger.debug("ssh session for #{session_id} is not ready. check in again in secs")
+        socket = push_event(socket, "step2", %{note: "still working on it..."})
+        Process.send_after(self(), {:check_ssh_readiness, session_id, counter + 1}, 3000)
+        {:noreply, socket}
+      end
+    end
+  end
 
-    websocket_pid_atom = String.to_atom(get_topic(edge.id))
-
-    case Process.whereis(websocket_pid_atom) do
-      nil ->
-        Logger.error("cannot find the pid for websocket process for edge #{inspect websocket_pid_atom}")
-
-      websocket_pid ->
-        ssh_port = EdgeOsCloud.Sockets.TCPPortSelector.get_port()
-
-        if is_nil(ssh_port) do
-          Logger.error("no available port found for ssh session on edge #{edge.id}")
-        else
-          # tell the edge to connect in for ssh bridging
-          {:ok, session} = Device.create_edge_session(%{
-            edge_id: edge.id,
-            user_id: user.id,
-            host: "127.0.0.1",
-            port: ssh_port,
-          })
-
-          cmd = "SSH #{Device.get_session_id_hash(edge, session.id)}"
-          Logger.info("commading to edge #{edge.id} with command #{cmd}")
-          send(websocket_pid, cmd)
-
-          # start a cloud ssh server to handle bridging
-          # we choose not to supervise it for now
-          EdgeOsCloud.Sockets.UserSSHSocket.start_link(session_port: ssh_port, session_id: session.id, user_ip: user_ip)
-        end
+  defp is_session_ready(session_id) do
+    user_process_ready = case Process.whereis(EdgeOsCloud.Sockets.UserSSHSocket.get_pid(session_id)) do
+      nil -> false
+      _user_pid -> true
     end
 
-    {:noreply, assign(socket, :edges, list_edges(user.id))}
+    edge_process_ready = case Process.whereis(EdgeOsCloud.Sockets.EdgeSSHSocket.get_pid(session_id)) do
+      nil -> false
+      _user_pid -> true
+    end
+
+    user_process_ready and edge_process_ready
   end
 
   defp list_edges(user_id) do

@@ -44,7 +44,7 @@ defmodule EdgeOsCloud.Sockets.EdgeSSHSocket do
   end
 
   def handle_in({message, _opts}, %{session: session, message_queue: message_queue} = state) do
-    Logger.error("new ssh message from session #{session.id} message: #{inspect message}")
+    Logger.debug("new ssh message from session #{session.id} message: #{inspect message}")
     # TODO: pass it to the tcp sockets part
 
     # we got message from edge
@@ -60,7 +60,7 @@ defmodule EdgeOsCloud.Sockets.EdgeSSHSocket do
     # put the message in the queue if the ssh is not yet connected
     updated_message_queue = case Process.whereis(EdgeOsCloud.Sockets.UserSSHSocket.get_pid(session.id)) do
       nil ->
-        Logger.error("cannot find the pid for UserSSHSocket process for session #{inspect session.id}")
+        Logger.info("cannot find the pid for UserSSHSocket process for session #{inspect session.id}")
         # keep the appended messages
         updated_message_queue
 
