@@ -7,21 +7,26 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
 
   @impl true
   def mount(_params, session, socket) do
-    user = Map.get(session, "current_user")
-    peer_data = get_connect_info(socket, :peer_data)
+    case Map.get(session, "current_user") do
+      nil ->
+        {:ok, redirect(socket, to: "/login")}
 
-    user_ip = case peer_data do
-      nil -> {127, 0, 0, 1}
-      peer_data -> peer_data.address
+      user ->
+        peer_data = get_connect_info(socket, :peer_data)
+
+        user_ip = case peer_data do
+          nil -> {127, 0, 0, 1}
+          peer_data -> peer_data.address
+        end
+
+        updated_socket = 
+          socket
+          |> assign(:edges, list_edges(user.id))
+          |> assign(:current_user, user)
+          |> assign(:user_ip, user_ip)
+
+        {:ok, updated_socket}
     end
-
-    updated_socket = 
-      socket
-      |> assign(:edges, list_edges(user.id))
-      |> assign(:current_user, user)
-      |> assign(:user_ip, user_ip)
-
-    {:ok, updated_socket}
   end
 
   @impl true

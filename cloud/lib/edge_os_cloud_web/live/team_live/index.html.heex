@@ -14,6 +14,21 @@
   </.modal>
 <% end %>
 
+<%= if @live_action in [:new_edge] do %>
+  <.modal return_to={Routes.team_index_path(@socket, :index)}>
+    <.live_component
+      module={EdgeOsCloudWeb.TeamLive.NewEdgeComponent}
+      id={@team.id}
+      title={@page_title}
+      cloud_url={@cloud_url}
+      team_hash={@team_hash}
+      team={@team}
+      current_user={@current_user}
+      return_to={Routes.team_index_path(@socket, :index)}
+    />
+  </.modal>
+<% end %>
+
 <p>
   <%= live_patch to: Routes.team_index_path(@socket, :new), class: "btn btn-primary btn-icon-split btn-sm", replace: false do %>
     <span class="icon text-white-50">
@@ -91,6 +106,9 @@
                     <td><%= team.inserted_at %></td>
                     <td>
                       <%= if @current_user.id in team.admins do %>
+                        <%= live_patch to: Routes.team_index_path(@socket, :new_edge, team), class: "btn btn-success btn-circle btn-sm", replace: false do %>
+                          <i class="fas fa-plus"></i>
+                        <% end %>
                         <%= live_patch to: Routes.team_index_path(@socket, :edit, team), class: "btn btn-warning btn-circle btn-sm", replace: false do %>
                           <i class="fas fa-edit"></i>
                         <% end %>

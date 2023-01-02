@@ -6,12 +6,17 @@ defmodule EdgeOsCloudWeb.UserLive.Index do
 
   @impl true
   def mount(_params, session, socket) do
-    user = Map.get(session, "current_user")
-    updated_socket = 
-      socket
-      |> assign(:users, list_users())
-      |> assign(:current_user, user)
-    {:ok, updated_socket}
+    case Map.get(session, "current_user") do
+      nil ->
+        {:ok, redirect(socket, to: "/login")}
+
+      user ->
+        updated_socket = 
+          socket
+          |> assign(:users, list_users())
+          |> assign(:current_user, user)
+        {:ok, updated_socket}
+    end
   end
 
   @impl true

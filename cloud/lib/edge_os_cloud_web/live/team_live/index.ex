@@ -7,12 +7,17 @@ defmodule EdgeOsCloudWeb.TeamLive.Index do
 
   @impl true
   def mount(_params, session, socket) do
-    user = Map.get(session, "current_user")
-    updated_socket = 
-      socket
-      |> assign(:teams, list_teams(user.id))
-      |> assign(:current_user, user)
-    {:ok, updated_socket}
+    case Map.get(session, "current_user") do
+      nil ->
+        {:ok, redirect(socket, to: "/login")}
+
+      user ->
+        updated_socket = 
+          socket
+          |> assign(:teams, list_teams(user.id))
+          |> assign(:current_user, user)
+        {:ok, updated_socket}
+    end
   end
 
   @impl true
@@ -26,6 +31,20 @@ defmodule EdgeOsCloudWeb.TeamLive.Index do
       team ->
         socket
         |> assign(:page_title, "Edit Team")
+        |> assign(:team, team)
+    end
+  end
+
+  defp apply_action(socket, :new_edge, %{"id" => id}) do
+    case Accounts.get_team(id) do
+      nil -> socket
+      team ->
+        cloud_url = "https://#{Application.get_env(:edge_os_cloud, :host, "127.0.0.1:4000")}"
+        team_hash = EdgeOsCloud.Accounts.get_team_id_hash(id)
+        socket
+        |> assign(:page_title, "Add New Edge to Team")
+        |> assign(:cloud_url, cloud_url)
+        |> assign(:team_hash, team_hash)
         |> assign(:team, team)
     end
   end

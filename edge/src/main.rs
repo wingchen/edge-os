@@ -35,7 +35,7 @@ async fn main() {
 
     let cloud = match env::var("EDGE_OS_CLOUD_URL") {
         Ok(cloud_url) => cloud_url,
-        Err(_e) => "ws://localhost:4000".to_string(),
+        Err(_e) => "ws://127.0.0.1:4000".to_string(),
     };
 
     let cloud_server_url = format!("{}/et/{}/{}/{}/websocket", cloud, team_hash, uuid, password);

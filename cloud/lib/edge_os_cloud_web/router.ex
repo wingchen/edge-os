@@ -21,6 +21,9 @@ defmodule EdgeOsCloudWeb.Router do
     get "/login", PageController, :login
     get "/logout", PageController, :logout
 
+    get "/install/:team_hash/new_edge.sh", InstallController, :new_edge
+    get "/install/:team_hash/edgeos.service", InstallController, :edge_service
+
     live "/edges", EdgeLive.Index, :index
     live "/edges/:id/edit", EdgeLive.Index, :edit
     live "/edges/:id/ssh", EdgeLive.Index, :ssh
@@ -35,6 +38,7 @@ defmodule EdgeOsCloudWeb.Router do
     live "/teams/:id/edit", TeamLive.Index, :edit
     live "/teams/:id/admins", TeamLive.Index, :admins
     live "/teams/:id/members", TeamLive.Index, :members
+    live "/teams/:id/new_edge", TeamLive.Index, :new_edge
     live "/teams/:id", TeamLive.Show, :show
   end
 

@@ -1,0 +1,25 @@
+<div>
+  <h2><%= @title %></h2>
+
+  <div class="modal-dialog modal-dialog-centered modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="exampleModalLongTitle">Run the Command Below</h5>
+      </div>
+      <div class="modal-body">
+        <p>Run the following command in your edge device to add it into your EdgeOS system if you are a sudoer.</p>
+        <div class="card border-left-primary shadow h-100 py-2">
+          <div class="card-body">
+            <div class="row no-gutters align-items-center">
+              <div class="col mr-2">
+                <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">Bash</div>
+                <b>curl -L <%= @cloud_url %>/install/<%= @team_hash %>/new_edge.sh | sudo sh</b>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p></p>
+      </div>
+    </div>
+  </div>
+</div>
