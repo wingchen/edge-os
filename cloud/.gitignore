@@ -34,3 +34,4 @@ npm-debug.log
 
 # My local test scripts
 local.sh
+prod.sh

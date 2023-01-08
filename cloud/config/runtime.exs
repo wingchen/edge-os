@@ -31,7 +31,7 @@ if config_env() == :prod do
   maybe_ipv6 = if System.get_env("ECTO_IPV6"), do: [:inet6], else: []
 
   config :edge_os_cloud, EdgeOsCloud.Repo,
-    # ssl: true,
+    ssl: true,
     url: database_url,
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
     socket_options: maybe_ipv6
@@ -60,15 +60,26 @@ if config_env() == :prod do
       environment variable PHX_PORT is missing.
       """
 
+  ssl_key_path =
+    System.get_env("SSL_KEY_PATH") ||
+      raise """
+      environment variable SSL_KEY_PATH is missing.
+      """
+
+  ssl_cert_path =
+    System.get_env("SSL_CERT_PATH") ||
+      raise """
+      environment variable SSL_CERT_PATH is missing.
+      """
+
   config :edge_os_cloud, EdgeOsCloudWeb.Endpoint,
-    url: [host: host, port: 443, scheme: "https"],
-    http: [
-      # Enable IPv6 and bind on all interfaces.
-      # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.
-      # See the documentation on https://hexdocs.pm/plug_cowboy/Plug.Cowboy.html
-      # for details about using IPv6 vs IPv4 and loopback vs public addresses.
-      ip: {0, 0, 0, 0, 0, 0, 0, 0},
-      port: port
+    url: [host: host, port: port, scheme: "https"],
+    https: [
+      ip: {0, 0, 0, 0},
+      port: port,
+      cipher_suite: :strong,
+      keyfile: ssl_key_path,
+      certfile: ssl_cert_path
     ],
     secret_key_base: secret_key_base
 

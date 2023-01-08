@@ -2,7 +2,7 @@ defmodule EdgeOsCloud.Sockets.TCPPortSelector do
   require Logger
 
   defp port_range() do
-    {32800, 60999}
+    {32800, 60990}
   end
 
   defp port_redis_key() do

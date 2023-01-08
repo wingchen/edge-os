@@ -39,7 +39,7 @@ defmodule EdgeOsCloudWeb.TeamLive.Index do
     case Accounts.get_team(id) do
       nil -> socket
       team ->
-        cloud_url = "https://#{Application.get_env(:edge_os_cloud, :host, "127.0.0.1:4000")}"
+        cloud_url = "https://#{System.get_env("PHX_HOST", "127.0.0.1:4000")}"
         team_hash = EdgeOsCloud.Accounts.get_team_id_hash(id)
         socket
         |> assign(:page_title, "Add New Edge to Team")

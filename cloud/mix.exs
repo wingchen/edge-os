@@ -21,6 +21,7 @@ defmodule EdgeOsCloud.MixProject do
     [
       mod: {EdgeOsCloud.Application, []},
       extra_applications: [
+        :ssl,
         :logger, 
         :runtime_tools,
         :redix,
@@ -58,7 +59,7 @@ defmodule EdgeOsCloud.MixProject do
       {:hashids, "~> 2.0"},
 
       # uuid
-      { :uuid, "~> 1.1" },
+      {:uuid, "~> 1.1"},
 
       # time utils
       {:timex, "~> 3.7"},

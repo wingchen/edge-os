@@ -23,6 +23,7 @@ defmodule EdgeOsCloud.Release do
   end
 
   defp load_app do
+    :ssl.start()
     Application.load(@app)
   end
 end
