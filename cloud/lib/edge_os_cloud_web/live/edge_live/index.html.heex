@@ -65,7 +65,7 @@
                         <td><%= edge.team.name %></td>
                         <td><%= edge.ip %></td>
 
-                        <%= if edge.status do %>
+                        <%= if EdgeOsCloud.Device.edge_online?(edge.id) do %>
                         <td class="bg-success text-white">Connected</td>
                         <% else %>
                         <td class="bg-gray-500 text-white">Disconnected</td>
@@ -78,9 +78,9 @@
                                 <i class="fas fa-edit"></i>
                             <% end %>
 
-                          <%= if edge.status do %>
+                          <%= if EdgeOsCloud.Device.edge_online?(edge.id) do %>
                             <%= live_patch to: Routes.edge_index_path(@socket, :ssh, edge), class: "btn btn-primary btn-circle btn-sm", replace: false do %>
-                                <i class="fas fa-edit"></i>
+                                <i class="fas fa-terminal"></i>
                             <% end %>
 
                             <%= link to: "#", phx_click: "delete", phx_value_id: edge.id, data: [confirm: "Edge is about to be deleted. Are you sure?"], class: "btn btn-danger btn-circle btn-sm", replace: false do %>
@@ -98,4 +98,60 @@
             </table>
         </div>
     </div>
+
+  <script>
+    window.addEventListener(`phx:step2`, (e) => {
+      let s2_s1 = document.getElementById("ssh-step-1");
+      if(s2_s1) s2_s1.hidden = "true";
+
+      let s2_s2 = document.getElementById("ssh-step-2");
+      if(s2_s2) {
+        s2_s2.hidden = undefined;
+        if (e.detail.note) document.getElementById("ssh-step-2-note").innerHTML = e.detail.note;
+      }
+
+      let s2_s3 = document.getElementById("ssh-step-3");
+      if(s2_s3) s2_s3.hidden = "true";
+
+      let s2_serror = document.getElementById("ssh-step-error");
+      if(s2_serror) s2_serror.hidden = "true";
+    });
+
+    window.addEventListener(`phx:step3`, (e) => {
+      let s3_s1 = document.getElementById("ssh-step-1");
+      if(s3_s1) s3_s1.hidden = "true";
+
+      let s3_s2 = document.getElementById("ssh-step-2");
+      if(s3_s2) s3_s2.hidden = "true";
+
+      let s3_s3 = document.getElementById("ssh-step-3");
+      if(s3_s3) {
+        s3_s3.hidden = undefined;
+        if (e.detail.title) document.getElementById("ssh-step-3-title").innerHTML = e.detail.title;
+        if (e.detail.note) document.getElementById("ssh-step-3-note").innerHTML = e.detail.note;
+        if (e.detail.command) document.getElementById("ssh-step-3-command").innerHTML = e.detail.command;
+      }
+
+      let s3_serror = document.getElementById("ssh-step-error");
+      if(s3_serror) s3_serror.hidden = "true";
+    });
+
+    window.addEventListener(`phx:ssh_error`, (e) => {
+      let serror_s1 = document.getElementById("ssh-step-1");
+      if(serror_s1) serror_s1.hidden = "true";
+
+      let serror_s2 = document.getElementById("ssh-step-2");
+      if(serror_s2) serror_s2.hidden = "true";
+
+      let serror_s3 = document.getElementById("ssh-step-3");
+      if(serror_s3) serror_s3.hidden = "true";
+
+      let serror_serror = document.getElementById("ssh-step-error");
+      if(serror_serror) {
+        serror_serror.hidden = undefined;
+        if (e.detail.title) document.getElementById("ssh-step-error-title").innerHTML = e.detail.title;
+        if (e.detail.note) document.getElementById("ssh-step-error-note").innerHTML = e.detail.note;
+      }
+    });
+  </script>
 </div>

@@ -53,7 +53,6 @@ defmodule EdgeOsCloud.Sockets.EdgeSocket do
     Logger.debug("edge listening process registered as #{inspect get_pid(edge.id)}")
 
     {:ok, _} = EdgeOsCloud.Device.create_edge_activity(%{edge_id: edge.id, activity: "connected"})
-   	
     {:ok, %{edge: edge, team: team}}
   end
 

@@ -12,19 +12,6 @@ defmodule EdgeOsCloud.Device do
   alias EdgeOsCloud.Accounts.Team
 
   @doc """
-  Returns the list of edges.
-
-  ## Examples
-
-      iex> list_edges()
-      [%Edge{}, ...]
-
-  """
-  def list_edges do
-    Repo.all(Edge)
-  end
-
-  @doc """
   Returns the list of active edges from user account.
 
   ## Examples
@@ -36,8 +23,8 @@ defmodule EdgeOsCloud.Device do
   def list_active_account_edges(user_id) do
     query = from e in Edge,
           join: t in Team,
-          on: ^user_id in t.admins or ^user_id in t.members,
-          where: e.deleted == false and t.deleted == false,
+          on: e.team_id == t.id,
+          where: e.deleted == false and t.deleted == false and (^user_id in t.admins or ^user_id in t.members),
           preload: [team: t],
           order_by: [desc: t.inserted_at],
           select: e
@@ -128,6 +115,16 @@ defmodule EdgeOsCloud.Device do
     edge
     |> Edge.changeset(attrs)
     |> Repo.update()
+  end
+
+  @doc """
+  Edge is considered to be offline if there is an active websocket processed interacting with remote.
+  """
+  def edge_online?(edge_id) do
+    case Process.whereis(EdgeOsCloud.Sockets.EdgeSocket.get_pid(edge_id)) do
+      nil -> false
+      _user_pid -> true
+    end
   end
 
   def update_edge_session(%EdgeSession{} = session, attrs) do

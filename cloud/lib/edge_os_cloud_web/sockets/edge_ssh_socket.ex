@@ -88,6 +88,18 @@ defmodule EdgeOsCloud.Sockets.EdgeSSHSocket do
     {:push, {:binary, message}, state}
   end
 
+  def handle_info(:user_tcp_closed, %{session: session} = state) do
+    message = "closing edge session #{session.id} due to remote TCP closure"
+    Logger.info(message)
+    {:stop, message, state}
+  end
+
+  def handle_info(:user_tcp_errored, %{session: session} = state) do
+    message = "closing edge session #{session.id} due to remote TCP error"
+    Logger.error(message)
+    {:stop, message, state}
+  end
+
   def handle_info(message, %{session: session} = state) do
     Logger.debug("sending message to edge session #{session.id}: #{inspect message}")
 

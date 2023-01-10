@@ -71,6 +71,18 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
   end
 
   @impl true
+  def handle_info({_reference, {:ok, ssh_pid}}, socket) do
+    Logger.debug("ssh session #{inspect ssh_pid} terminated")
+    # TODL: Device.append_edge_session_action(session.id, EdgeSessionStage.user_disconnected)    
+    {:noreply, socket}
+  end
+
+  def handle_info({:DOWN, _reference, :process, ssh_pid, :normal}, socket) do
+    Logger.debug("ssh session #{inspect ssh_pid} terminated")
+    # TODL: Device.append_edge_session_action(session.id, EdgeSessionStage.user_disconnected)    
+    {:noreply, socket}
+  end
+
   def handle_info({:check_ssh_readiness, session_id, counter}, socket) do
     if counter >= 3 do
       Logger.warn("timeout trying to establish ssh session for #{session_id}. updating the UI")
@@ -80,7 +92,16 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
     else
       if is_session_ready(session_id) do
         Logger.debug("ssh session for #{session_id} is ready. updating the UI")
-        socket = push_event(socket, "step3", %{title: "SSH tunnel established", note: "Please use the following ssh command: ..."})
+        cloud_url = System.get_env("PHX_HOST", "127.0.0.1")
+        session = Device.get_edge_session!(session_id)
+
+        socket = push_event(socket, "step3", 
+          %{
+            title: "SSH tunnel established", 
+            note: "Please use the following ssh command:",
+            command: "ssh [your_account_name]@#{cloud_url} -p #{session.port}"
+          }
+        )
         {:noreply, socket}
       else
         # schedule for the next check

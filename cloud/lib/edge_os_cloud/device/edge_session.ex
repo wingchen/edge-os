@@ -29,4 +29,5 @@ defmodule EdgeOsCloud.Device.EdgeSessionStage do
   def ssh_data_sent, do: 4
   def ssh_disconnected, do: 5
   def edge_disconnected, do: 6
+  def user_disconnected, do: 7
 end

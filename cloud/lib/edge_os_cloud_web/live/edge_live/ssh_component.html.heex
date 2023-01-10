@@ -23,7 +23,12 @@
 
       <div id="ssh-step-3" class="alert alert-success" role="alert" hidden>
         <h4 class="alert-heading" id="ssh-step-3-title">You are connected!</h4>
-        <p id="ssh-step-3-note">This is how you can ssh in...</p>
+        <p id="ssh-step-3-note">Now you can ssh in with the following command:</p>
+        <p>
+          <b id="ssh-step-3-command">
+            ssh [your_user_name]@edgeos.cloud.domain -p [some_generated_port_number]
+          </b>
+        </p>
       </div>
 
       <div id="ssh-step-error" class="alert alert-danger" role="alert" hidden>
@@ -32,59 +37,4 @@
       </div>
     </div>
   </div>
-
-  <script>
-    window.addEventListener(`phx:step2`, (e) => {
-      let s2_s1 = document.getElementById("ssh-step-1");
-      if(s2_s1) s2_s1.hidden = "true";
-
-      let s2_s2 = document.getElementById("ssh-step-2");
-      if(s2_s2) {
-        s2_s2.hidden = undefined;
-        if (e.detail.note) document.getElementById("ssh-step-2-note").innerHTML = e.detail.note;
-      }
-
-      let s2_s3 = document.getElementById("ssh-step-3");
-      if(s2_s3) s2_s3.hidden = "true";
-
-      let s2_serror = document.getElementById("ssh-step-error");
-      if(s2_serror) s2_serror.hidden = "true";
-    });
-
-    window.addEventListener(`phx:step3`, (e) => {
-      let s3_s1 = document.getElementById("ssh-step-1");
-      if(s3_s1) s3_s1.hidden = "true";
-
-      let s3_s2 = document.getElementById("ssh-step-2");
-      if(s3_s2) s3_s2.hidden = "true";
-
-      let s3_s3 = document.getElementById("ssh-step-3");
-      if(s3_s3) {
-        s3_s3.hidden = undefined;
-        if (e.detail.title) document.getElementById("ssh-step-3-title").innerHTML = e.detail.title;
-        if (e.detail.note) document.getElementById("ssh-step-3-note").innerHTML = e.detail.note;
-      }
-
-      let s3_serror = document.getElementById("ssh-step-error");
-      if(s3_serror) s3_serror.hidden = "true";
-    });
-
-    window.addEventListener(`phx:ssh_error`, (e) => {
-      let serror_s1 = document.getElementById("ssh-step-1");
-      if(serror_s1) serror_s1.hidden = "true";
-
-      let serror_s2 = document.getElementById("ssh-step-2");
-      if(serror_s2) serror_s2.hidden = "true";
-
-      let serror_s3 = document.getElementById("ssh-step-3");
-      if(serror_s3) serror_s3.hidden = "true";
-
-      let serror_serror = document.getElementById("ssh-step-error");
-      if(serror_serror) {
-        serror_serror.hidden = undefined;
-        if (e.detail.title) document.getElementById("ssh-step-error-title").innerHTML = e.detail.title;
-        if (e.detail.note) document.getElementById("ssh-step-error-note").innerHTML = e.detail.note;
-      }
-    });
-  </script>
 </div>

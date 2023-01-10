@@ -34,11 +34,11 @@ defmodule EdgeOsCloud.Sockets.UserSSHSocket do
                             session_port, [:binary, {:packet, 0}, {:active, true}, {:ip, {0, 0, 0, 0}}])
 
     true = Process.register(self(), get_pid(session_id))
-    Logger.info("tcp server for ssh session #{inspect session_id} started at #{inspect session_port} waiting for user to connect in")
+    Logger.info("tcp server for ssh session #{inspect session_id} started at #{inspect session_port} with pid #{inspect self()} waiting for user to connect in")
 
     {:ok, socket} = :gen_tcp.accept(listen_socket)
-    Logger.info("user connected in with socket #{inspect socket}")
-    
+    Logger.debug("user connected in with socket #{inspect socket}")
+
     {:ok, %{session_port: session_port, socket: socket, session_id: session_id}}
   end
 
@@ -69,14 +69,34 @@ defmodule EdgeOsCloud.Sockets.UserSSHSocket do
     {:noreply, state}
   end
 
-  def handle_info({:tcp_closed, socket}, %{session_port: session_port} = state) do
+  def handle_info({:tcp_closed, socket}, %{session_port: session_port, session_id: session_id} = state) do
     EdgeOsCloud.Sockets.TCPPortSelector.return_port(session_port)
-    Logger.debug("ssh tcp socket #{inspect socket} on port #{session_port} has been closed")
+    Logger.info("ssh tcp socket #{inspect socket} on port #{session_port} has been closed")
+
+    # also terminate the ssh process
+    case EdgeOsCloud.Sockets.EdgeSSHSocket.get_pid(session_id) do
+      nil ->
+        raise "cannot find ssh session #{inspect session_id} from edge. bailing..."
+
+      edge_bridge_pid ->
+        send(edge_bridge_pid, :user_tcp_closed)
+    end
+
     {:noreply, state}
   end
 
-  def handle_info({:tcp_error, socket, reason}, state) do
+  def handle_info({:tcp_error, socket, reason}, %{session_id: session_id} = state) do
     Logger.error("connection closed dut to #{inspect reason}: #{inspect socket}")
+
+    # also terminate the ssh process
+    case EdgeOsCloud.Sockets.EdgeSSHSocket.get_pid(session_id) do
+      nil ->
+        raise "cannot find ssh session #{inspect session_id} from edge. bailing..."
+
+      edge_bridge_pid ->
+        send(edge_bridge_pid, :user_tcp_errored)
+    end
+
     {:noreply, state}
   end
 
