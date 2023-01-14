@@ -56,7 +56,7 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
 
   defp apply_action(socket, :index, _params) do
     socket
-    |> assign(:page_title, "Listing Edges")
+    |> assign(:page_title, "Edge List")
     |> assign(:edge, nil)
   end
 
@@ -98,10 +98,12 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
         socket = push_event(socket, "step3", 
           %{
             title: "SSH tunnel established", 
-            note: "Please use the following ssh command:",
+            note: "Please use the following ssh command to connect in. The connection process will end as soon as you exit the ssh session.",
             command: "ssh [your_account_name]@#{cloud_url} -p #{session.port}"
           }
         )
+
+        Process.send_after(self(), {:ssh_disconnected, session_id}, 3000)
         {:noreply, socket}
       else
         # schedule for the next check
@@ -110,6 +112,24 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
         Process.send_after(self(), {:check_ssh_readiness, session_id, counter + 1}, 3000)
         {:noreply, socket}
       end
+    end
+  end
+
+  def handle_info({:ssh_disconnected, session_id}, socket) do
+    if is_session_ready(session_id) do
+      # check again in 3 secs until the session is finished
+      Process.send_after(self(), {:ssh_disconnected, session_id}, 3000)
+      {:noreply, socket}
+    else
+      socket = push_event(socket, "step3", 
+        %{
+          title: "SSH session finished", 
+          finishnote: "Your ssh session is concluded. Please start a new one if you wish to do more operations.",
+          disconnected: "true"
+        }
+      )
+
+      {:noreply, socket}
     end
   end
 

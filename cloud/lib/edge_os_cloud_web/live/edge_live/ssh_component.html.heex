@@ -23,17 +23,22 @@
 
       <div id="ssh-step-3" class="alert alert-success" role="alert" hidden>
         <h4 class="alert-heading" id="ssh-step-3-title">You are connected!</h4>
-        <p id="ssh-step-3-note">Now you can ssh in with the following command:</p>
-        <p>
-          <b id="ssh-step-3-command">
+        <div id="ssh-step-3-connected">
+          <p id="ssh-step-3-note">Now you can ssh in with the following command:</p>
+
+          <div id="ssh-step-3-command" class="p-3 mb-2 bg-success text-white">
             ssh [your_user_name]@edgeos.cloud.domain -p [some_generated_port_number]
-          </b>
-        </p>
+          </div>
+        </div>
+        <div id="ssh-step-3-disconnected">
+          <div class="p-3 mb-2 .bg-secondary text-white">The ssh session disconnected.</div>
+          <p id="ssh-step-3-finishnote">Now you can ssh in with the following command:</p>
+        </div>
       </div>
 
       <div id="ssh-step-error" class="alert alert-danger" role="alert" hidden>
         <h4 class="alert-heading" id="ssh-step-error-title">Error!!</h4>
-        <p id="ssh-step-error-note">Something has happened...</p>
+        <div id="ssh-step-error-note" class="p-3 mb-2 .bg-danger text-white">Something has happened...</div>
       </div>
     </div>
   </div>

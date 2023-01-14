@@ -1,4 +1,4 @@
-<h1>Listing Edges</h1>
+<h1>Edge List</h1>
 
 <%= if @live_action in [:edit] do %>
   <.modal return_to={Routes.edge_index_path(@socket, :index)} class="modal fade" id="editEdgeModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLongTitle" aria-hidden="true">
@@ -129,7 +129,18 @@
         s3_s3.hidden = undefined;
         if (e.detail.title) document.getElementById("ssh-step-3-title").innerHTML = e.detail.title;
         if (e.detail.note) document.getElementById("ssh-step-3-note").innerHTML = e.detail.note;
-        if (e.detail.command) document.getElementById("ssh-step-3-command").innerHTML = e.detail.command;
+        if (e.detail.finishnote) document.getElementById("ssh-step-3-finishnote").innerHTML = e.detail.finishnote;
+
+        if (e.detail.command) {
+            document.getElementById("ssh-step-3-connected").hidden = undefined;
+            document.getElementById("ssh-step-3-disconnected").hidden = "true";
+            document.getElementById("ssh-step-3-command").innerHTML = e.detail.command;
+        }
+
+        if (e.detail.disconnected) {
+            document.getElementById("ssh-step-3-connected").hidden = "true";
+            document.getElementById("ssh-step-3-disconnected").hidden = undefined;
+        }
       }
 
       let s3_serror = document.getElementById("ssh-step-error");

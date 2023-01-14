@@ -66,12 +66,3 @@ It downloads the latest binary, configures env vars, and then installs EdgeOS se
 
 The UI template is based on the MIT project: `Start Bootstrap - SB Admin 2` 
 https://github.com/StartBootstrap/startbootstrap-sb-admin-2 
-
-# Target Features
-
-- [ ] configure db connections with env vars
-- [ ] configure redis connections with env vars
-- [x] stand up websocket server for edges
-- [x] mark the edges as online when they connect through websocket
-- [x] allow remote ssh connections to the edges
-- [ ] make sure error happens if ssh connection is not established correctly

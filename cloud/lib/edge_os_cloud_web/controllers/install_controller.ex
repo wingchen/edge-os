@@ -115,17 +115,11 @@ defmodule EdgeOsCloudWeb.InstallController do
           if [ -n "$(which apt-get)" ]
           then
             echo "Installing openssh-server"
-
             apt-get install -y openssh-server || :
-            systemctl stop sshd || :
-            systemctl disable sshd || :
 
           elif [ -n "$(which apt)" ]; then
             echo "Installing openssh-server"
-
             apt install -y openssh-server || :
-            systemctl stop sshd || :
-            systemctl disable sshd || :
 
           else
             echo "Please install openssh-server on your edge and try installing edgeos again..."

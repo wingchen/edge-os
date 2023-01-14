@@ -2,6 +2,8 @@ defmodule EdgeOsCloudWeb.PageController do
   use EdgeOsCloudWeb, :controller
   require Logger
 
+  alias EdgeOsCloud.Device
+
   def index(conn, _params) do
     case get_session(conn, :current_user) do
       nil -> 
@@ -9,8 +11,13 @@ defmodule EdgeOsCloudWeb.PageController do
         |> redirect(to: "/login")
 
       user ->
+        user_edges = Device.list_active_account_edges(user.id)
+        user_online_edges = Enum.filter(user_edges, fn x -> Device.edge_online?(x.id) end)
+
         conn
         |> assign(:current_user, user)
+        |> assign(:user_edges, length(user_edges))
+        |> assign(:user_online_edges, length(user_online_edges))
         |> render("index.html")
     end
   end

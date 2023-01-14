@@ -8,9 +8,10 @@ I will gradually add in code when I am not working on my day job.
 
 # Target Features
 
-- [ ] SSH: ssh in from remote without port-forwarding
+- [x] SSH: ssh in from remote without port-forwarding
 - [ ] Metrics: collect basic CPU/Memory/Disk/GPU metrics
 - [ ] Metrics: user defined metrics that can be sent to EdgeOS via file socket
+- [ ] Manual Edge Software Update: provide a clean way for the daemon running on edge to update
 - [ ] Security: to make sure that we control where packets can be sent and received
 - [ ] OTA: so that users will be able to deploy and update long running codes
 - [ ] OTA self: EdgeOS will be able to update itself

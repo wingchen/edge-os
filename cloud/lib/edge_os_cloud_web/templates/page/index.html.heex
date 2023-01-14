@@ -9,13 +9,11 @@
          <!-- Card Header - Dropdown -->
          <div
             class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
-            <h6 class="m-0 font-weight-bold text-primary">Device Counts</h6>
+            <h6 class="m-0 font-weight-bold text-primary">(WIP) Edge Activities</h6>
          </div>
          <!-- Card Body -->
          <div class="card-body">
-            <div class="chart-area">
-               <canvas id="myAreaChart"></canvas>
-            </div>
+            <canvas id="edge_activities"></canvas>
          </div>
       </div>
    </div>
@@ -29,18 +27,79 @@
          </div>
          <!-- Card Body -->
          <div class="card-body">
-            <div class="chart-pie pt-4 pb-2">
-               <canvas id="myPieChart"></canvas>
-            </div>
-            <div class="mt-4 text-center small">
-               <span class="mr-2">
-               <i class="fas fa-circle text-success"></i> Online
-               </span>
-               <span class="mr-2">
-               <i class="fas fa-circle text-primary"></i> Offline
-               </span>
-            </div>
+            <canvas id="online_offline"></canvas>
          </div>
       </div>
    </div>
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  const ctx = document.getElementById('online_offline');
+
+  new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['online', 'offline'],
+      datasets: [{
+        label: 'count',
+        data: [<%= assigns[:user_online_edges] %>, <%= assigns[:user_edges] - assigns[:user_online_edges] %>],
+        borderWidth: 1
+      }]
+    }
+  });
+
+  function getRandomColor() {
+    var letters = '0123456789ABCDEF'.split('');
+    var color = '#';
+    for (var i = 0; i < 6; i++ ) {
+        color += letters[Math.floor(Math.random() * 16)];
+    }
+    return color;
+  }
+
+  const ctx_a = document.getElementById('edge_activities');
+
+  const data = {
+    labels: ["1", "2", "3", "4", "5", "1", "2", "3", "4", "5", "1", "2", "3", "4", "5"],
+    datasets: [
+      {
+        label: 'edge 1',
+        data: [2, 3, 4, 5, 6, 2, 3, 4, 5, 6, 2, 3, 4, 5, 6],
+        backgroundColor: getRandomColor(),
+        stack: 'Stack 0',
+      },
+      {
+        label: 'edge 2',
+        data: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        backgroundColor: getRandomColor(),
+        stack: 'Stack 0',
+      },
+      {
+        label: 'edge 3',
+        data: [7, 3, 2, 5, 4, 7, 3, 2, 5, 4, 7, 3, 2, 5, 4],
+        backgroundColor: getRandomColor(),
+        stack: 'Stack 0',
+      },
+    ]
+  };
+
+  new Chart(ctx_a, {
+    type: 'bar',
+    data: data,
+    options: {
+      responsive: true,
+      interaction: {
+        intersect: false,
+      },
+      scales: {
+        x: {
+          stacked: true,
+        },
+        y: {
+          stacked: true
+        }
+      }
+    }
+  });
+</script>
