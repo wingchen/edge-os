@@ -12,6 +12,7 @@ use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use sysinfo::{PidExt, Pid, ProcessExt, System, SystemExt, Process};
 
 mod config;
+mod edge_system;
 
 #[tokio::main]
 async fn main() {
@@ -114,6 +115,9 @@ async fn main() {
 async fn start_pinging(tx: futures_channel::mpsc::UnboundedSender<Message>) {
     let twenty_secs = time::Duration::from_secs(20);
 
+    // sends the latest system info over
+    let _system_info = edge_system::get_edge_info();
+
     loop {
         thread::sleep(twenty_secs);
         debug!("sending WebSocket ping");
@@ -123,7 +127,7 @@ async fn start_pinging(tx: futures_channel::mpsc::UnboundedSender<Message>) {
 
 // Helper method which will read data from stdin and send it along the
 // sender provided. This function is used for test only.
-async fn read_stdin(tx: futures_channel::mpsc::UnboundedSender<Message>) {
+async fn _read_stdin(tx: futures_channel::mpsc::UnboundedSender<Message>) {
     let mut stdin = tokio::io::stdin();
     loop {
         let mut buf = vec![0; 1024];

@@ -167,6 +167,7 @@ defmodule EdgeOsCloudWeb.InstallController do
       [Unit]
       Description=The EdgeOS daemon for users to access their edge from anywhere on the internet
       After=network.target
+      StartLimitInterval=0
 
       [Service]
       Environment=EDGE_OS_EDGE_DIR=/opt/edge-os-edge

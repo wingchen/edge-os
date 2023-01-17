@@ -1,7 +1,7 @@
 [package]
 name = "edge-os-edge"
 version = "0.1.0"
-edition = "2023"
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -15,6 +15,10 @@ tokio = { version = "1.21.2", features = ["full"] }
 tokio-tungstenite = { version = "0.17.2", features = ["native-tls"] }
 reqwest = "0.11.12"
 sysinfo = "0.27.0"
+syn = "1.0.104"
+serde = { version = "1.0.152", features = ["derive"] }
+serde_json = "1.0.91"
+byte-unit = "4.0.18"
 
 [dependencies.uuid]
 version = "1.2.1"
