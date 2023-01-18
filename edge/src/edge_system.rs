@@ -1,9 +1,7 @@
-use log::{debug, info};
-use std::collections::HashMap;
+use log::{debug};
 use std::convert::{TryFrom};
 use sysinfo::{NetworkExt, System, SystemExt, DiskExt, ComponentExt, CpuExt};
 use serde::{Deserialize, Serialize};
-use serde_json::Result;
 
 extern crate byte_unit;
 use byte_unit::{Byte, ByteUnit};
@@ -36,11 +34,30 @@ struct EdgeCpu {
 }
 
 #[derive(Serialize, Deserialize)]
+struct EdgeMemory {
+	total_memory: f64,
+	used_memory: f64,
+	total_swap: f64,
+	used_swap: f64,
+}
+
+#[derive(Serialize, Deserialize)]
 struct EdgeStatus {
 	disk: Vec<EdgeDisk>,
 	network: Vec<EdgeNetwork>,
 	temperature: Vec<EdgeTemperature>,
 	cpu: Vec<EdgeCpu>,
+	memory: EdgeMemory,
+	process_count: usize,
+}
+
+#[derive(Serialize, Deserialize)]
+struct EdgeInfo {
+	cpu_count: usize,
+	sys_name: String,
+	kernel_version: String,
+	os_version: String,
+	host_name: String,
 }
 
 fn get_mb_value(value: u64) -> f64 {
@@ -118,65 +135,64 @@ pub fn get_edge_status() -> String {
 	let mut sys = System::new_all();
 	sys.refresh_all();
 
+	let edge_memory = EdgeMemory {
+   	total_memory: get_mb_value(sys.total_memory()),
+   	used_memory: get_mb_value(sys.used_memory()),
+   	total_swap: get_mb_value(sys.total_swap()),
+   	used_swap: get_mb_value(sys.used_swap()),
+   };
+
 	let edge_status = EdgeStatus {
       disk: get_disk_status(sys.disks()),
       network: get_network_status(sys.networks()),
       temperature: get_temperature_status(sys.components()),
       cpu: get_cpu_status(sys.cpus()),
+      memory: edge_memory,
+      process_count: sys.processes().len(),
    };
 
    let json_edge_status = serde_json::to_string(&edge_status).unwrap();
    debug!("current edge status is: {json_edge_status}");
 
-	// // get memory data
-	// let mut memory_status: HashMap<String, String> = HashMap::new();
-	// memory_status.insert("total_memory".to_string(), sys.total_memory().to_string());
-	// memory_status.insert("used_memory".to_string(), sys.used_memory().to_string());
-	// memory_status.insert("total_swap".to_string(), sys.total_swap().to_string());
-	// memory_status.insert("used_swap".to_string(), sys.used_swap().to_string());
-
-	// current_status.insert("memory".to_string(), memory_status);
-
-	// // get process count
-	// let mut process_status: HashMap<String, String> = HashMap::new();
-	// process_status.insert("process_count".to_string(), sys.processes().len().to_string());
-	// current_status.insert("process".to_string(), process_status);
-
 	return json_edge_status;
 }
 
-pub fn get_edge_info() -> HashMap<String, String> {
+pub fn get_edge_info() -> String {
 	let mut sys = System::new_all();
 	sys.refresh_all();
-	let mut edge_info: HashMap<String, String> = HashMap::new();
 
-	edge_info.insert("cpu_count".to_string(), sys.cpus().len().to_string());
-	edge_info.insert("sys_name".to_string(), sys.name().unwrap_or_default().to_string());
-	edge_info.insert("kernel_version".to_string(), sys.kernel_version().unwrap_or_default().to_string());
-	edge_info.insert("os_version".to_string(), sys.os_version().unwrap_or_default().to_string());
-	edge_info.insert("host_name".to_string(), sys.host_name().unwrap_or_default().to_string());
+	let edge_info = EdgeInfo {
+   	cpu_count: sys.cpus().len(),
+   	sys_name: sys.name().unwrap_or_default(),
+   	kernel_version: sys.kernel_version().unwrap_or_default(),
+   	os_version: sys.os_version().unwrap_or_default(),
+   	host_name: sys.host_name().unwrap_or_default(),
+   };
 
-	return edge_info;
+   let json_edge_info = serde_json::to_string(&edge_info).unwrap();
+   debug!("current edge info is: {json_edge_info}");
+
+	return json_edge_info;
 }
 
-// #[cfg(test)]
-// mod tests_get_edge_status {
-//    use super::*;
+#[cfg(test)]
+mod tests_get_edge_status {
+   use super::*;
 
-//    #[test]
-//    fn check_if_we_are_getting_data_like_designed(){
-//       let edge_status = get_edge_status();
-//       assert_eq!(edge_status.len(), 6);
-//    }
-// }
+   #[test]
+   fn check_if_we_are_getting_data(){
+      let edge_status = get_edge_status();
+      assert_ne!(edge_status, "");
+   }
+}
 
-// #[cfg(test)]
-// mod tests_get_edge_info {
-//    use super::*;
+#[cfg(test)]
+mod tests_get_edge_info {
+   use super::*;
 
-//    #[test]
-//    fn check_if_we_are_getting_general_sys_info(){
-//       let edge_info = get_edge_info();
-//       assert_eq!(edge_info.len(), 5);
-//    }
-// }
+   #[test]
+   fn check_if_we_are_getting_general_sys_info(){
+      let edge_info = get_edge_info();
+      assert_ne!(edge_info, "");
+   }
+}

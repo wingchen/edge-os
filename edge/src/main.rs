@@ -113,15 +113,31 @@ async fn main() {
 // send ping from time to time so that the cloud server knows
 // that we are alive
 async fn start_pinging(tx: futures_channel::mpsc::UnboundedSender<Message>) {
-    let twenty_secs = time::Duration::from_secs(20);
+    let twenty = 20;
+    let twenty_secs = time::Duration::from_secs(twenty);
 
     // sends the latest system info over
-    let _system_info = edge_system::get_edge_info();
+    thread::sleep(time::Duration::from_secs(3));
+    let system_info = edge_system::get_edge_info();
+    let system_info_payload = format!("EDGE_INFO {}", system_info);
+    tx.unbounded_send(Message::Text(system_info_payload)).unwrap();
+
+    let mut time_counter = 0;
+    let fifteen_count: u64 = (15 * 60) / twenty;
 
     loop {
         thread::sleep(twenty_secs);
         debug!("sending WebSocket ping");
         tx.unbounded_send(Message::Ping(vec![])).unwrap();
+        time_counter += 1;
+
+        if time_counter % fifteen_count == 0 {
+            // sends system status every 15 mins
+            let system_status = edge_system::get_edge_status();
+            let system_status_payload = format!("EDGE_STATUS {}", system_status);
+            tx.unbounded_send(Message::Text(system_status_payload)).unwrap();
+            time_counter = 0;
+        }
     }
 }
 
