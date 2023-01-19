@@ -5,6 +5,9 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+static_ssl = ['openssl/vendored']
+
 [dependencies]
 log = "0.4"
 env_logger = "0.9.0"
@@ -27,6 +30,9 @@ features = [
     "fast-rng",          # Use a faster (but still sufficiently random) RNG
     "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
 ]
+
+[dependencies.openssl]
+optional = true
 
 [dev-dependencies]
 actix-rt = "*"

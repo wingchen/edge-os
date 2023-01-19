@@ -58,7 +58,7 @@ defmodule EdgeOsCloud.Sockets.EdgeSocket do
 
   def handle_in({message, _opts}, %{edge: edge} = state) do
   	Logger.debug("new message from edge #{edge.id} message: #{inspect message}")
-  	handel_message(String.split(message, " "))
+  	handel_message(String.split(message, " "), edge)
     {:ok, state}
   end
 
@@ -86,7 +86,15 @@ defmodule EdgeOsCloud.Sockets.EdgeSocket do
     :ok
   end
 
+  def handel_message(["EDGE_INFO" | json_payload], edge) do
+    Logger.debug("getting edge info from #{edge.id}") 
+  end
+
+  def handel_message(["EDGE_STATUS" | json_payload], edge) do
+    Logger.debug("getting edge status from #{edge.id}") 
+  end
+
   def handel_message(param_list) do
-    Logger.debug("param_list #{inspect param_list}") 
+    Logger.debug("param_list #{inspect param_list}", _edge) 
   end
 end

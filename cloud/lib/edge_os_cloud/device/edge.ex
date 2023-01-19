@@ -18,7 +18,8 @@ defmodule EdgeOsCloud.Device.Edge do
     # the password generated from edge when it's first created
     field :password, :string
 
-    # the status metrics of an edge
+    # the info and metrics of an edge
+    field :edge_info, :map
     embeds_many :edge_statuss, EdgeOsCloud.Device.EdgeStatus
 
     timestamps()
@@ -27,7 +28,7 @@ defmodule EdgeOsCloud.Device.Edge do
   @doc false
   def changeset(edge, attrs) do
     edge
-    |> cast(attrs, [:name, :ip, :status, :deleted, :team_id, :salt, :password, :uuid, :edge_statuss])
+    |> cast(attrs, [:name, :ip, :status, :deleted, :team_id, :salt, :password, :uuid, :edge_info, :edge_statuss])
     |> validate_required([:name, :ip, :status, :team_id, :salt, :password, :uuid])
   end
 end
