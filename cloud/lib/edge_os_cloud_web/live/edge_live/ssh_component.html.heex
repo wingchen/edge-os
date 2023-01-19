@@ -29,9 +29,11 @@
           <div id="ssh-step-3-command" class="p-3 mb-2 bg-success text-white">
             ssh [your_user_name]@edgeos.cloud.domain -p [some_generated_port_number]
           </div>
+
+          <p>NOTE: If you would like to bypass the <span class="badge badge-secondary">This host key is known by the following other names/addresses:</span> message after repeated uses, try adding <span class="badge badge-primary">-o StrictHostKeyChecking=no</span> as a part of your ssh command.</p>
         </div>
         <div id="ssh-step-3-disconnected">
-          <div class="p-3 mb-2 .bg-secondary text-white">The ssh session disconnected.</div>
+          <div class="p-3 mb-2 bg-secondary text-white">The ssh session disconnected.</div>
           <p id="ssh-step-3-finishnote">Now you can ssh in with the following command:</p>
         </div>
       </div>
