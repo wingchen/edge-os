@@ -24,3 +24,27 @@ When it comes to the heavy lifting of the SSH feature, `websocat`(https://github
 ```
 RUST_LOG=debug cargo test -- --test-threads=1
 ```
+
+# Building
+
+This project can be built for production simply with `cargo`. Just do this:
+
+```
+cargo build --release
+``` 
+
+## Cross-compliation for different platforms
+
+I would also suggest to use `rust-musl-cross`(https://github.com/rust-cross/rust-musl-cross) if you are to support multiple platforms.
+
+The official documentation is great already. For example, if you are on your PC but building for resberry pi 4:
+
+```
+docker pull messense/rust-musl-cross:armv7-musleabihf
+
+alias rust-musl-builder='docker run --rm -it -v "$(pwd)":/home/rust/src messense/rust-musl-cross:armv7-musleabihf'
+
+rust-musl-builder cargo build --release
+```
+
+We can think about hooking it up to CI in the future for each release.

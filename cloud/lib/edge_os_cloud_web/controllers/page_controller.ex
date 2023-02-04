@@ -13,10 +13,32 @@ defmodule EdgeOsCloudWeb.PageController do
       user ->
         user_edges = Device.list_active_account_edges(user.id)
         user_online_edges = Enum.filter(user_edges, fn x -> Device.edge_online?(x.id) end)
+        user_edge_map = Enum.into(user_edges, %{}, fn x -> {x.id, x} end)
+
+        # get edge beacon counts
+        edges_statuss = Device.list_recent_edge_status_from_edges(user_edges |> Enum.map(fn x -> x.id end))
+        timestamps = edges_statuss |> Enum.map(fn [t, _ei, _c] -> t end) |> Enum.uniq()
+
+        # this generates a nested map: {edge_id, edge_name} -> timestamp -> count
+        edges_statuss_map = Enum.reduce(edges_statuss, %{}, fn [t, ei, c], acc ->
+          edge = user_edge_map[ei]
+          key = {ei, edge.name}
+
+          if Map.has_key?(acc, key) do
+            # add the edge id and count into the map
+            sub_map = acc[key]
+            Map.put(acc, key, Map.put(sub_map, t, c))
+          else
+            # create a new key in the map
+            Map.put(acc, key, %{t => c})
+          end
+        end)
 
         conn
         |> assign(:current_user, user)
-        |> assign(:user_edges, length(user_edges))
+        |> assign(:user_edges, user_edges)
+        |> assign(:timestamps, timestamps)
+        |> assign(:edges_statuss_map, edges_statuss_map)
         |> assign(:user_online_edges, length(user_online_edges))
         |> render("index.html")
     end

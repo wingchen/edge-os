@@ -71,6 +71,11 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
   end
 
   @impl true
+  def handle_event("info", %{"id" => id}, socket) do
+    {:noreply, redirect(socket, to: "/dash/edge/#{id}")}
+  end
+
+  @impl true
   def handle_info({_reference, {:ok, ssh_pid}}, socket) do
     Logger.debug("ssh session #{inspect ssh_pid} terminated")
     # TODL: Device.append_edge_session_action(session.id, EdgeSessionStage.user_disconnected)    
@@ -94,12 +99,15 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
         Logger.debug("ssh session for #{session_id} is ready. updating the UI")
         cloud_url = System.get_env("PHX_HOST", "127.0.0.1")
         session = Device.get_edge_session!(session_id)
+        
+        random_session_hash = EdgeOsCloud.HashIdHelper.encode(session_id, UUID.uuid4()) |> String.slice(0..5) |> String.downcase()
+        command = "ssh [your_account_name]@#{random_session_hash}.#{cloud_url} -p #{session.port}"
 
         socket = push_event(socket, "step3", 
           %{
             title: "SSH tunnel established", 
             note: "Please use the following ssh command to connect in. The connection process will end as soon as you exit the ssh session.",
-            command: "ssh [your_account_name]@#{cloud_url} -p #{session.port}"
+            command: command
           }
         )
 

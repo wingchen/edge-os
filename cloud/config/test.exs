@@ -9,7 +9,7 @@ config :edge_os_cloud, EdgeOsCloud.Repo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
-  database: "edge_os_cloud_test#{System.get_env("MIX_TEST_PARTITION")}",
+  database: "edge_os_cloud_test",
   port: 5555,
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: 10

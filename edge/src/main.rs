@@ -117,13 +117,14 @@ async fn start_pinging(tx: futures_channel::mpsc::UnboundedSender<Message>) {
     let twenty_secs = time::Duration::from_secs(twenty);
 
     // sends the latest system info over
+    // TODO: do this asycn with a random wait time to prevent a huge amount of traffic hitting server after each server update
     thread::sleep(time::Duration::from_secs(3));
     let system_info = edge_system::get_edge_info();
     let system_info_payload = format!("EDGE_INFO {}", system_info);
     tx.unbounded_send(Message::Text(system_info_payload)).unwrap();
 
     let mut time_counter = 0;
-    let fifteen_count: u64 = (15 * 60) / twenty;
+    let fifteen_count: u64 = (10 * 60) / twenty;
 
     loop {
         thread::sleep(twenty_secs);

@@ -7,13 +7,17 @@ defmodule EdgeOsCloud.DeviceFixtures do
   @doc """
   Generate a edge.
   """
-  def edge_fixture(attrs \\ %{}) do
+  def edge_fixture(team, attrs \\ %{}) do
     {:ok, edge} =
       attrs
       |> Enum.into(%{
+        team_id: team.id,
         ip: "some ip",
         name: "some name",
-        status: "some status"
+        status: true,
+        salt: "some salt",
+        password: "some password",
+        uuid: "some uuid"
       })
       |> EdgeOsCloud.Device.create_edge()
 

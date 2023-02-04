@@ -1,0 +1,354 @@
+<section class="phx-hero">
+   <h1>EdgeOS Dashboard</h1>
+   <p>Here are your recent trends.</p>
+</section>
+<div class="row">
+   <!-- CPU -->
+   <div class="col-xl-12 col-lg-12">
+      <div class="card shadow mb-4">
+         <!-- Card Header - Dropdown -->
+         <div
+            class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+            <h6 class="m-0 font-weight-bold text-primary">CPU</h6>
+         </div>
+         <!-- Card Body -->
+         <div class="card-body">
+            <canvas id="edge_cpu"></canvas>
+         </div>
+      </div>
+   </div>
+
+   <!-- memory -->
+   <div class="col-xl-12 col-lg-12">
+      <div class="card shadow mb-4">
+         <!-- Card Header - Dropdown -->
+         <div
+            class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+            <h6 class="m-0 font-weight-bold text-primary">Memory</h6>
+         </div>
+         <!-- Card Body -->
+         <div class="card-body">
+            <canvas id="edge_memory"></canvas>
+         </div>
+      </div>
+   </div>
+
+   <!-- disk -->
+   <div class="col-xl-12 col-lg-12">
+      <div class="card shadow mb-4">
+         <!-- Card Header - Dropdown -->
+         <div
+            class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+            <h6 class="m-0 font-weight-bold text-primary">Disk</h6>
+         </div>
+         <!-- Card Body -->
+         <div class="card-body">
+            <canvas id="edge_disk"></canvas>
+         </div>
+      </div>
+   </div>
+
+   <!-- temperature -->
+   <div class="col-xl-12 col-lg-12">
+      <div class="card shadow mb-4">
+         <!-- Card Header - Dropdown -->
+         <div
+            class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+            <h6 class="m-0 font-weight-bold text-primary">Temperature</h6>
+         </div>
+         <!-- Card Body -->
+         <div class="card-body">
+            <canvas id="edge_temperature"></canvas>
+         </div>
+      </div>
+   </div>
+
+   <!-- process count -->
+   <div class="col-xl-12 col-lg-12">
+      <div class="card shadow mb-4">
+         <!-- Card Header - Dropdown -->
+         <div
+            class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+            <h6 class="m-0 font-weight-bold text-primary">Process Count</h6>
+         </div>
+         <!-- Card Body -->
+         <div class="card-body">
+            <canvas id="edge_process_count"></canvas>
+         </div>
+      </div>
+   </div>
+</div>
+
+<script src="/js/utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/moment@2.27.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-moment@0.1.1"></script>
+<script>
+  // cpu
+  const ctx = document.getElementById('edge_cpu');
+
+  const data = {
+    labels: [ // Date Objects
+      <%= for timestmp <- @timestamps do %>
+        '<%= timestmp %>',
+      <% end %>
+    ],
+    datasets: [
+      <%= for {cpu_name, cpu_data} <- @cpus do %>
+      {
+        label: '<%= cpu_name %>',
+        backgroundColor: 'white',
+        borderColor: getRandomColor(),
+        fill: false,
+        data: [
+          <%= for cd <- cpu_data do %>
+            <%= cd["usage"] %>,
+          <% end %>
+        ]
+      },
+      <% end %>
+    ]
+  };
+
+  new Chart(ctx, {
+    type: 'line',
+    data: data,
+    options: {
+      plugins: {
+        title: {
+          text: 'CPU Usage',
+          display: true
+        }
+      },
+      scales: {
+        x: {
+          type: 'time',
+          title: {
+            display: true,
+            text: 'time'
+          }
+        },
+        y: {
+          title: {
+            display: true,
+            text: '%'
+          }
+        }
+      },
+    },
+  });
+
+  // memory
+  const ctx_memory = document.getElementById('edge_memory');
+
+  const data_memory = {
+    labels: [ // Date Objects
+      <%= for timestmp <- @timestamps do %>
+        '<%= timestmp %>',
+      <% end %>
+    ],
+    datasets: [
+      <%= for {name, value} <- @memory do %>
+      {
+        label: '<%= name %>',
+        backgroundColor: 'white',
+        borderColor: getRandomColor(),
+        fill: false,
+        data: [
+          <%= for item <- value do %>
+            <%= item["value"] %>,
+          <% end %>
+        ]
+      },
+      <% end %>
+    ]
+  };
+
+  new Chart(ctx_memory, {
+    type: 'line',
+    data: data_memory,
+    options: {
+      plugins: {
+        title: {
+          text: 'Memory Usage',
+          display: true
+        }
+      },
+      scales: {
+        x: {
+          type: 'time',
+          title: {
+            display: true,
+            text: 'time'
+          }
+        },
+        y: {
+          title: {
+            display: true,
+            text: '%'
+          }
+        }
+      },
+    },
+  });
+
+  // disk
+  const ctx_disk = document.getElementById('edge_disk');
+
+  const data_disk = {
+    labels: [ // Date Objects
+      <%= for timestmp <- @timestamps do %>
+        '<%= timestmp %>',
+      <% end %>
+    ],
+    datasets: [
+      <%= for {name, data} <- @disk do %>
+      {
+        label: '<%= name %>',
+        backgroundColor: 'white',
+        borderColor: getRandomColor(),
+        fill: false,
+        data: [
+          <%= for cd <- data do %>
+            <%= (( cd["total"] - cd["available"]) * 100) / cd["total"] %>,
+          <% end %>
+        ]
+      },
+      <% end %>
+    ]
+  };
+
+  new Chart(ctx_disk, {
+    type: 'line',
+    data: data_disk,
+    options: {
+      plugins: {
+        title: {
+          text: 'Disk Usage',
+          display: true
+        }
+      },
+      scales: {
+        x: {
+          type: 'time',
+          title: {
+            display: true,
+            text: 'time'
+          }
+        },
+        y: {
+          title: {
+            display: true,
+            text: '%'
+          }
+        }
+      },
+    },
+  });
+
+  // temperature
+  const ctx_temperature = document.getElementById('edge_temperature');
+
+  const data_temperature = {
+    labels: [ // Date Objects
+      <%= for timestmp <- @timestamps do %>
+        '<%= timestmp %>',
+      <% end %>
+    ],
+    datasets: [
+      <%= for {name, data} <- @temperature do %>
+      {
+        label: '<%= name %>',
+        backgroundColor: 'white',
+        borderColor: getRandomColor(),
+        fill: false,
+        data: [
+          <%= for cd <- data do %>
+            <%= cd["temperature"] %>,
+          <% end %>
+        ]
+      },
+      <% end %>
+    ]
+  };
+
+  new Chart(ctx_temperature, {
+    type: 'line',
+    data: data_temperature,
+    options: {
+      plugins: {
+        title: {
+          text: 'Temperature',
+          display: true
+        }
+      },
+      scales: {
+        x: {
+          type: 'time',
+          title: {
+            display: true,
+            text: 'time'
+          }
+        },
+        y: {
+          title: {
+            display: true,
+            text: 'degree in celsius'
+          }
+        }
+      },
+    },
+  });
+
+  // process count
+  const ctx_process_count = document.getElementById('edge_process_count');
+
+  const data_process_count = {
+    labels: [ // Date Objects
+      <%= for timestmp <- @timestamps do %>
+        '<%= timestmp %>',
+      <% end %>
+    ],
+    datasets: [
+      {
+        label: 'Process Count',
+        backgroundColor: 'white',
+        borderColor: getRandomColor(),
+        fill: false,
+        data: [
+          <%= for count <- @process_count do %>
+            <%= count %>,
+          <% end %>
+        ]
+      },
+    ]
+  };
+
+  new Chart(ctx_process_count, {
+    type: 'line',
+    data: data_process_count,
+    options: {
+      plugins: {
+        title: {
+          text: 'Process Count',
+          display: true
+        }
+      },
+      scales: {
+        x: {
+          type: 'time',
+          title: {
+            display: true,
+            text: 'time'
+          }
+        },
+        y: {
+          title: {
+            display: true,
+            text: 'count'
+          }
+        }
+      },
+    },
+  });
+</script>

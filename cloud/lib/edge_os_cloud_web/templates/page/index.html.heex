@@ -9,7 +9,7 @@
          <!-- Card Header - Dropdown -->
          <div
             class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
-            <h6 class="m-0 font-weight-bold text-primary">(WIP) Edge Activities</h6>
+            <h6 class="m-0 font-weight-bold text-primary">Status Updates</h6>
          </div>
          <!-- Card Body -->
          <div class="card-body">
@@ -33,6 +33,7 @@
    </div>
 </div>
 
+<script src="/js/utils.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
   const ctx = document.getElementById('online_offline');
@@ -43,44 +44,33 @@
       labels: ['online', 'offline'],
       datasets: [{
         label: 'count',
-        data: [<%= assigns[:user_online_edges] %>, <%= assigns[:user_edges] - assigns[:user_online_edges] %>],
+        data: [<%= assigns[:user_online_edges] %>, <%= length(assigns[:user_edges]) - assigns[:user_online_edges] %>],
         borderWidth: 1
       }]
     }
   });
 
-  function getRandomColor() {
-    var letters = '0123456789ABCDEF'.split('');
-    var color = '#';
-    for (var i = 0; i < 6; i++ ) {
-        color += letters[Math.floor(Math.random() * 16)];
-    }
-    return color;
-  }
-
   const ctx_a = document.getElementById('edge_activities');
 
   const data = {
-    labels: ["1", "2", "3", "4", "5", "1", "2", "3", "4", "5", "1", "2", "3", "4", "5"],
+    labels: [
+      <%= for timestmp <- @timestamps do %>
+        '<%= Timex.format!(timestmp, "{0M}-{0D} {h24}:{m}") %>',
+      <% end %>
+    ],
     datasets: [
-      {
-        label: 'edge 1',
-        data: [2, 3, 4, 5, 6, 2, 3, 4, 5, 6, 2, 3, 4, 5, 6],
-        backgroundColor: getRandomColor(),
-        stack: 'Stack 0',
-      },
-      {
-        label: 'edge 2',
-        data: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-        backgroundColor: getRandomColor(),
-        stack: 'Stack 0',
-      },
-      {
-        label: 'edge 3',
-        data: [7, 3, 2, 5, 4, 7, 3, 2, 5, 4, 7, 3, 2, 5, 4],
-        backgroundColor: getRandomColor(),
-        stack: 'Stack 0',
-      },
+      <%= for {{_edge_id, edge_name}, edges_status_map} <- @edges_statuss_map do %>
+        {
+          label: '<%= edge_name %>',
+          data: [
+            <%= for timestmp <- @timestamps do %>
+              '<%= edges_status_map[timestmp] %>',
+            <% end %>
+          ],
+          backgroundColor: getRandomColor(),
+          stack: 'Stack 0',
+        },
+      <% end %>
     ]
   };
 

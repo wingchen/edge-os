@@ -22,12 +22,13 @@ defmodule EdgeOsCloud.AccountsFixtures do
   @doc """
   Generate a team.
   """
-  def team_fixture(attrs \\ %{}) do
+  def team_fixture(user, attrs \\ %{}) do
     {:ok, team} =
       attrs
       |> Enum.into(%{
-        admins: [],
-        name: "some name"
+        admins: [user.id],
+        name: "some name",
+        members: [user.id],
       })
       |> EdgeOsCloud.Accounts.create_team()
 

@@ -1,17 +1,24 @@
 defmodule EdgeOsCloud.Device.EdgeStatus do
   use Ecto.Schema
+  import Ecto.Changeset
 
-  embedded_schema do
-    field :disks, :map
-    field :cpu, :map
+  schema "edge_statuss" do
+    field :disk, {:array, :map}
+    field :network, {:array, :map}
+    field :temperature, {:array, :map}
+    field :cpu, {:array, :map}
     field :memory, :map
+    field :process_count, :integer
+    
+    belongs_to :edge, EdgeOsCloud.Device.Edge
 
-    field :battery_life, :integer
-    field :on_ac_power, :boolean
-    field :load_average_fifteen, :integer    
-    field :uptime, :integer
-    field :boot_time, :integer
+    timestamps()
+  end
 
-    field :socket_stats, :integer
+  @doc false
+  def changeset(edge_status, attrs) do
+    edge_status
+    |> cast(attrs, [:edge_id, :disk, :network, :temperature, :cpu, :memory, :process_count])
+    |> validate_required([:edge_id, :disk, :network, :temperature, :cpu, :memory, :process_count])
   end
 end

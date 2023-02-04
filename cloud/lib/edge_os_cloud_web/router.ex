@@ -21,6 +21,8 @@ defmodule EdgeOsCloudWeb.Router do
     get "/login", PageController, :login
     get "/logout", PageController, :logout
 
+    get "/dash/edge/:id", DashController, :edge
+
     get "/install/:team_hash/new_edge.sh", InstallController, :new_edge
     get "/install/:team_hash/edgeos.service", InstallController, :edge_service
 

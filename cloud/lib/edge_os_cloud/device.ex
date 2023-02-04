@@ -9,6 +9,7 @@ defmodule EdgeOsCloud.Device do
   alias EdgeOsCloud.Device.Edge
   alias EdgeOsCloud.Device.EdgeSession
   alias EdgeOsCloud.Device.EdgeActivity
+  alias EdgeOsCloud.Device.EdgeStatus
   alias EdgeOsCloud.Accounts.Team
 
   @doc """
@@ -30,6 +31,49 @@ defmodule EdgeOsCloud.Device do
           select: e
 
     Repo.all(query)
+  end
+
+  def list_recent_edge_status(edge_id, from_time \\ nil, to_time \\ nil) do
+    from_time =
+      if is_nil(from_time) do
+        Timex.shift(DateTime.utc_now(), days: -2)
+      else
+        from_time
+      end
+
+    to_time =
+      if is_nil(to_time) do
+        DateTime.utc_now()
+      else
+        to_time
+      end
+
+    query = from e in EdgeStatus,
+          where: e.edge_id == ^edge_id and e.inserted_at > ^from_time and e.inserted_at <= ^to_time,
+          order_by: [desc: e.inserted_at],
+          select: e
+
+    Repo.all(query)
+  end
+
+  def list_recent_edge_status_from_edges(edge_ids) do
+    edge_ids_str = "(#{Enum.join(edge_ids, ",")})"
+
+    {:ok, result} = Repo.query(
+      ~s{
+        select
+          to_timestamp(floor((extract('epoch' from inserted_at) / 1800 )) * 1800) as t,
+          edge_id,
+          count(1)
+        from edge_statuss
+        where inserted_at >= NOW() - INTERVAL '1 DAY' and edge_id in #{edge_ids_str}
+        group by t, edge_statuss.edge_id
+        order by t;
+      },
+      []
+    )
+
+    result.rows
   end
 
   @doc """
@@ -96,6 +140,12 @@ defmodule EdgeOsCloud.Device do
   def create_edge_activity(attrs \\ %{}) do
     %EdgeActivity{}
     |> EdgeActivity.changeset(attrs)
+    |> Repo.insert()
+  end
+
+  def create_edge_status(attrs \\ %{}) do
+    %EdgeStatus{}
+    |> EdgeStatus.changeset(attrs)
     |> Repo.insert()
   end
 

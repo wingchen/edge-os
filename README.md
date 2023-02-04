@@ -9,7 +9,8 @@ I will gradually add in code when I am not working on my day job.
 # Target Features
 
 - [x] SSH: ssh in from remote without port-forwarding
-- [ ] Metrics: collect basic CPU/Memory/Disk/GPU metrics
+- [ ] RDP: support rdp so that we will be able to remote desktop in
+- [x] Metrics: collect basic CPU/Memory/Disk/Tmp/Process metrics
 - [ ] Metrics: user defined metrics that can be sent to EdgeOS via file socket
 - [ ] Manual Edge Software Update: provide a clean way for the daemon running on edge to update
 - [ ] Security: to make sure that we control where packets can be sent and received
@@ -18,9 +19,11 @@ I will gradually add in code when I am not working on my day job.
 - [ ] Group Commands: so that theh users will be able to do map/reduce kind of command execution in edge machines altogether.
 - [ ] File Upload: user file upload to the system for more server processing
 
-# Supported SoCs (edge computers)
+# Tested SoCs (edge computers)
 
-- [ ] All of the SoCs with full Linux as their OS (all distributions, x86 and Arm)
+- [x] rasberry pi 3 with rasberry pi OS
+- [x] rasberry pi 4 with ubuntu
+- [x] NVIDIA Jetson AGX Xavier with Ubuntu 22.02
 - [ ] The SoCs what run various Linux kernels (like Android but only with the `adb`)
 
 # Language Used

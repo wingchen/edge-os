@@ -142,6 +142,11 @@ pub fn get_edge_status() -> String {
    	used_swap: get_mb_value(sys.used_swap()),
    };
 
+   // sleep a bit to collect some CPU data 
+   sys.refresh_cpu();
+	std::thread::sleep(std::time::Duration::from_millis(500));
+	sys.refresh_cpu();
+
 	let edge_status = EdgeStatus {
       disk: get_disk_status(sys.disks()),
       network: get_network_status(sys.networks()),
