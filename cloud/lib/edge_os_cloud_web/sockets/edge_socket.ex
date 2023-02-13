@@ -125,7 +125,22 @@ defmodule EdgeOsCloud.Sockets.EdgeSocket do
     end
   end
 
+  def handel_message(["EDGE_CUSTOM", json_payload], edge) do
+    Logger.debug("getting edge custom metrics from #{edge.id} with payload #{inspect json_payload}")
+
+    case Jason.decode(json_payload) do
+      {:ok, edge_custom_payload} ->
+        payload = for {key, val} <- edge_custom_payload, into: %{}, do: {String.to_atom(key), val}
+        payload = payload |> Map.put(:edge_id, edge.id)
+
+        Logger.info("edge custom metrics payload #{inspect payload}") 
+
+      _ ->
+        Logger.error("getting errorous payload for EDGE_CUSTOM: #{json_payload}")
+    end
+  end
+
   def handel_message(param_list, _edge) do
-    Logger.debug("param_list #{inspect param_list}") 
+    Logger.warn("param_list #{inspect param_list}") 
   end
 end

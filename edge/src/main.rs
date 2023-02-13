@@ -1,22 +1,30 @@
-use log::{debug, info, warn, error};
+use log::{debug, info, warn, error, LevelFilter};
 use std::env;
+use std::fs;
+use std::str;
 use url;
 use std::process::Command;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::{thread, time};
+use std::io;
 use futures_util::{future, pin_mut, StreamExt};
 use tokio::io::{AsyncReadExt};
 use tokio::sync::Mutex;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
+use tokio::net::UnixListener;
+use tokio::time::sleep;
 use sysinfo::{PidExt, Pid, ProcessExt, System, SystemExt, Process};
+use std::os::unix::fs::PermissionsExt;
 
 mod config;
 mod edge_system;
 
 #[tokio::main]
 async fn main() {
-    env_logger::init();
+    systemd_journal_logger::init().unwrap();
+    log::set_max_level(LevelFilter::Info);
+
     let local_working_dir = match env::var("EDGE_OS_EDGE_DIR") {
         Ok(val) => val,
         Err(_e) => "/opt/edge-os-edge".to_string(),
@@ -42,72 +50,78 @@ async fn main() {
     let cloud_server_url = format!("{}/et/{}/{}/{}/websocket", cloud, team_hash, uuid, password);
     info!("Connecting to: {cloud_server_url}");
 
-    let url = url::Url::parse(&cloud_server_url).unwrap();
-    let (stdin_tx, stdin_rx) = futures_channel::mpsc::unbounded();
-    tokio::spawn(start_pinging(stdin_tx));
+    let (ping_tx, ping_rx) = futures_channel::mpsc::unbounded();
+    tokio::spawn(start_pinging(ping_tx.clone()));
+    tokio::spawn(custom_metrics(ping_tx.clone()));
 
-    let (ws_stream, _) = connect_async(url).await.expect("Failed to connect");
+    let url = url::Url::parse(&cloud_server_url).unwrap();
+    let (ws_stream, _) = connect_async(url).await.expect("WebSocket failed to connect");
     debug!("WebSocket handshake has been successfully completed");
 
     let (write, read) = ws_stream.split();
 
-    let stdin_to_ws = stdin_rx.map(Ok).forward(write);
+    let ping_to_ws = ping_rx.map(Ok).forward(write);
     let process_map: HashMap<String, u32> = HashMap::new();
     let websocat_process_map = Arc::new(Mutex::new(process_map));
 
-    let ws_to_stdout = {
+    let ws_to_edge = {
         read.for_each(|message| async {
             // getting to websocat_process to see if that's populated already
             let process_map = Arc::clone(&websocat_process_map);
             let mut locked_websocat_process_map = process_map.lock().await;
 
             let command_str = message.unwrap().to_string();
-            let command_split: Vec<&str> = command_str.split_whitespace().collect();
 
-            match &command_split[..] {
-                [""] => {
-                    // it's a pong response, 
-                    // use it to clean up outstanding websocat_processes a bit
-                    let system = System::new_all();
-                    let processes = system.processes();
-                    locked_websocat_process_map.retain(|_, v| is_websocat_process(processes, *v));
+            if command_str == "" {
+                debug!("ignoring the empty message");
+            } else {
+                let command_split: Vec<&str> = command_str.split_whitespace().collect();
 
-                    handle_pong();
-                },
+                match &command_split[..] {
+                    [""] => {
+                        // it's a pong response, 
+                        // use it to clean up outstanding websocat_processes a bit
+                        let system = System::new_all();
+                        let processes = system.processes();
+                        locked_websocat_process_map.retain(|_, v| is_websocat_process(processes, *v));
 
-                ["SSH", session_id] => {
-                    let session_id_str = session_id.to_string();
+                        handle_pong();
+                    },
 
-                    match locked_websocat_process_map.get(&session_id_str) {
-                        Some(&_process_id) => error!("websocat_process is already running, ignoring the command"),
-                        None => {
-                            let process_id = create_websocat_process(cloud.clone(), local_working_dir.clone(), uuid.clone(), session_id_str.clone());
-                            locked_websocat_process_map.insert(session_id_str.clone(), process_id);
-                            info!("websocat_process created at: {}", command_str);
+                    ["SSH", session_id] => {
+                        let session_id_str = session_id.to_string();
+
+                        match locked_websocat_process_map.get(&session_id_str) {
+                            Some(&_process_id) => error!("websocat_process is already running, ignoring the command"),
+                            None => {
+                                let process_id = create_websocat_process(cloud.clone(), local_working_dir.clone(), uuid.clone(), session_id_str.clone());
+                                locked_websocat_process_map.insert(session_id_str.clone(), process_id);
+                                info!("websocat_process created at: {}", command_str);
+                            }
                         }
-                    }
-                },
+                    },
 
-                ["STOP_SSH", session_id] => {
-                    let session_id_str = session_id.to_string();
+                    ["STOP_SSH", session_id] => {
+                        let session_id_str = session_id.to_string();
 
-                    match locked_websocat_process_map.get(&session_id_str) {
-                        Some(&process_id) => {
-                            kill_websocat_process(process_id);
-                            locked_websocat_process_map.remove(&session_id_str);
-                            info!("websocat_process for session {} removed", session_id);
-                        },
-                        None => error!("websocat_process is not running, nothing to stop"),
-                    }
-                },
+                        match locked_websocat_process_map.get(&session_id_str) {
+                            Some(&process_id) => {
+                                kill_websocat_process(process_id);
+                                locked_websocat_process_map.remove(&session_id_str);
+                                info!("websocat_process for session {} removed", session_id);
+                            },
+                            None => error!("websocat_process is not running, nothing to stop"),
+                        }
+                    },
 
-                _ => warn!("unknown message: {}", command_str),
+                    _ => warn!("unknown message: '{}'", command_str),
+                }
             }
         })
     };
 
-    pin_mut!(stdin_to_ws, ws_to_stdout);
-    future::select(stdin_to_ws, ws_to_stdout).await;
+    pin_mut!(ping_to_ws, ws_to_edge);
+    future::select(ping_to_ws, ws_to_edge).await;
 }
 
 // send ping from time to time so that the cloud server knows
@@ -142,6 +156,75 @@ async fn start_pinging(tx: futures_channel::mpsc::UnboundedSender<Message>) {
     }
 }
 
+// listen to local file socket for custom metrics uploads
+async fn handle_custom_metrics(stream: tokio::net::UnixStream, tx: futures_channel::mpsc::UnboundedSender<Message>) {
+    match stream.readable().await {
+        Ok(()) => {
+            let mut buf = [0; 4096];
+
+            loop {
+                match stream.try_read(&mut buf) {
+                    Ok(0) => {
+                        warn!("got nothing from custom_metrics. probably user closing the file socket");
+                        break;
+                    }
+                    Ok(n) => {
+                        debug!("read {} bytes for custom_metrics", n);
+                            
+                        match str::from_utf8(&buf[..n]) {
+                            Ok(message) => {
+                                info!("got custom message {}", message);
+                                let custom_metrics_payload = format!("EDGE_CUSTOM {}", message);
+                                tx.unbounded_send(Message::Text(custom_metrics_payload)).unwrap();
+                            },
+                            Err(e) => {
+                                error!("Invalid UTF-8 sequence: {}", e);
+                                break;
+                            },
+                        };
+                    }
+                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                        // got a WouldBlock error from custom_metrics, ignoring it 
+                        sleep(time::Duration::from_millis(300)).await;
+                    }
+                    Err(e) => {
+                        error!("got an unknown error {}", e.kind());
+                        break;
+                    }
+                }
+            }
+        },
+        Err(e) => {
+            error!("cannot handle data stream with error {}, ignoring... ", e);
+        },
+    }
+}
+
+async fn custom_metrics(tx: futures_channel::mpsc::UnboundedSender<Message>) {
+    let file_socket = "/tmp/edge-os-custom.sock";
+    fs::remove_file(file_socket).unwrap_or(());
+    let listener = UnixListener::bind(file_socket).unwrap();
+
+    // change the file socket permission here
+    let mut file_socket_permissions = fs::metadata(file_socket).unwrap().permissions();
+    file_socket_permissions.set_mode(0o666);
+    fs::set_permissions(file_socket, file_socket_permissions).unwrap();
+
+    info!("custom_metrics thread started");
+
+    loop {
+        match listener.accept().await {
+            Ok((stream, _addr)) => {
+                debug!("new custom_metrics client connected");
+                tokio::spawn(handle_custom_metrics(stream, tx.clone()));
+            }
+            Err(e) => {
+                error!("Error with custom metrics: {}", e);
+            }
+        }
+    }
+}
+
 // Helper method which will read data from stdin and send it along the
 // sender provided. This function is used for test only.
 async fn _read_stdin(tx: futures_channel::mpsc::UnboundedSender<Message>) {
@@ -165,7 +248,6 @@ fn create_websocat_process(cloud: String, local_working_dir: String, uuid: Strin
     let child = 
         Command::new(websocat_path)
             .arg("-v")
-            // .arg("--oneshot")
             .arg("--binary")
             .arg("--ping-interval=20")
             .arg(ssh_websocket_url)

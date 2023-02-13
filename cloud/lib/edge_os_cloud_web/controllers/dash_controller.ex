@@ -18,13 +18,12 @@ defmodule EdgeOsCloudWeb.DashController do
         |> redirect(to: "/login")
 
       user ->
-        user_edges = Device.list_active_account_edges(user.id)
-        user_online_edges_ids = Enum.filter(user_edges, fn x -> Device.edge_online?(x.id) end) |> Enum.map(fn x -> x.id end)
+        user_edges_ids = Device.list_active_account_edges(user.id) |> Enum.map(fn x -> x.id end)
 
         # NOTE: could be because edge_id is a int type
         edge_id_int = String.to_integer(edge_id)
 
-        if edge_id_int in user_online_edges_ids do
+        if edge_id_int in user_edges_ids do
           edge_statuss = Device.list_recent_edge_status(edge_id_int)
           timestamps = edge_statuss |> Enum.map(fn x -> Timex.format!(x.inserted_at, "{YYYY}-{0M}-{0D} {h24}:{m}:{s}") end)
 

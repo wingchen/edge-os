@@ -7,7 +7,6 @@ edition = "2021"
 
 [dependencies]
 log = "0.4"
-env_logger = "0.9.0"
 futures-util = "0.3.25"
 futures-channel = "0.3.25"
 url = "2.3.1"
@@ -20,6 +19,7 @@ serde = { version = "1.0.152", features = ["derive"] }
 serde_json = "1.0.91"
 byte-unit = "4.0.18"
 openssl = { version = "0.10", features = ["vendored"] }
+systemd-journal-logger = "0.7.0"
 
 [dependencies.uuid]
 version = "1.2.1"
