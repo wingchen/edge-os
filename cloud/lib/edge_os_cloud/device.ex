@@ -10,6 +10,7 @@ defmodule EdgeOsCloud.Device do
   alias EdgeOsCloud.Device.EdgeSession
   alias EdgeOsCloud.Device.EdgeActivity
   alias EdgeOsCloud.Device.EdgeStatus
+  alias EdgeOsCloud.Device.EdgeCustomMetrics
   alias EdgeOsCloud.Accounts.Team
 
   @doc """
@@ -147,6 +148,19 @@ defmodule EdgeOsCloud.Device do
     %EdgeStatus{}
     |> EdgeStatus.changeset(attrs)
     |> Repo.insert()
+  end
+
+  def create_edge_custom_metrics(edge_id, payload) do
+    if is_map(payload) and Kernel.map_size(payload) > 0 do
+      %EdgeCustomMetrics{}
+      |> EdgeCustomMetrics.changeset(%{
+        edge_id: edge_id,
+        data: payload
+      })
+      |> Repo.insert()
+    else
+      raise "custom metrics from #{edge_id} should be a map and not empty"
+    end
   end
 
   @doc """
