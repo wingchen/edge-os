@@ -58,23 +58,27 @@ defmodule EdgeOsCloud.Device do
   end
 
   def list_recent_edge_status_from_edges(edge_ids) do
-    edge_ids_str = "(#{Enum.join(edge_ids, ",")})"
-
-    {:ok, result} = Repo.query(
-      ~s{
-        select
-          to_timestamp(floor((extract('epoch' from inserted_at) / 1800 )) * 1800) as t,
-          edge_id,
-          count(1)
-        from edge_statuss
-        where inserted_at >= NOW() - INTERVAL '1 DAY' and edge_id in #{edge_ids_str}
-        group by t, edge_statuss.edge_id
-        order by t;
-      },
+    if length(edge_ids) == 0 do
       []
-    )
+    else
+      edge_ids_str = "(#{Enum.join(edge_ids, ",")})"
 
-    result.rows
+      {:ok, result} = Repo.query(
+        ~s{
+          select
+            to_timestamp(floor((extract('epoch' from inserted_at) / 1800 )) * 1800) as t,
+            edge_id,
+            count(1)
+          from edge_statuss
+          where inserted_at >= NOW() - INTERVAL '1 DAY' and edge_id in #{edge_ids_str}
+          group by t, edge_statuss.edge_id
+          order by t;
+        },
+        []
+      )
+
+      result.rows
+    end
   end
 
   @doc """

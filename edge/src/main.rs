@@ -94,14 +94,27 @@ async fn main() {
                         match locked_websocat_process_map.get(&session_id_str) {
                             Some(&_process_id) => error!("websocat_process is already running, ignoring the command"),
                             None => {
-                                let process_id = create_websocat_process(cloud.clone(), local_working_dir.clone(), uuid.clone(), session_id_str.clone());
+                                let process_id = create_ssh_process(cloud.clone(), local_working_dir.clone(), uuid.clone(), session_id_str.clone());
                                 locked_websocat_process_map.insert(session_id_str.clone(), process_id);
                                 info!("websocat_process created at: {}", command_str);
                             }
                         }
                     },
 
-                    ["STOP_SSH", session_id] => {
+                    ["RDP", session_id] => {
+                        let session_id_str = session_id.to_string();
+
+                        match locked_websocat_process_map.get(&session_id_str) {
+                            Some(&_process_id) => error!("websocat_process is already running, ignoring the command"),
+                            None => {
+                                let process_id = create_rdp_process(cloud.clone(), local_working_dir.clone(), uuid.clone(), session_id_str.clone());
+                                locked_websocat_process_map.insert(session_id_str.clone(), process_id);
+                                info!("websocat_process created at: {}", command_str);
+                            }
+                        }
+                    },
+
+                    ["STOP_SESSION", session_id] => {
                         let session_id_str = session_id.to_string();
 
                         match locked_websocat_process_map.get(&session_id_str) {
@@ -240,22 +253,30 @@ async fn _read_stdin(tx: futures_channel::mpsc::UnboundedSender<Message>) {
     }
 }
 
-fn create_websocat_process(cloud: String, local_working_dir: String, uuid: String, session_id: String) -> u32 {
+fn create_tcp_to_websocat_process(cloud: String, local_working_dir: String, uuid: String, session_id: String, port: u32) -> u32 {
     let websocat_path = format!("{}/websocat", local_working_dir);
-    let ssh_websocket_url = format!("{}/e-ssh/{}/{}/websocket", cloud, uuid, session_id);
-    info!("ssh connecting to: {ssh_websocket_url}");
+    let websocket_url = format!("{}/e-ssh/{}/{}/websocket", cloud, uuid, session_id);
+    info!("tcp connecting to: {websocket_url}");
 
     let child = 
         Command::new(websocat_path)
             .arg("-v")
             .arg("--binary")
             .arg("--ping-interval=20")
-            .arg(ssh_websocket_url)
-            .arg("tcp:127.0.0.1:22")
+            .arg(websocket_url)
+            .arg(format!("tcp:127.0.0.1:{}", port))
             .spawn()
             .expect("failed to execute websocat");
 
     return child.id();
+}
+
+fn create_ssh_process(cloud: String, local_working_dir: String, uuid: String, session_id: String) -> u32 {
+    return create_tcp_to_websocat_process(cloud, local_working_dir, uuid, session_id, 22);
+}
+
+fn create_rdp_process(cloud: String, local_working_dir: String, uuid: String, session_id: String) -> u32 {
+    return create_tcp_to_websocat_process(cloud, local_working_dir, uuid, session_id, 3389);
 }
 
 fn kill_websocat_process(pid: u32) {
