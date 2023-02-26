@@ -41,6 +41,7 @@ defmodule EdgeOsCloudWeb.DashController do
           |> assign(:disk, disk)
           |> assign(:temperature, temperature)
           |> assign(:process_count, process_count)
+          |> assign(:edge, Device.get_edge!(edge_id_int))
           |> render("edge.html")
         else
           conn

@@ -12,7 +12,7 @@ defmodule EdgeOsCloudWeb.Endpoint do
 
   socket "/live", Phoenix.LiveView.Socket, websocket: [connect_info: [:peer_data, session: @session_options]]
   socket "/et/:team_hash/:uuid/:password", EdgeOsCloud.Sockets.EdgeSocket
-  socket "/e-ssh/:uuid/:session_id", EdgeOsCloud.Sockets.EdgeSSHSocket
+  socket "/e-ssh/:uuid/:session_id", EdgeOsCloud.Sockets.EdgeTcpSocket
 
   # Serve at "/" the static files from "priv/static" directory.
   #

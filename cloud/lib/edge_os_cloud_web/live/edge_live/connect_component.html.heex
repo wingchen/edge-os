@@ -1,0 +1,88 @@
+<div>
+  <h2><%= @title %></h2>
+  <div class="card">
+    <div class="card-body">
+      <h5 class="card-title">TCP tunnel connection to <%= @edge.name %></h5>
+
+      <div id="ssh-step-1">
+        <p class="card-text">
+          A TCP tunnel will be created and directed towards an edge port. This tunnel will allow the bridging of common TCP-based application protocols such as SSH (Secure Shell), RDP (Remote Desktop Protocol), and ARD (Apple Remote Desktop). Here are their default ports.
+          <br/>
+
+          <table class="table">
+            <thead>
+              <tr>
+                <th scope="col">Protocol</th>
+                <th scope="col">Default Port</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">SSH</th>
+                <td>22</td>
+              </tr>
+              <tr>
+                <th scope="row">RDP</th>
+                <td>3389</td>
+              </tr>
+              <tr>
+                <th scope="row">ARD</th>
+                <td>5900</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <br/>
+          Please input the port number you would like to bridge to in the edge below.
+        </p>
+
+        <%= link to: "#", phx_target: @myself, phx_click: "ssh", phx_value_id: @edge.id, class: "btn btn-primary btn-sm active", replace: false do %>
+          Legacy SSH Button
+        <% end %>
+
+        <br/><br/>
+
+        <div class="input-group mb-3">
+          <input type="text" class="form-control" placeholder="what port do you want to connect to? The default is 22, the ssh port." aria-label="what port do you want to connect to? The default is 22, the ssh port." aria-describedby="button-addon2" id="connect-port-number" onchange="updatePort()">
+          <div class="input-group-append">
+            <%= link to: "#", phx_target: @myself, phx_click: "connect", phx_value_id: @edge.id, phx_value_port_number: "22", class: "btn btn-primary btn-sm active", id: "button-connect", replace: false do %>
+              Connect
+            <% end %>
+          </div>
+        </div>
+      </div>
+
+      <div id="ssh-step-2" hidden>
+        <div class="spinner-border" role="status">
+          <span class="sr-only">Loading...</span>
+        </div>
+
+        <div id="ssh-step-2-note">
+          Setting up the ssh tunnel...
+        </div>
+      </div>
+
+      <div id="ssh-step-3" class="alert alert-success" role="alert" hidden>
+        <h4 class="alert-heading" id="ssh-step-3-title">You are connected!</h4>
+        <div id="ssh-step-3-connected">
+          <p id="ssh-step-3-note">Now you can ssh in with the following command:</p>
+
+          <div id="ssh-step-3-command" class="p-3 mb-2 bg-success text-white">
+            ssh [your_user_name]@edgeos.cloud.domain -p [some_generated_port_number]
+          </div>
+
+          <p>This ssh bridge also supports <span class="badge badge-primary">scp</span> command.</p>
+        </div>
+        <div id="ssh-step-3-disconnected">
+          <div class="p-3 mb-2 bg-secondary text-white">The ssh session disconnected.</div>
+          <p id="ssh-step-3-finishnote">Now you can ssh in with the following command:</p>
+        </div>
+      </div>
+
+      <div id="ssh-step-error" class="alert alert-danger" role="alert" hidden>
+        <h4 class="alert-heading" id="ssh-step-error-title">Error!!</h4>
+        <div id="ssh-step-error-note" class="p-3 mb-2 .bg-danger">Something has happened...</div>
+      </div>
+    </div>
+  </div>
+</div>

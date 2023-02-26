@@ -1,4 +1,4 @@
-defmodule EdgeOsCloud.Sockets.UserSSHSocket do
+defmodule EdgeOsCloud.Sockets.UserTcpSocket do
   use GenServer
   require Logger
 
@@ -10,7 +10,7 @@ defmodule EdgeOsCloud.Sockets.UserSSHSocket do
     session_port = Keyword.get(ops, :session_port)
     session_id = Keyword.get(ops, :session_id)
     user_ip = Keyword.get(ops, :user_ip)
-    Logger.info("starting ssh servers at #{session_port} for session #{session_id} and user at #{inspect user_ip}")
+    Logger.info("starting servers at #{session_port} for session #{session_id} and user at #{inspect user_ip}")
 
     if is_nil(session_port) do
       raise "session_port cannot be nil"
@@ -34,7 +34,7 @@ defmodule EdgeOsCloud.Sockets.UserSSHSocket do
                             session_port, [:binary, {:packet, 0}, {:active, true}, {:ip, {0, 0, 0, 0}}])
 
     true = Process.register(self(), get_pid(session_id))
-    Logger.info("tcp server for ssh session #{inspect session_id} started at #{inspect session_port} with pid #{inspect self()} waiting for user to connect in")
+    Logger.info("tcp server for session #{inspect session_id} started at #{inspect session_port} with pid #{inspect self()} waiting for user to connect in")
 
     {:ok, socket} = :gen_tcp.accept(listen_socket)
     Logger.debug("user connected in with socket #{inspect socket}")
@@ -44,7 +44,7 @@ defmodule EdgeOsCloud.Sockets.UserSSHSocket do
 
   def handle_info(:accept, %{socket: socket, session_id: session_id} = state) do
     {:ok, _} = :gen_tcp.accept(socket)
-    Logger.debug("tcp server for ssh session #{inspect session_id} got user connected")
+    Logger.debug("tcp server for session #{inspect session_id} got user connected")
     {:noreply, state}
   end
 
@@ -55,12 +55,12 @@ defmodule EdgeOsCloud.Sockets.UserSSHSocket do
   end
 
   def handle_info({:tcp, _socket, payload}, state) do
-    Logger.debug("payload from user ssh: #{inspect payload}")
+    Logger.debug("payload from user: #{inspect payload}")
     %{session_id: session_id} = state
 
-    case EdgeOsCloud.Sockets.EdgeSSHSocket.get_pid(session_id) do
+    case EdgeOsCloud.Sockets.EdgeTcpSocket.get_pid(session_id) do
       nil ->
-        raise "cannot find ssh session #{inspect session_id} from edge. bailing..."
+        raise "cannot find session #{inspect session_id} from edge. bailing..."
 
       edge_bridge_pid ->
         send(edge_bridge_pid, payload)
@@ -71,12 +71,12 @@ defmodule EdgeOsCloud.Sockets.UserSSHSocket do
 
   def handle_info({:tcp_closed, socket}, %{session_port: session_port, session_id: session_id} = state) do
     EdgeOsCloud.Sockets.TCPPortSelector.return_port(session_port)
-    Logger.info("ssh tcp socket #{inspect socket} on port #{session_port} has been closed")
+    Logger.info("tcp socket #{inspect socket} on port #{session_port} has been closed")
 
-    # also terminate the ssh process
-    case EdgeOsCloud.Sockets.EdgeSSHSocket.get_pid(session_id) do
+    # also terminate the process
+    case EdgeOsCloud.Sockets.EdgeTcpSocket.get_pid(session_id) do
       nil ->
-        raise "cannot find ssh session #{inspect session_id} from edge. bailing..."
+        raise "cannot find session #{inspect session_id} from edge. bailing..."
 
       edge_bridge_pid ->
         send(edge_bridge_pid, :user_tcp_closed)
@@ -88,10 +88,10 @@ defmodule EdgeOsCloud.Sockets.UserSSHSocket do
   def handle_info({:tcp_error, socket, reason}, %{session_id: session_id} = state) do
     Logger.error("connection closed dut to #{inspect reason}: #{inspect socket}")
 
-    # also terminate the ssh process
-    case EdgeOsCloud.Sockets.EdgeSSHSocket.get_pid(session_id) do
+    # also terminate the process
+    case EdgeOsCloud.Sockets.EdgeTcpSocket.get_pid(session_id) do
       nil ->
-        raise "cannot find ssh session #{inspect session_id} from edge. bailing..."
+        raise "cannot find session #{inspect session_id} from edge. bailing..."
 
       edge_bridge_pid ->
         send(edge_bridge_pid, :user_tcp_errored)

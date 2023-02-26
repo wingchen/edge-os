@@ -13,10 +13,10 @@
   </.modal>
 <% end %>
 
-<%= if @live_action in [:ssh] do %>
+<%= if @live_action in [:connect] do %>
   <.modal return_to={Routes.edge_index_path(@socket, :index)} class="modal fade" id="editSSHModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLongTitle" aria-hidden="true">
     <.live_component
-      module={EdgeOsCloudWeb.EdgeLive.SSHComponent}
+      module={EdgeOsCloudWeb.EdgeLive.ConnectComponent}
       id={@edge.id}
       title={@page_title}
       action={@live_action}
@@ -82,7 +82,7 @@
                             <% end %>
 
                           <%= if EdgeOsCloud.Device.edge_online?(edge.id) do %>
-                            <%= live_patch to: Routes.edge_index_path(@socket, :ssh, edge), class: "btn btn-primary btn-circle btn-sm", replace: false do %>
+                            <%= live_patch to: Routes.edge_index_path(@socket, :connect, edge), class: "btn btn-primary btn-circle btn-sm", replace: false do %>
                                 <i class="fas fa-terminal"></i>
                             <% end %>
 
@@ -99,6 +99,12 @@
     </div>
 
   <script>
+    function updatePort() {
+        let portNumber = document.getElementById("connect-port-number").value;
+        console.log('portNumber is set to be', portNumber);
+        document.getElementById("button-connect").setAttribute("phx-value-port-number", portNumber);
+    }
+
     window.addEventListener(`phx:step2`, (e) => {
       let s2_s1 = document.getElementById("ssh-step-1");
       if(s2_s1) s2_s1.hidden = "true";

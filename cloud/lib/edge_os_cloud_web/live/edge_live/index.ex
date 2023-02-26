@@ -40,9 +40,9 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
     |> assign(:edge, Device.get_edge!(id))
   end
 
-  defp apply_action(socket, :ssh, %{"id" => id}) do
+  defp apply_action(socket, :connect, %{"id" => id}) do
     socket
-    |> assign(:page_title, "SSH into Edge")
+    |> assign(:page_title, "Connect to an Edge Port")
     |> assign(:edge, Device.get_edge!(id))
   end
 
@@ -88,11 +88,11 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
     {:noreply, socket}
   end
 
-  def handle_info({:check_ssh_readiness, session_id, counter}, socket) do
+  def handle_info({:check_tcp_readiness, session_id, counter}, socket) do
     if counter >= 3 do
-      Logger.warn("timeout trying to establish ssh session for #{session_id}. updating the UI")
-      note = "We are not seeing the rigth processes from edge and server launched. Please contact the system admin if this keeps happening."
-      socket = push_event(socket, "ssh_error", %{title: "Timeout! SSH tunnel NOT established", note: note})
+      Logger.warn("timeout trying to establish tcp session for #{session_id}. updating the UI")
+      note = "We are not seeing the rigth processes from edge and server launched. Are you sure that there is an edge process running on the port? Please contact the system admin if this keeps happening."
+      socket = push_event(socket, "ssh_error", %{title: "Timeout! TCP tunnel NOT established", note: note})
       {:noreply, socket}
     else
       if is_session_ready(session_id) do
@@ -117,7 +117,7 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
         # schedule for the next check
         Logger.debug("ssh session for #{session_id} is not ready. check in again in secs")
         socket = push_event(socket, "step2", %{note: "still working on it..."})
-        Process.send_after(self(), {:check_ssh_readiness, session_id, counter + 1}, 3000)
+        Process.send_after(self(), {:check_tcp_readiness, session_id, counter + 1}, 3000)
         {:noreply, socket}
       end
     end
@@ -142,12 +142,12 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
   end
 
   defp is_session_ready(session_id) do
-    user_process_ready = case Process.whereis(EdgeOsCloud.Sockets.UserSSHSocket.get_pid(session_id)) do
+    user_process_ready = case Process.whereis(EdgeOsCloud.Sockets.EdgeTcpSocket.get_pid(session_id)) do
       nil -> false
       _user_pid -> true
     end
 
-    edge_process_ready = case Process.whereis(EdgeOsCloud.Sockets.EdgeSSHSocket.get_pid(session_id)) do
+    edge_process_ready = case Process.whereis(EdgeOsCloud.Sockets.EdgeTcpSocket.get_pid(session_id)) do
       nil -> false
       _user_pid -> true
     end

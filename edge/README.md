@@ -40,9 +40,9 @@ I would also suggest to use `rust-musl-cross`(https://github.com/rust-cross/rust
 The official documentation is great already. For example, if you are on your PC but building for resberry pi 4:
 
 ```
-docker pull messense/rust-musl-cross:armv7-musleabihf
+docker pull messense/rust-musl-cross:arm-musleabi
 
-alias rust-musl-builder='docker run --rm -it -v "$(pwd)":/home/rust/src messense/rust-musl-cross:armv7-musleabihf'
+alias rust-musl-builder='sudo docker run --rm -it -v "$(pwd)":/home/rust/src messense/rust-musl-cross:arm-musleabi'
 
 rust-musl-builder cargo build --release
 ```

@@ -1,4 +1,4 @@
-defmodule EdgeOsCloud.Sockets.EdgeSSHSocket do
+defmodule EdgeOsCloud.Sockets.EdgeTcpSocket do
   @behaviour Phoenix.Socket.Transport
   require Logger
 
@@ -58,9 +58,9 @@ defmodule EdgeOsCloud.Sockets.EdgeSSHSocket do
     updated_message_queue = message_queue ++ [message]
 
     # put the message in the queue if the ssh is not yet connected
-    updated_message_queue = case Process.whereis(EdgeOsCloud.Sockets.UserSSHSocket.get_pid(session.id)) do
+    updated_message_queue = case Process.whereis(EdgeOsCloud.Sockets.UserTcpSocket.get_pid(session.id)) do
       nil ->
-        Logger.info("cannot find the pid for UserSSHSocket process for session #{inspect session.id}")
+        Logger.info("cannot find the pid for UserTcpSocket process for session #{inspect session.id}")
         # keep the appended messages
         updated_message_queue
 

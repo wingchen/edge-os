@@ -101,15 +101,16 @@ async fn main() {
                         }
                     },
 
-                    ["RDP", session_id] => {
+                    ["CONNECT", session_id, port_number] => {
                         let session_id_str = session_id.to_string();
+                        let port_number_u: u32 = port_number.parse().unwrap();
 
                         match locked_websocat_process_map.get(&session_id_str) {
                             Some(&_process_id) => error!("websocat_process is already running, ignoring the command"),
                             None => {
-                                let process_id = create_rdp_process(cloud.clone(), local_working_dir.clone(), uuid.clone(), session_id_str.clone());
+                                let process_id = create_connection_process(cloud.clone(), local_working_dir.clone(), uuid.clone(), session_id_str.clone(), port_number_u);
                                 locked_websocat_process_map.insert(session_id_str.clone(), process_id);
-                                info!("websocat_process created at: {}", command_str);
+                                info!("websocat_process created at: {} for port {}", command_str, port_number);
                             }
                         }
                     },
@@ -275,8 +276,8 @@ fn create_ssh_process(cloud: String, local_working_dir: String, uuid: String, se
     return create_tcp_to_websocat_process(cloud, local_working_dir, uuid, session_id, 22);
 }
 
-fn create_rdp_process(cloud: String, local_working_dir: String, uuid: String, session_id: String) -> u32 {
-    return create_tcp_to_websocat_process(cloud, local_working_dir, uuid, session_id, 3389);
+fn create_connection_process(cloud: String, local_working_dir: String, uuid: String, session_id: String, port_number: u32) -> u32 {
+    return create_tcp_to_websocat_process(cloud, local_working_dir, uuid, session_id, port_number);
 }
 
 fn kill_websocat_process(pid: u32) {
