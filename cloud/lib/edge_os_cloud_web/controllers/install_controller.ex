@@ -15,6 +15,68 @@ defmodule EdgeOsCloudWeb.InstallController do
     end
   end
 
+  defp installation_constants() do
+    """
+    EDGE_WORK_DIR=/opt/edge-os-edge
+    EDGE_EXE_NAME=edgeos_edge
+    EDGE_DOWNLOAD_NAME=edgeos.tar.xz
+
+    EDGE_EXE=$EDGE_WORK_DIR/$EDGE_EXE_NAME
+    DOWNLOAD_PATH=/tmp/$EDGE_DOWNLOAD_NAME
+    """
+  end
+
+  defp download_daemon() do
+    """
+    DownloadDeamon() {
+        HW=$(uname -m)
+
+        case "$HW" in
+            "x86_64")
+                architecture="x86_64a"
+                ;;
+            "x86")
+                architecture="x86"
+                ;;
+            "arm"*)
+                architecture="arm"
+                ;;
+            "aarch64"*)
+                architecture="armv0"
+                ;;
+
+            *)
+                echo "Cannot identify the hardware architecture type: $HW, please contact the EdgeOS admin for help."
+                exit 1
+        esac
+
+        url="https://github.com/wingchen/edge-os/releases/download/0.0.2/edgeos_edge_$architecture.tar.xz"
+        echo "downloading daemon from release url: $url"
+        wget "$url" -O $DOWNLOAD_PATH || /bin/busybox wget "$url" -O $DOWNLOAD_PATH
+    }
+    """
+  end
+
+  defp extract() do
+    """
+    Extract() {
+        if [ -f $DOWNLOAD_PATH ]; then
+            echo "Extracting EdgeOS..."
+
+            mkdir -p $EDGE_WORK_DIR
+            chmod 600 $EDGE_WORK_DIR
+            rm -f $EDGE_EXE
+
+            cd $EDGE_WORK_DIR
+            tar -xf $DOWNLOAD_PATH
+
+            chmod a+x $EDGE_EXE
+            rm $DOWNLOAD_PATH
+        fi
+    }
+    """
+  end
+
   def new_edge(conn, %{"team_hash" => team_hash}) do
     if team_valid(team_hash) do
       cloud_url = "https://#{System.get_env("PHX_HOST", "127.0.0.1:4000")}"
@@ -38,57 +100,13 @@ defmodule EdgeOsCloudWeb.InstallController do
       CLOUD_URL=#{cloud_url}
       TEAM_HASH=#{team_hash}
 
-      EDGE_WORK_DIR=/opt/edge-os-edge
-      EDGE_EXE_NAME=edgeos_edge
-      EDGE_DOWNLOAD_NAME=edgeos.tar.xz
-
-      EDGE_EXE=$EDGE_WORK_DIR/$EDGE_EXE_NAME
-      DOWNLOAD_PATH=/tmp/$EDGE_DOWNLOAD_NAME
+      #{installation_constants()}
 
       SYSTEMD_SERVICE=/etc/systemd/system/
 
-      DownloadDeamon() {
-          HW=$(uname -m)
+      #{download_daemon()}
 
-          case "$HW" in
-              "x86_64")
-                  architecture="x86_64a"
-                  ;;
-              "x86")
-                  architecture="x86"
-                  ;;
-              "arm"*)
-                  architecture="arm"
-                  ;;
-              "aarch64"*)
-                  architecture="armv0"
-                  ;;
-
-              *)
-                  echo "Cannot identify the hardware architecture type: $HW, please contact the EdgeOS admin for help."
-                  exit 1
-          esac
-
-          url="https://github.com/wingchen/edge-os/releases/download/0.0.1/edgeos_edge_$architecture.tar.xz"
-          echo "downloading daemon from release url: $url"
-          wget "$url" -O $DOWNLOAD_PATH || /bin/busybox wget "$url" -O $DOWNLOAD_PATH
-      }
-
-      Extract() {
-          if [ -f $DOWNLOAD_PATH ]; then
-              echo "Extracting EdgeOS..."
-
-              mkdir -p $EDGE_WORK_DIR
-              chmod 600 $EDGE_WORK_DIR
-              rm -f $EDGE_EXE
-
-              cd $EDGE_WORK_DIR
-              tar -xf $DOWNLOAD_PATH
-
-              chmod a+x $EDGE_EXE
-              rm $DOWNLOAD_PATH
-          fi
-      }
+      #{extract()}
 
       InstallSystemdService() {
           url="${CLOUD_URL}/install/${TEAM_HASH}/edgeos.service"
@@ -158,6 +176,38 @@ defmodule EdgeOsCloudWeb.InstallController do
       |> put_root_layout(false)
       |> send_resp(500, content)
     end
+  end
+
+  def update_edge(conn, %{}) do
+    content = """
+    #!/bin/sh
+
+    #{installation_constants()}
+
+    #{download_daemon()}
+
+    #{extract()}
+
+    RestartEdgeOS() {
+        echo "Restarting EdgeOS service..."
+        systemctl restart edgeos
+    }
+
+    #### update logic goes here ####
+    DownloadDeamon
+    Extract
+
+    echo ""
+    RestartEdgeOS
+    echo ""
+    echo "EdgeOS Updated Successfully. It's trying to connect to the cloud."
+    """
+    conn
+    |> put_status(:ok)
+    |> put_resp_content_type("text/plain")
+    |> put_resp_header("content-disposition", "attachment; filename=update_edge.sh")
+    |> put_root_layout(false)
+    |> send_resp(200, content)
   end
 
   def edge_service(conn, %{"team_hash" => team_hash}) do

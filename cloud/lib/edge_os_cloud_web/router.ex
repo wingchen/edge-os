@@ -24,6 +24,7 @@ defmodule EdgeOsCloudWeb.Router do
     get "/dash/edge/:id", DashController, :edge
 
     get "/install/:team_hash/new_edge.sh", InstallController, :new_edge
+    get "/install/update_edge.sh", InstallController, :update_edge
     get "/install/:team_hash/edgeos.service", InstallController, :edge_service
 
     live "/edges", EdgeLive.Index, :index

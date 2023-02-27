@@ -42,7 +42,7 @@ The official documentation is great already. For example, if you are on your PC 
 ```
 docker pull messense/rust-musl-cross:arm-musleabi
 
-alias rust-musl-builder='sudo docker run --rm -it -v "$(pwd)":/home/rust/src messense/rust-musl-cross:arm-musleabi'
+alias rust-musl-builder='docker run --rm -it -v "$(pwd)":/home/rust/src messense/rust-musl-cross:arm-musleabi'
 
 rust-musl-builder cargo build --release
 ```

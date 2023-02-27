@@ -42,7 +42,7 @@ defmodule EdgeOsCloudWeb.TeamLive.Index do
         cloud_url = "https://#{System.get_env("PHX_HOST", "127.0.0.1:4000")}"
         team_hash = EdgeOsCloud.Accounts.get_team_id_hash(id)
         socket
-        |> assign(:page_title, "Add New Edge to Team")
+        |> assign(:page_title, "Add/Update New Edge to Team")
         |> assign(:cloud_url, cloud_url)
         |> assign(:team_hash, team_hash)
         |> assign(:team, team)

@@ -105,8 +105,8 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
 
         socket = push_event(socket, "step3", 
           %{
-            title: "SSH tunnel established", 
-            note: "Please use the following ssh command to connect in. The connection process will end as soon as you exit the ssh session.",
+            title: "TCP tunnel established", 
+            note: "For examaple, you can use the following ssh command to connect in if you chose to connect to edge port 22. The connection process will end as soon as you exit the ssh session.",
             command: command
           }
         )

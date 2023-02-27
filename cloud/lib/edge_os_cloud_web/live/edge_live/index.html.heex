@@ -124,7 +124,7 @@
 
     window.addEventListener(`phx:step3`, (e) => {
       let s3_s1 = document.getElementById("ssh-step-1");
-      if(s3_s1) s3_s1.hidden = "true";
+      if(s3_s1) s3_s1.hidden = undefined;
 
       let s3_s2 = document.getElementById("ssh-step-2");
       if(s3_s2) s3_s2.hidden = "true";
@@ -154,7 +154,7 @@
 
     window.addEventListener(`phx:ssh_error`, (e) => {
       let serror_s1 = document.getElementById("ssh-step-1");
-      if(serror_s1) serror_s1.hidden = "true";
+      if(serror_s1) serror_s1.hidden = undefined;
 
       let serror_s2 = document.getElementById("ssh-step-2");
       if(serror_s2) serror_s2.hidden = "true";
