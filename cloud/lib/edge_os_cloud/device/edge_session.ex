@@ -22,12 +22,26 @@ defmodule EdgeOsCloud.Device.EdgeSession do
 end
 
 defmodule EdgeOsCloud.Device.EdgeSessionStage do
-  def created, do: 0
-  def edge_connected, do: 1
-  def user_connected, do: 2
-  def ssh_data_get, do: 3
-  def ssh_data_sent, do: 4
-  def ssh_disconnected, do: 5
-  def edge_disconnected, do: 6
-  def user_disconnected, do: 7
+  @value %{
+    created: 0,
+    edge_connected: 1,
+    user_connected: 2,
+    tcp_data_get: 3,
+    tcp_data_sent: 4,
+    tcp_disconnected: 5,
+    edge_disconnected: 6,
+    user_disconnected: 7
+  }
+
+  @inverted Enum.reduce(@value, %{}, fn {key, value}, acc ->
+    Map.put(acc, value, key)
+  end)
+
+  def get() do
+    @value
+  end
+
+  def get_invert() do
+    @inverted
+  end
 end

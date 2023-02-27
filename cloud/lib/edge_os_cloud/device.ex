@@ -242,4 +242,14 @@ defmodule EdgeOsCloud.Device do
   def change_edge(%Edge{} = edge, attrs \\ %{}) do
     Edge.changeset(edge, attrs)
   end
+
+  def list_sessions(edge_ids) do
+    query = from e in EdgeSession,
+          where: e.edge_id in ^edge_ids,
+          order_by: [desc: e.inserted_at],
+          select: e,
+          limit: 30
+
+    Repo.all(query)
+  end
 end

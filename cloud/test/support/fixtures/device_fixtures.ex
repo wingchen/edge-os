@@ -23,4 +23,18 @@ defmodule EdgeOsCloud.DeviceFixtures do
 
     edge
   end
+
+  @doc """
+  Generate a session.
+  """
+  def session_fixture(attrs \\ %{}) do
+    {:ok, session} =
+      attrs
+      |> Enum.into(%{
+
+      })
+      |> EdgeOsCloud.Device.create_session()
+
+    session
+  end
 end

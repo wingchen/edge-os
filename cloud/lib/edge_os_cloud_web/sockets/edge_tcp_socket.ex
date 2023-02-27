@@ -38,7 +38,7 @@ defmodule EdgeOsCloud.Sockets.EdgeTcpSocket do
 
     true = Process.register(self(), get_pid(session.id))
     Logger.debug("edge ssh listening process registered as #{inspect get_pid(session.id)}")
-    Device.append_edge_session_action(session.id, EdgeSessionStage.edge_connected)
+    Device.append_edge_session_action(session.id, EdgeSessionStage.get.edge_connected)
     
     {:ok, %{edge: edge, session: session, message_queue: []}}
   end
@@ -49,7 +49,7 @@ defmodule EdgeOsCloud.Sockets.EdgeTcpSocket do
 
     # we got message from edge
     state = if is_nil(state[:edge_meg]) do
-      Device.append_edge_session_action(session.id, EdgeSessionStage.ssh_data_get)
+      Device.append_edge_session_action(session.id, EdgeSessionStage.get.tcp_data_get)
       Map.put(state, :edge_meg, "connected")
     else
       state
@@ -79,7 +79,7 @@ defmodule EdgeOsCloud.Sockets.EdgeTcpSocket do
 
     # we are sending data over to edge
     state = if is_nil(state[:user_meg]) do
-      Device.append_edge_session_action(session.id, EdgeSessionStage.ssh_data_sent)
+      Device.append_edge_session_action(session.id, EdgeSessionStage.get.tcp_data_sent)
       Map.put(state, :user_meg, "connected")
     else
       state
@@ -105,7 +105,7 @@ defmodule EdgeOsCloud.Sockets.EdgeTcpSocket do
 
     # we are sending data over to edge
     state = if is_nil(state[:user_meg]) do
-      Device.append_edge_session_action(session.id, EdgeSessionStage.ssh_data_sent)
+      Device.append_edge_session_action(session.id, EdgeSessionStage.get.tcp_data_sent)
       Map.put(state, :user_meg, "connected")
     else
       state
@@ -116,7 +116,7 @@ defmodule EdgeOsCloud.Sockets.EdgeTcpSocket do
 
   def terminate(reason, %{session: session} = _state) do
     Logger.debug("terminating session #{session.id} listening process #{inspect reason}")
-    Device.append_edge_session_action(session.id, EdgeSessionStage.edge_disconnected)
+    Device.append_edge_session_action(session.id, EdgeSessionStage.get.edge_disconnected)
 
     case reason do
       {:crash, :error, summary} ->

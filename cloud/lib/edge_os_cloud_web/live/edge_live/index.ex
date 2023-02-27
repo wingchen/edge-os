@@ -78,13 +78,13 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
   @impl true
   def handle_info({_reference, {:ok, ssh_pid}}, socket) do
     Logger.debug("ssh session #{inspect ssh_pid} terminated")
-    # TODL: Device.append_edge_session_action(session.id, EdgeSessionStage.user_disconnected)    
+    # TODL: Device.append_edge_session_action(session.id, EdgeSessionStage.get.user_disconnected)    
     {:noreply, socket}
   end
 
   def handle_info({:DOWN, _reference, :process, ssh_pid, :normal}, socket) do
     Logger.debug("ssh session #{inspect ssh_pid} terminated")
-    # TODL: Device.append_edge_session_action(session.id, EdgeSessionStage.user_disconnected)    
+    # TODL: Device.append_edge_session_action(session.id, EdgeSessionStage.get.user_disconnected)    
     {:noreply, socket}
   end
 
@@ -111,7 +111,7 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
           }
         )
 
-        Process.send_after(self(), {:ssh_disconnected, session_id}, 3000)
+        Process.send_after(self(), {:tcp_disconnected, session_id}, 3000)
         {:noreply, socket}
       else
         # schedule for the next check
@@ -123,10 +123,10 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
     end
   end
 
-  def handle_info({:ssh_disconnected, session_id}, socket) do
+  def handle_info({:tcp_disconnected, session_id}, socket) do
     if is_session_ready(session_id) do
       # check again in 3 secs until the session is finished
-      Process.send_after(self(), {:ssh_disconnected, session_id}, 3000)
+      Process.send_after(self(), {:tcp_disconnected, session_id}, 3000)
       {:noreply, socket}
     else
       socket = push_event(socket, "step3", 

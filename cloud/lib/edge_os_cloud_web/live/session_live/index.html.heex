@@ -1,0 +1,53 @@
+<h1>Sessions</h1>
+
+<!-- DataTales -->
+<div class="card shadow mb-4">
+    <div class="card-header py-3">
+        <h6 class="m-0 font-weight-bold text-primary">Sessions</h6>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+              <thead>
+                  <tr>
+                    <th>Edge</th>
+                    <th>Edge Port</th>
+                    <th>Tunnel Port</th>
+                    <th>Start Time</th>
+                    <th>End Time</th>
+                    <th>User</th>
+                    <th>Actions</th>
+                  </tr>
+              </thead>
+              <tfoot>
+                  <tr>
+                    <th>Edge</th>
+                    <th>Edge Port</th>
+                    <th>Tunnel Port</th>
+                    <th>Start Time</th>
+                    <th>End Time</th>
+                    <th>User</th>
+                    <th>Actions</th>
+                  </tr>
+              </tfoot>
+              <tbody>
+              <%= for session <- @sessions do %>
+                <tr>
+                    <td><%= @edge_map[session.id] %></td>
+                    <td>TBD</td>
+                    <td><%= session.port %></td>
+                    <td><%= session.inserted_at %></td>
+                    <td><%= session.updated_at %></td>
+                    <td><%= EdgeOsCloud.Accounts.get_user!(session.user_id).name %></td>
+                    <td>
+                      <%= for action <- session.actions do %>
+                        <span class="badge bg-primary table"><%= EdgeOsCloud.Device.EdgeSessionStage.get_invert[action] %></span>
+                      <% end %>
+                    </td>
+                </tr>
+              <% end %>
+              </tbody>
+            </table>
+        </div>
+    </div>
+</div>
