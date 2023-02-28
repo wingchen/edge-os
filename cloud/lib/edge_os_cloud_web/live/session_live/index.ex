@@ -1,5 +1,6 @@
 defmodule EdgeOsCloudWeb.SessionLive.Index do
   use EdgeOsCloudWeb, :live_view
+  require Logger
 
   alias EdgeOsCloud.Device
 
@@ -12,11 +13,13 @@ defmodule EdgeOsCloudWeb.SessionLive.Index do
       user ->
         user_edges = Device.list_active_account_edges(user.id)
         user_edge_ids = user_edges |> Enum.map(fn e -> e.id end)
-        user_edge_map = Enum.into(user_edges, %{}, fn x -> {x.id, x} end)
+        user_edge_map = Enum.into(user_edges, %{}, fn x -> {x.id, x.name} end)
+        sessions = Device.list_sessions(user_edge_ids)
 
         updated_socket = 
           socket
-          |> assign(:sessions, Device.list_sessions(user_edge_ids))
+          |> assign(:current_user, user)
+          |> assign(:sessions, sessions)
           |> assign(:edge_map, user_edge_map)
 
         {:ok, updated_socket}

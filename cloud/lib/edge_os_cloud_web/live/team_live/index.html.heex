@@ -92,12 +92,12 @@
                     <td><%= team.name %></td>
                     <td>
                       <%= for name <- EdgeOsCloud.Accounts.get_user_names(team.admins) do %>
-                        <span class="badge bg-primary table"><%= name %></span>
+                        <span class="badge bg-primary"><%= name %></span>
                       <% end %>
                     </td>
                     <td>
                       <%= for name <- EdgeOsCloud.Accounts.get_user_names(team.members) do %>
-                        <span class="badge bg-primary table"><%= name %></span>
+                        <span class="badge bg-primary"><%= name %></span>
                       <% end %>
                     </td>
                     <td><%= team.inserted_at %></td>

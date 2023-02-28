@@ -1,4 +1,4 @@
-<h1>Sessions</h1>
+<h1>Past Sessions</h1>
 
 <!-- DataTales -->
 <div class="card shadow mb-4">
@@ -33,15 +33,17 @@
               <tbody>
               <%= for session <- @sessions do %>
                 <tr>
-                    <td><%= @edge_map[session.id] %></td>
+                    <td><%= @edge_map[session.edge_id] %></td>
                     <td>TBD</td>
                     <td><%= session.port %></td>
                     <td><%= session.inserted_at %></td>
                     <td><%= session.updated_at %></td>
                     <td><%= EdgeOsCloud.Accounts.get_user!(session.user_id).name %></td>
                     <td>
-                      <%= for action <- session.actions do %>
-                        <span class="badge bg-primary table"><%= EdgeOsCloud.Device.EdgeSessionStage.get_invert[action] %></span>
+                      <%= if not is_nil(session.actions) do %>
+                        <%= for action <- session.actions do %>
+                          <span class="badge bg-primary"><%= Atom.to_string(EdgeOsCloud.Device.EdgeSessionStage.get_invert[action]) %></span>
+                        <% end %>
                       <% end %>
                     </td>
                 </tr>
