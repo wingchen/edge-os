@@ -22,6 +22,7 @@ mod edge_system;
 
 #[tokio::main]
 async fn main() {
+    #[cfg(linux)]
     systemd_journal_logger::init().unwrap();
     log::set_max_level(LevelFilter::Info);
 

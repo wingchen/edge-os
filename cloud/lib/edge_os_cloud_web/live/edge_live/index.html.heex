@@ -85,11 +85,11 @@
                             <%= live_patch to: Routes.edge_index_path(@socket, :connect, edge), class: "btn btn-primary btn-circle btn-sm", replace: false do %>
                                 <i class="fas fa-terminal"></i>
                             <% end %>
+                          <% end %>
 
                             <%= link to: "#", phx_click: "delete", phx_value_id: edge.id, data: [confirm: "Edge is about to be deleted. Are you sure?"], class: "btn btn-danger btn-circle btn-sm", replace: false do %>
                                 <i class="fas fa-trash"></i>
                             <% end %>
-                          <% end %>
                         </td>
                     </tr>
                     <% end %>
