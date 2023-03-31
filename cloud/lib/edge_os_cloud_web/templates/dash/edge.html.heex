@@ -1,6 +1,25 @@
 <section class="phx-hero">
    <h1>EdgeOS Dashboard - <%= @edge.name %></h1>
-   <p>Here are your recent trends.</p>
+   <p>Here are your recent trends from <span class="badge badge-secondary"><%= @from %></span> to <span class="badge badge-secondary"><%= @to %></span>.</p>
+   <div class="alert alert-dark" role="alert">
+    <%= if not is_nil(@error) do %>
+      <span class="badge badge-danger"><%= @error %></span>
+    <% end %>
+    <p>You can also select the intervals you wish to see here.</p>
+    <form>
+      <div class="form-row">
+        <div class="col">
+          <input type="text" class="form-control" placeholder="From" name="from" id='datetimepickerFrom' />
+        </div>
+        <div class="col">
+          <input type="text" class="form-control" placeholder="To" name="to" id='datetimepickerTo' />
+        </div>
+        <div class="col">
+          <button type="submit" class="btn btn-primary">Go</button>
+        </div>
+      </div>
+    </form>
+   </div>
 </section>
 <div class="row">
    <!-- CPU -->
@@ -83,6 +102,8 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/moment@2.27.0"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-moment@0.1.1"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 <script>
   // cpu
   const ctx = document.getElementById('edge_cpu');
@@ -123,6 +144,19 @@
       scales: {
         x: {
           type: 'time',
+          time: {
+            displayFormats: {
+              'millisecond': 'MMM DD HH:mm',
+              'second': 'MMM DD HH:mm',
+              'minute': 'MMM DD HH:mm',
+              'hour': 'MMM DD HH:mm',
+              'day': 'MMM DD HH:mm',
+              'week': 'MMM DD HH:mm',
+              'month': 'MMM DD HH:mm',
+              'quarter': 'MMM DD HH:mm',
+              'year': 'MMM DD HH:mm',
+            }
+          },
           title: {
             display: true,
             text: 'time'
@@ -177,6 +211,19 @@
       scales: {
         x: {
           type: 'time',
+          time: {
+            displayFormats: {
+              'millisecond': 'MMM DD HH:mm',
+              'second': 'MMM DD HH:mm',
+              'minute': 'MMM DD HH:mm',
+              'hour': 'MMM DD HH:mm',
+              'day': 'MMM DD HH:mm',
+              'week': 'MMM DD HH:mm',
+              'month': 'MMM DD HH:mm',
+              'quarter': 'MMM DD HH:mm',
+              'year': 'MMM DD HH:mm',
+            }
+          },
           title: {
             display: true,
             text: 'time'
@@ -231,6 +278,19 @@
       scales: {
         x: {
           type: 'time',
+          time: {
+            displayFormats: {
+              'millisecond': 'MMM DD HH:mm',
+              'second': 'MMM DD HH:mm',
+              'minute': 'MMM DD HH:mm',
+              'hour': 'MMM DD HH:mm',
+              'day': 'MMM DD HH:mm',
+              'week': 'MMM DD HH:mm',
+              'month': 'MMM DD HH:mm',
+              'quarter': 'MMM DD HH:mm',
+              'year': 'MMM DD HH:mm',
+            }
+          },
           title: {
             display: true,
             text: 'time'
@@ -285,6 +345,19 @@
       scales: {
         x: {
           type: 'time',
+          time: {
+             displayFormats: {
+              'millisecond': 'MMM DD HH:mm',
+              'second': 'MMM DD HH:mm',
+              'minute': 'MMM DD HH:mm',
+              'hour': 'MMM DD HH:mm',
+              'day': 'MMM DD HH:mm',
+              'week': 'MMM DD HH:mm',
+              'month': 'MMM DD HH:mm',
+              'quarter': 'MMM DD HH:mm',
+              'year': 'MMM DD HH:mm',
+            }
+          },
           title: {
             display: true,
             text: 'time'
@@ -337,6 +410,19 @@
       scales: {
         x: {
           type: 'time',
+          time: {
+            displayFormats: {
+              'millisecond': 'MMM DD HH:mm',
+              'second': 'MMM DD HH:mm',
+              'minute': 'MMM DD HH:mm',
+              'hour': 'MMM DD HH:mm',
+              'day': 'MMM DD HH:mm',
+              'week': 'MMM DD HH:mm',
+              'month': 'MMM DD HH:mm',
+              'quarter': 'MMM DD HH:mm',
+              'year': 'MMM DD HH:mm',
+            }
+          },
           title: {
             display: true,
             text: 'time'
@@ -351,4 +437,12 @@
       },
     },
   });
+
+  let flatpickr_config = {
+    enableTime: true,
+    dateFormat: "Y-m-d H:i",
+  };
+
+  $("#datetimepickerFrom").flatpickr(flatpickr_config);
+  $("#datetimepickerTo").flatpickr(flatpickr_config);
 </script>
