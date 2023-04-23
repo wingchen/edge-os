@@ -99,15 +99,14 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
         Logger.debug("ssh session for #{session_id} is ready. updating the UI")
         cloud_url = System.get_env("PHX_HOST", "127.0.0.1")
         session = Device.get_edge_session!(session_id)
-        
         random_session_hash = EdgeOsCloud.HashIdHelper.encode(session_id, UUID.uuid4()) |> String.slice(0..5) |> String.downcase()
-        command = "ssh [your_account_name]@#{random_session_hash}.#{cloud_url} -p #{session.port}"
 
         socket = push_event(socket, "step3", 
           %{
-            title: "TCP tunnel established", 
-            note: "For examaple, you can use the following ssh command to connect in if you chose to connect to edge port 22. The connection process will end as soon as you exit the ssh session.",
-            command: command
+            title: "ssh connection established", 
+            note: "you can find some usage examples below",
+            tcp_port: "#{session.port}",
+            tcp_url: "#{random_session_hash}.#{cloud_url}",
           }
         )
 

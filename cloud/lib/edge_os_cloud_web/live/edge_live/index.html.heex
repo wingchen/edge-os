@@ -74,20 +74,20 @@
                         <td><%= edge.updated_at %></td>
                         <td><%= edge.inserted_at %></td>
                         <td>
-                            <%= live_patch to: Routes.edge_index_path(@socket, :edit, edge), class: "btn btn-warning btn-circle btn-sm", replace: false do %>
+                            <%= live_patch to: Routes.edge_index_path(@socket, :edit, edge), class: "btn btn-warning btn-circle btn-sm", "data-toggle": "tooltip", title: "edit the edge name", replace: false do %>
                                 <i class="fas fa-edit"></i>
                             <% end %>
-                            <%= link to: "#", phx_click: "info", phx_value_id: edge.id, data: [], class: "btn btn-info btn-circle btn-sm", replace: false do %>
+                            <%= link to: "#", phx_click: "info", phx_value_id: edge.id, data: [], class: "btn btn-info btn-circle btn-sm", "data-toggle": "tooltip", title: "check edge stats", replace: false do %>
                                 <i class="fas fa-info-circle"></i>
                             <% end %>
 
                           <%= if EdgeOsCloud.Device.edge_online?(edge.id) do %>
-                            <%= live_patch to: Routes.edge_index_path(@socket, :connect, edge), class: "btn btn-primary btn-circle btn-sm", replace: false do %>
+                            <%= live_patch to: Routes.edge_index_path(@socket, :connect, edge), class: "btn btn-primary btn-circle btn-sm", "data-toggle": "tooltip", title: "ssh to edge", replace: false do %>
                                 <i class="fas fa-terminal"></i>
                             <% end %>
                           <% end %>
 
-                            <%= link to: "#", phx_click: "delete", phx_value_id: edge.id, data: [confirm: "Edge is about to be deleted. Are you sure?"], class: "btn btn-danger btn-circle btn-sm", replace: false do %>
+                            <%= link to: "#", phx_click: "delete", phx_value_id: edge.id, data: [confirm: "Edge is about to be deleted. Are you sure?"], class: "btn btn-danger btn-circle btn-sm", "data-toggle": "tooltip", title: "remove edge", replace: false do %>
                                 <i class="fas fa-trash"></i>
                             <% end %>
                         </td>
@@ -103,6 +103,24 @@
         let portNumber = document.getElementById("connect-port-number").value;
         console.log('portNumber is set to be', portNumber);
         document.getElementById("button-connect").setAttribute("phx-value-port-number", portNumber);
+    }
+
+    function update_ssh_username() {
+        const inputValue = document.getElementById('ssh_username').value;
+
+        var dom_list = document.getElementsByClassName("username");
+        for(let i = 0; i < dom_list.length; i++) {
+            dom_list[i].innerHTML = inputValue;
+        }
+    }
+
+    function update_ssh_tunnel_port() {
+        const inputValue = document.getElementById('ssh_tunnel_port').value;
+
+        var dom_list = document.getElementsByClassName("tunnel_port");
+        for(let i = 0; i < dom_list.length; i++) {
+            dom_list[i].innerHTML = inputValue;
+        }
     }
 
     window.addEventListener(`phx:step2`, (e) => {
@@ -136,10 +154,19 @@
         if (e.detail.note) document.getElementById("ssh-step-3-note").innerHTML = e.detail.note;
         if (e.detail.finishnote) document.getElementById("ssh-step-3-finishnote").innerHTML = e.detail.finishnote;
 
-        if (e.detail.command) {
+        if (e.detail.tcp_url) {
             document.getElementById("ssh-step-3-connected").hidden = undefined;
             document.getElementById("ssh-step-3-disconnected").hidden = "true";
-            document.getElementById("ssh-step-3-command").innerHTML = e.detail.command;
+
+            var dom_list = document.getElementsByClassName("tcp-port");
+            for(let i = 0; i < dom_list.length; i++) {
+              dom_list[i].innerHTML = e.detail.tcp_port;
+            }
+
+            var dom_list = document.getElementsByClassName("tcp-url");
+            for(let i = 0; i < dom_list.length; i++) {
+              dom_list[i].innerHTML = e.detail.tcp_url;
+            }
         }
 
         if (e.detail.disconnected) {
@@ -168,6 +195,10 @@
         if (e.detail.title) document.getElementById("ssh-step-error-title").innerHTML = e.detail.title;
         if (e.detail.note) document.getElementById("ssh-step-error-note").innerHTML = e.detail.note;
       }
+    });
+
+    $(function () {
+      $('[data-toggle="tooltip"]').tooltip();
     });
   </script>
 </div>
