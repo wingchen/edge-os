@@ -103,13 +103,13 @@
                     <td><%= team.inserted_at %></td>
                     <td>
                       <%= if @current_user.id in team.admins do %>
-                        <%= live_patch to: Routes.team_index_path(@socket, :new_edge, team), class: "btn btn-success btn-circle btn-sm", replace: false do %>
+                        <%= live_patch to: Routes.team_index_path(@socket, :new_edge, team), class: "btn btn-success btn-circle btn-sm", "data-toggle": "tooltip", title: "add edge to team", replace: false do %>
                           <i class="fas fa-plus"></i>
                         <% end %>
-                        <%= live_patch to: Routes.team_index_path(@socket, :edit, team), class: "btn btn-warning btn-circle btn-sm", replace: false do %>
+                        <%= live_patch to: Routes.team_index_path(@socket, :edit, team), class: "btn btn-warning btn-circle btn-sm", "data-toggle": "tooltip", title: "edit the team", replace: false do %>
                           <i class="fas fa-edit"></i>
                         <% end %>
-                        <%= link to: "#", phx_click: "delete", phx_value_id: team.id, data: [confirm: "Are you sure?"], class: "btn btn-danger btn-circle btn-sm", replace: false do %>
+                        <%= link to: "#", phx_click: "delete", phx_value_id: team.id, data: [confirm: "Are you sure?"], class: "btn btn-danger btn-circle btn-sm", "data-toggle": "tooltip", title: "delete the team", replace: false do %>
                           <i class="fas fa-trash"></i>
                         <% end %>
                       <% else %>
@@ -124,4 +124,9 @@
             </table>
         </div>
     </div>
+    <script>
+      $(function () {
+        $('[data-toggle="tooltip"]').tooltip();
+      });
+    </script>
 </div>
