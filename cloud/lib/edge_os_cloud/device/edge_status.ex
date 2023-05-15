@@ -7,6 +7,7 @@ defmodule EdgeOsCloud.Device.EdgeStatus do
     field :network, {:array, :map}
     field :temperature, {:array, :map}
     field :cpu, {:array, :map}
+    field :gpu, :map
     field :memory, :map
     field :process_count, :integer
     
@@ -18,7 +19,7 @@ defmodule EdgeOsCloud.Device.EdgeStatus do
   @doc false
   def changeset(edge_status, attrs) do
     edge_status
-    |> cast(attrs, [:edge_id, :disk, :network, :temperature, :cpu, :memory, :process_count])
+    |> cast(attrs, [:edge_id, :disk, :network, :temperature, :cpu, :memory, :process_count, :gpu])
     |> validate_required([:edge_id, :disk, :network, :temperature, :cpu, :memory, :process_count])
   end
 end

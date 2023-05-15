@@ -17,6 +17,26 @@ defmodule EdgeOsCloudWeb.DashController do
     ]
   end
 
+  defp gpu_usage(edge_stat) do
+    case edge_stat.gpu do
+      %{"usage" => usage} ->
+        [ %{"name" => "gpu", "value" => usage} ]
+
+      _ ->
+        [ %{"name" => "gpu", "value" => -1} ]
+    end
+  end
+
+  defp get_all_temperature(edge_stat) do
+    case edge_stat.gpu do
+      %{"temperature" => temperature} ->
+        [%{"label" => "gpu", "temperature" => temperature} | edge_stat.temperature]
+
+      _ ->
+        edge_stat.temperature
+    end
+  end
+
   defp normalize_query_time(from_time_str, to_time_str) do
     from_time = 
       case Timex.parse(from_time_str, "{YYYY}-{0M}-{0D} {h24}:{m}") do
@@ -66,9 +86,10 @@ defmodule EdgeOsCloudWeb.DashController do
           timestamps = edge_statuss |> Enum.map(fn x -> Timex.format!(x.inserted_at, "{YYYY}-{0M}-{0D} {h24}:{m}:{s}") end)
 
           cpus = edge_statuss |> Enum.flat_map(fn x -> x.cpu end) |> Enum.group_by(fn x -> x["name"] end)
+          gpus = edge_statuss |> Enum.flat_map(fn x -> gpu_usage(x) end) |> Enum.group_by(fn x -> x["name"] end)
           memory = edge_statuss |> Enum.flat_map(fn x -> memory_ration(x.memory) end) |> Enum.group_by(fn x -> x["name"] end)
           disk = edge_statuss |> Enum.flat_map(fn x -> x.disk end) |> Enum.group_by(fn x -> x["name"] end)
-          temperature = edge_statuss |> Enum.flat_map(fn x -> x.temperature end) |> Enum.group_by(fn x -> x["label"] end)
+          temperature = edge_statuss |> Enum.flat_map(fn x -> get_all_temperature(x) end) |> Enum.group_by(fn x -> x["label"] end)
           process_count = edge_statuss |> Enum.map(fn x -> x.process_count end)
 
           conn
@@ -78,6 +99,7 @@ defmodule EdgeOsCloudWeb.DashController do
           |> assign(:current_user, user)
           |> assign(:timestamps, timestamps)
           |> assign(:cpus, cpus)
+          |> assign(:gpus, gpus)
           |> assign(:memory, memory)
           |> assign(:disk, disk)
           |> assign(:temperature, temperature)

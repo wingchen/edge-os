@@ -3,7 +3,7 @@ use std::env;
 use std::fs;
 use std::str;
 use url;
-use std::process::Command;
+use std::process::{Command};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::{thread, time};
@@ -13,18 +13,18 @@ use tokio::io::{AsyncReadExt};
 use tokio::sync::Mutex;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use tokio::net::UnixListener;
-use tokio::time::sleep;
+use tokio::time::{sleep};
 use sysinfo::{PidExt, Pid, ProcessExt, System, SystemExt, Process};
 use std::os::unix::fs::PermissionsExt;
+use systemd_journal_logger::JournalLog;
 
 mod config;
 mod edge_system;
 
 #[tokio::main]
 async fn main() {
-    #[cfg(linux)]
-    systemd_journal_logger::init().unwrap();
-    log::set_max_level(LevelFilter::Info);
+    JournalLog::default().install().unwrap();
+    log::set_max_level(LevelFilter::Debug);
 
     let local_working_dir = match env::var("EDGE_OS_EDGE_DIR") {
         Ok(val) => val,
@@ -151,6 +151,8 @@ async fn start_pinging(tx: futures_channel::mpsc::UnboundedSender<Message>) {
     let system_info = edge_system::get_edge_info();
     let system_info_payload = format!("EDGE_INFO {}", system_info);
     tx.unbounded_send(Message::Text(system_info_payload)).unwrap();
+
+    edge_system::get_edge_status();
 
     let mut time_counter = 0;
     let fifteen_count: u64 = (10 * 60) / twenty;

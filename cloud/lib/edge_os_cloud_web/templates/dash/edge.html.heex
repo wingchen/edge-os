@@ -37,6 +37,21 @@
       </div>
    </div>
 
+   <!-- GPU -->
+   <div class="col-xl-12 col-lg-12">
+      <div class="card shadow mb-4">
+         <!-- Card Header - Dropdown -->
+         <div
+            class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+            <h6 class="m-0 font-weight-bold text-primary">GPU</h6>
+         </div>
+         <!-- Card Body -->
+         <div class="card-body">
+            <canvas id="edge_gpu"></canvas>
+         </div>
+      </div>
+   </div>
+
    <!-- memory -->
    <div class="col-xl-12 col-lg-12">
       <div class="card shadow mb-4">
@@ -138,6 +153,73 @@
       plugins: {
         title: {
           text: 'CPU Usage',
+          display: true
+        }
+      },
+      scales: {
+        x: {
+          type: 'time',
+          time: {
+            displayFormats: {
+              'millisecond': 'MMM DD HH:mm',
+              'second': 'MMM DD HH:mm',
+              'minute': 'MMM DD HH:mm',
+              'hour': 'MMM DD HH:mm',
+              'day': 'MMM DD HH:mm',
+              'week': 'MMM DD HH:mm',
+              'month': 'MMM DD HH:mm',
+              'quarter': 'MMM DD HH:mm',
+              'year': 'MMM DD HH:mm',
+            }
+          },
+          title: {
+            display: true,
+            text: 'time'
+          }
+        },
+        y: {
+          title: {
+            display: true,
+            text: '%'
+          }
+        }
+      },
+    },
+  });
+
+  // gpu
+  const ctx_gpu = document.getElementById('edge_gpu');
+
+  const data_gpu = {
+    labels: [ // Date Objects
+      <%= for timestmp <- @timestamps do %>
+        '<%= timestmp %>',
+      <% end %>
+    ],
+    datasets: [
+      <%= for {gpu_name, gpu_data} <- @gpus do %>
+      {
+        label: '<%= gpu_name %>',
+        backgroundColor: 'white',
+        borderColor: getRandomColor(),
+        fill: false,
+        data: [
+          <%= for cd <- gpu_data do %>
+            <%= cd["value"] %>,
+          <% end %>
+        ]
+      },
+      <% end %>
+    ]
+  };
+
+  new Chart(ctx_gpu, {
+    type: 'line',
+    data: data_gpu,
+    options: {
+      plugins: {
+        title: {
+          text: 'GPU Usage',
           display: true
         }
       },

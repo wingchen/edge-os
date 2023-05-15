@@ -9,10 +9,10 @@ I will gradually add in code when I am not working on my day job.
 # Target Features
 
 - [x] SSH: ssh in from remote without port-forwarding
-- [ ] RDP: support rdp so that we will be able to remote desktop in
 - [x] Metrics: collect basic CPU/Memory/Disk/Tmp/Process metrics
-- [ ] Metrics: user defined metrics that can be sent to EdgeOS via file socket
-- [ ] Manual Edge Software Update: provide a clean way for the daemon running on edge to update
+- [x] Metrics: user defined metrics that can be sent to EdgeOS via file socket
+- [x] Manual Edge Software Update: provide a clean way for the daemon running on edge to update
+- [x] Metrics: collect the GPU tmp and usage data from NV Jetson SoCs 
 - [ ] Security: to make sure that we control where packets can be sent and received
 - [ ] OTA: so that users will be able to deploy and update long running codes
 - [ ] OTA self: EdgeOS will be able to update itself
@@ -24,6 +24,7 @@ I will gradually add in code when I am not working on my day job.
 - [x] rasberry pi 3 with rasberry pi OS
 - [x] rasberry pi 4 with ubuntu
 - [x] NVIDIA Jetson AGX Xavier with Ubuntu 22.02
+- [x] MacOS on M1/M2 chips but with manually built EdgeOS and websocat
 - [ ] The SoCs what run various Linux kernels (like Android but only with the `adb`)
 
 # Language Used

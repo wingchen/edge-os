@@ -18,8 +18,9 @@ syn = "1.0.104"
 serde = { version = "1.0.152", features = ["derive"] }
 serde_json = "1.0.91"
 byte-unit = "4.0.18"
+regex = "1.8.1"
 openssl = { version = "0.10", features = ["vendored"] }
-systemd-journal-logger = { version = "0.7.0", optional = true }
+systemd-journal-logger = "1.0.0"
 
 [dependencies.uuid]
 version = "1.2.1"
@@ -28,9 +29,6 @@ features = [
     "fast-rng",          # Use a faster (but still sufficiently random) RNG
     "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
 ]
-
-[target.'cfg(linux)'.dependencies]
-systemd-journal-logger = { version = "0.7.0", optional = true }
 
 [dev-dependencies]
 actix-rt = "*"

@@ -48,3 +48,55 @@ rust-musl-builder cargo build --release
 ```
 
 We can think about hooking it up to CI in the future for each release.
+
+## Deploying an Edge on Mac OS
+
+### Come up with a `launchctl` config file
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.sailoi.edgeos</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>/opt/edge-os-edge/edgeos_edge</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/opt/edge-os-edge/stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/opt/edge-os-edge/stderr.log</string>
+    <key>KeepAlive</key>
+    <true/>
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>EDGE_OS_EDGE_DIR</key>
+      <string>/opt/edge-os-edge</string>
+      <key>EDGE_OS_CLOUD_TEAM_HASH</key>
+      <string>the_team_hash_goes_here</string>
+      <key>EDGE_OS_CLOUD_URL</key>
+      <string>wss://edgeos.sailoi.com</string>
+    </dict>
+  </dict>
+</plist>
+```
+
+### Move the file to the right place in the system 
+
+```
+sudo cp /path/to/com.sailoi.edgeos.plist /Library/LaunchDaemons/
+```
+
+### Use the following system commands to enable and start EdgeOS the process
+
+```
+launchctl unload com.sailoi.edgeos.plist
+launchctl load com.sailoi.edgeos.plist
+
+launchctl enable system/com.sailoi.edgeos.plist
+launchctl start com.sailoi.edgeos.plist
+```
