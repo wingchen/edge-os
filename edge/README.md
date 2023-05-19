@@ -35,21 +35,26 @@ cargo build --release
 
 ## Cross-compliation for different platforms
 
-I would also suggest to use `rust-musl-cross`(https://github.com/rust-cross/rust-musl-cross) if you are to support multiple platforms.
+I would also suggest to use `cross`(https://github.com/cross-rs/cross) if you are to support multiple platforms.
 
-The official documentation is great already. For example, if you are on your PC but building for resberry pi 4:
+The official documentation is great already. For example, if you are on your PC but building for resberry pi:
 
 ```
-docker pull messense/rust-musl-cross:arm-musleabi
-
-alias rust-musl-builder='docker run --rm -it -v "$(pwd)":/home/rust/src messense/rust-musl-cross:arm-musleabi'
-
-rust-musl-builder cargo build --release
+cross build --target arm-unknown-linux-gnueabi --release
 ```
 
 We can think about hooking it up to CI in the future for each release.
 
+Currently, we have 4 formal releases:
+
+- `arm-unknown-linux-gnueabi`: for devices with older ARM CPUs like old resberry PIs
+- `aarch64-unknown-linux-gnu`: for devices with ARM 64 bit CPUs like Nvidia tegra SoCs, or resberry PI4s
+- `x86_64-unknown-linux-gnu`: regular linux PCs, with AMD or Intel CPUs
+- `i686-unknown-linux-gnu`: older linux PCs, with 32 bit AMD or Intel CPUs
+
 ## Deploying an Edge on Mac OS
+
+EdgeOS also supports Mac OS on M1/M2 chips. All you need to do is to compile edge from the source and place the binary file at `/opt/edge-os-edge/edgeos_edge`.
 
 ### Come up with a `launchctl` config file
 
