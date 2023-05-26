@@ -33,7 +33,7 @@ defmodule EdgeOsCloudWeb.InstallController do
 
         case "$HW" in
             "x86_64")
-                architecture="x86_64a"
+                architecture="x86_64"
                 ;;
             "x86")
                 architecture="x86"
@@ -52,7 +52,7 @@ defmodule EdgeOsCloudWeb.InstallController do
 
         url="https://github.com/wingchen/edge-os/releases/download/0.0.3/edgeos_edge_$architecture.tar.xz"
         echo "downloading daemon from release url: $url"
-        wget "$url" -O $DOWNLOAD_PATH || /bin/busybox wget "$url" -O $DOWNLOAD_PATH
+        curl -o $DOWNLOAD_PATH -L "$url"
     }
     """
   end
@@ -111,7 +111,7 @@ defmodule EdgeOsCloudWeb.InstallController do
       InstallSystemdService() {
           url="${CLOUD_URL}/install/${TEAM_HASH}/edgeos.service"
           echo "installing edgeos service from: $url"
-          wget "$url" -O /tmp/edgeos.service || /bin/busybox wget "$url" -O /tmp/edgeos.service
+          curl -o /tmp/edgeos.service -L "$url"
 
           mv /tmp/edgeos.service /etc/systemd/system/edgeos.service
           chmod a+x /etc/systemd/system/edgeos.service
