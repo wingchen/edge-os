@@ -1,3 +1,5 @@
+![dashborad](https://github.com/wingchen/edge-os/assets/798321/4f0471af-ec75-4a26-b3cc-51f022391829)
+
 # edge-os
 
 `edge-os` gathers a bunch of tools for edge device hackers to manage their edge machines without having to configure port-forwarding.
