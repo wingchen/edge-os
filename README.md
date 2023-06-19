@@ -10,7 +10,13 @@ It should also address many common features that's absolutely required when it c
 
 I will gradually add in code when I am not working on my day job.
 
-# Docs and tutorials
+# Builds and deployments
+
+- [Building EdgeOS for cloud and edge](https://github.com/wingchen/edge-os/wiki/Building-EdgeOS-for-cloud-and-edge)
+- [Deploying EdgeOS to self-hosted cloud](https://github.com/wingchen/edge-os/wiki/Deploying-EdgeOS-to-self-hosted-cloud)
+- [Deploying EdgeOS to edge to connect to your self-hosted cloud](https://github.com/wingchen/edge-os/wiki/Deploying-EdgeOS-to-edge-to-connect-to-your-self-hosted-cloud)
+
+# Usages, other docs and tutorials
 
 Please feel free to use the github wiki for these: [https://github.com/wingchen/edge-os/wiki](https://github.com/wingchen/edge-os/wiki).
 
