@@ -20,6 +20,7 @@ use systemd_journal_logger::JournalLog;
 
 mod config;
 mod edge_system;
+mod tcp_to_websocket;
 
 #[tokio::main]
 async fn main() {
@@ -95,23 +96,14 @@ async fn main() {
                         match locked_websocat_process_map.get(&session_id_str) {
                             Some(&_process_id) => error!("websocat_process is already running, ignoring the command"),
                             None => {
-                                let process_id = create_ssh_process(cloud.clone(), local_working_dir.clone(), uuid.clone(), session_id_str.clone());
-                                locked_websocat_process_map.insert(session_id_str.clone(), process_id);
-                                info!("websocat_process created at: {}", command_str);
-                            }
-                        }
-                    },
+                                // let process_id = create_tcp_to_websocat_process(cloud.clone(), local_working_dir.clone(), uuid.clone(), session_id_str.clone());
+                                // locked_websocat_process_map.insert(session_id_str.clone(), process_id);
 
-                    ["CONNECT", session_id, port_number] => {
-                        let session_id_str = session_id.to_string();
-                        let port_number_u: u32 = port_number.parse().unwrap();
+                                thread::spawn(move || {
+                                    tcp_to_websocket::start_tcp_to_websocket_bridge(cloud.clone(), uuid.clone(), session_id_str.clone())
+                                });
 
-                        match locked_websocat_process_map.get(&session_id_str) {
-                            Some(&_process_id) => error!("websocat_process is already running, ignoring the command"),
-                            None => {
-                                let process_id = create_connection_process(cloud.clone(), local_working_dir.clone(), uuid.clone(), session_id_str.clone(), port_number_u);
-                                locked_websocat_process_map.insert(session_id_str.clone(), process_id);
-                                info!("websocat_process created at: {} for port {}", command_str, port_number);
+                                info!("ssh session created with: {}", command_str);
                             }
                         }
                     },
@@ -273,14 +265,6 @@ fn create_tcp_to_websocat_process(cloud: String, local_working_dir: String, uuid
             .expect("failed to execute websocat");
 
     return child.id();
-}
-
-fn create_ssh_process(cloud: String, local_working_dir: String, uuid: String, session_id: String) -> u32 {
-    return create_tcp_to_websocat_process(cloud, local_working_dir, uuid, session_id, 22);
-}
-
-fn create_connection_process(cloud: String, local_working_dir: String, uuid: String, session_id: String, port_number: u32) -> u32 {
-    return create_tcp_to_websocat_process(cloud, local_working_dir, uuid, session_id, port_number);
 }
 
 fn kill_websocat_process(pid: u32) {
