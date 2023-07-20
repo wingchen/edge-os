@@ -1,109 +1,74 @@
-use log::{debug, info, warn, error};
+use log::{debug, info, error};
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
-use tungstenite::{connect, Message};
-use url::Url;
-use std::sync::Arc;
+use std::net::{TcpStream};
+use futures_util::{future, pin_mut, StreamExt};
+use tokio::runtime::Runtime;
+use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 
 pub fn start_tcp_to_websocket_bridge(cloud: String, uuid: String, session_id: String) {
     // Start a TCP server on port 22 for ssh
-    let listener = TcpListener::bind("127.0.0.1:22").expect("Failed to bind to port");
-    info!("connecting to local ssh server...");
+    match TcpStream::connect("127.0.0.1:22") {
+        Ok(tcp_stream) => {
+            let cloud_value = cloud.clone();
+            let uuid_value = uuid.clone();
+            let session_id_value = session_id.clone();
 
-    let cloud_shared = Arc::new(cloud);
-    let uuid_shared = Arc::new(uuid);
-    let session_id_shared = Arc::new(session_id);
+            // Handle each TCP connection in a different thread
+            std::thread::spawn(move || {
+                let rt = Runtime::new().unwrap();
+                rt.block_on(handle_websocket_connection(tcp_stream, cloud_value, uuid_value, session_id_value));
+            });
+        }
+        Err(err) => {
+            error!("Failed to connect to the TCP server: {}", err);
+        }
+    }
+}
 
-    // Accept incoming TCP connections
-    for stream in listener.incoming() {
-        match stream {
-            Ok(tcp_stream) => {
-                let cloud_shared_value = Arc::clone(&cloud_shared);
-                let uuid_shared_value = Arc::clone(&uuid_shared);
-                let session_id_shared_value = Arc::clone(&session_id_shared);
+async fn tcp_to_websocket_loop(sender: futures_channel::mpsc::UnboundedSender<Message>, mut tcp_stream: TcpStream) {
+    loop {
+        let mut buffer = [0; 2048];
 
-                // Handle each TCP connection in a different thread
-                std::thread::spawn(move || {
-                    handle_websocket_connection(tcp_stream, cloud_shared_value, uuid_shared_value, session_id_shared_value);
-                });
+        match tcp_stream.read(&mut buffer) {
+            Ok(n) if n > 0 => {
+                let tcp_message = &buffer[..n];
+                debug!("Received message of size {} from TCP, passing alone", n);
+                sender.unbounded_send(Message::binary(tcp_message)).unwrap();
+            }
+            Ok(_) => {
+                error!("TCP connection closed");
+                break;
             }
             Err(e) => {
-                error!("Error accepting connection: {}", e);
+                error!("Error reading from TCP connection: {}", e);
+                break;
             }
         }
     }
 }
 
-fn handle_websocket_connection(tcp_stream: TcpStream, cloud: Arc<String>, uuid: Arc<String>, session_id: Arc<String>) {
+async fn handle_websocket_connection(tcp_stream: TcpStream, cloud: String, uuid: String, session_id: String) {
     let websocket_url = format!("{}/e-ssh/{}/{}/websocket", cloud, uuid, session_id);
+    let url = url::Url::parse(&websocket_url).unwrap();
 
-    match tcp_stream.try_clone() {
-        Ok(stream) => {
-            let connection_err_msg = format!("Can't connect to {}", websocket_url);
-            let (mut ws_socket, response) =
-                connect(Url::parse(&websocket_url).unwrap()).expect(&connection_err_msg[..]);
-            
-            info!("Connected to WebSocket server");
-            debug!("Response HTTP code: {}", response.status());
-            debug!("Response contains the following headers:");
+    let (sender, receiver) = futures_channel::mpsc::unbounded();
+    let tcp_stream_read = tcp_stream.try_clone().expect("Failed to clone TCP stream");
+    tokio::spawn(tcp_to_websocket_loop(sender, tcp_stream_read));
 
-            for (ref header, _value) in response.headers() {
-                debug!("* {}", header);
-            }
+    let (ws_stream, _) = connect_async(url).await.expect("Failed to connect");
+    info!("Connected to WebSocket server");
 
-            // Handle messages from the WebSocket
-            // std::thread::spawn(move || {
-            //     let ws_socket_shared_value = Arc::clone(&ws_socket_shared);
+    let (write, read) = ws_stream.split();
+    let tcp_to_ws = receiver.map(Ok).forward(write);
 
-            //     loop {
-            //         if ws_socket_shared_value.can_read() {
-            //             let msg = &ws_socket_shared_value.read_message();
-            //         }
+    let ws_to_tcp = {
+        read.for_each(|message| async {
+            let mut tcp_stream_write = tcp_stream.try_clone().expect("Failed to clone TCP stream");
+            let data = message.unwrap().into_data();
+            tcp_stream_write.write_all(data.as_slice()).unwrap();
+        })
+    };
 
-            //         // match msg {
-            //         //     Ok(msg) => {
-            //         //         debug!("Received: {}", msg);
-            //         //         // relaly to tcp connection
-            //         //     }
-            //         //     Err(Error::ConnectionClosed) => {
-            //         //         error!("WebSocket connection closed");
-            //         //         break;
-            //         //     }
-            //         //     Err(e) => {
-            //         //         error!("Error reading message from WebSocket: {}", e);
-            //         //         break;
-            //         //     }
-            //         // }
-            //     }
-            // });
-
-            // Handle messages from the TCP connection
-            let mut tcp_reader = tcp_stream.try_clone().expect("Failed to clone TCP stream");
-            loop {
-                let mut buffer = [0; 1024];
-                match tcp_reader.read(&mut buffer) {
-                    Ok(n) if n > 0 => {
-                        let tcp_message = String::from_utf8_lossy(&buffer[..n]);
-                        debug!("Received message from TCP: {}", tcp_message);
-
-                        // Forward the TCP message to the WebSocket
-                        if  ws_socket.can_write() {
-                            ws_socket.write_message(Message::Text(tcp_message.to_string()));
-                        }
-                    }
-                    Ok(_) => {
-                        error!("TCP connection closed");
-                        break;
-                    }
-                    Err(e) => {
-                        error!("Error reading from TCP connection: {}", e);
-                        break;
-                    }
-                }
-            }
-        }
-        Err(e) => {
-            error!("Error cloning TCP stream: {}", e);
-        }
-    }
+    pin_mut!(tcp_to_ws, ws_to_tcp);
+    future::select(tcp_to_ws, ws_to_tcp).await;
 }

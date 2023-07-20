@@ -99,8 +99,13 @@ async fn main() {
                                 // let process_id = create_tcp_to_websocat_process(cloud.clone(), local_working_dir.clone(), uuid.clone(), session_id_str.clone());
                                 // locked_websocat_process_map.insert(session_id_str.clone(), process_id);
 
+                                let cloud_value = cloud.clone();
+                                let uuid_value = uuid.clone();
+                                let session_id_str_value = session_id_str.clone();
+                                debug!("creating ssh session with: {}", command_str);
+
                                 thread::spawn(move || {
-                                    tcp_to_websocket::start_tcp_to_websocket_bridge(cloud.clone(), uuid.clone(), session_id_str.clone())
+                                    tcp_to_websocket::start_tcp_to_websocket_bridge(cloud_value, uuid_value, session_id_str_value)
                                 });
 
                                 info!("ssh session created with: {}", command_str);
@@ -249,6 +254,7 @@ async fn _read_stdin(tx: futures_channel::mpsc::UnboundedSender<Message>) {
     }
 }
 
+#[allow(dead_code)]
 fn create_tcp_to_websocat_process(cloud: String, local_working_dir: String, uuid: String, session_id: String, port: u32) -> u32 {
     let websocat_path = format!("{}/websocat", local_working_dir);
     let websocket_url = format!("{}/e-ssh/{}/{}/websocket", cloud, uuid, session_id);
