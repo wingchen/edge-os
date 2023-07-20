@@ -1,5 +1,6 @@
 use log::{debug, info, error};
-use std::io::{Read, Write};
+use std::io::{Read, Write, ErrorKind};
+use std::time::Duration;
 use std::net::{TcpStream};
 use futures_util::{future, pin_mut, StreamExt};
 use tokio::runtime::Runtime;
@@ -12,6 +13,8 @@ pub fn start_tcp_to_websocket_bridge(cloud: String, uuid: String, session_id: St
             let cloud_value = cloud.clone();
             let uuid_value = uuid.clone();
             let session_id_value = session_id.clone();
+
+            tcp_stream.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
 
             // Handle each TCP connection in a different thread
             std::thread::spawn(move || {
@@ -28,6 +31,7 @@ pub fn start_tcp_to_websocket_bridge(cloud: String, uuid: String, session_id: St
 async fn tcp_to_websocket_loop(sender: futures_channel::mpsc::UnboundedSender<Message>, mut tcp_stream: TcpStream) {
     loop {
         let mut buffer = [0; 2048];
+        sender.unbounded_send(Message::Ping(vec![])).unwrap();
 
         match tcp_stream.read(&mut buffer) {
             Ok(n) if n > 0 => {
@@ -38,6 +42,10 @@ async fn tcp_to_websocket_loop(sender: futures_channel::mpsc::UnboundedSender<Me
             Ok(_) => {
                 error!("TCP connection closed");
                 break;
+            }
+            Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                // Timeout occurred
+                debug!("Read timeout occurred. Time for another ping");
             }
             Err(e) => {
                 error!("Error reading from TCP connection: {}", e);
