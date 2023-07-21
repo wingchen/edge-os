@@ -1,50 +1,6 @@
-use log::{debug, info};
-use std::io;
+use log::{debug};
 use std::fs;
-use std::fs::File;
-use std::path::Path;
-use std::env::consts;
-use std::collections::HashMap;
-use std::os::unix::fs::PermissionsExt;
 use uuid::Uuid;
-
-fn get_websocat_url() -> Option<String> {
-   let websocat_url_base = "https://github.com/vi/websocat/releases/download/v1.11.0/";
-   let candidates = HashMap::from([
-      ("x86_64", format!("{}/websocat.x86_64-unknown-linux-musl", websocat_url_base)),
-      ("arm", format!("{}/websocat.arm-unknown-linux-musleabi", websocat_url_base)),
-      ("aarch64", format!("{}/websocat.aarch64-unknown-linux-musl", websocat_url_base)),
-   ]);
-
-   return candidates.get(consts::ARCH).cloned();
-}
-
-pub async fn get_websocat(local_working_dir : String) {
-   let websocat_path = format!("{}/websocat", local_working_dir);
-   debug!("looking for existing websocat at: {websocat_path}");
-
-   if !Path::new(&websocat_path).exists() {
-      info!("no websocat found, downloading");
-
-      let websocat_url = match get_websocat_url() {
-         Some(url) => url,
-         None => panic!("websocat does not support your architecture: {}. bailing", consts::ARCH)
-      };
-
-      let resp = reqwest::get(websocat_url).await.expect("cannot download websocat");
-      let mut out = File::create(&websocat_path).expect("failed to create websocat file");
-
-      let bytes = resp.bytes().await;
-      let mut slice: &[u8] = bytes.as_ref().expect("failed to digest websocat file");
-      io::copy(&mut slice, &mut out).expect("failed to websocat to file location");
-
-      // chmod +x so that we will be able to execute it
-      let mut perms = fs::metadata(&websocat_path).unwrap().permissions();
-      // Read/write/exec for owner and read for others.
-      perms.set_mode(0o744);
-      fs::set_permissions(websocat_path, perms).unwrap();
-   }
-}
 
 fn get_or_create_config_content(local_working_dir : String, path : String) -> String {
    let content_path = format!("{}/{}", local_working_dir, path);
@@ -103,22 +59,5 @@ mod tests_get_device_id {
 
       let uuid = get_device_id(LOCAL_WORKING_DIR.to_string());
       assert_eq!(some_id, uuid);
-   }
-}
-
-#[cfg(test)]
-mod tests_get_websocat {
-   use super::*;
-
-   const LOCAL_WORKING_DIR: &str = "./test_data";
-   const LOCAL_WEBSOCAT_PATH : &str = "./test_data/websocat";
-
-   #[actix_rt::test]
-   async fn check_websocat_is_yet_to_be_downloaded(){
-      fs::create_dir_all(LOCAL_WORKING_DIR.to_string()).unwrap_or_default();
-      fs::remove_file(LOCAL_WEBSOCAT_PATH.to_string()).unwrap_or_default();
-
-      get_websocat(LOCAL_WORKING_DIR.to_string()).await;
-      assert!(Path::new(LOCAL_WEBSOCAT_PATH).exists());
    }
 }

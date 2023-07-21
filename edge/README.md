@@ -6,14 +6,6 @@ To run this in your SoC and have it function normally, you will have to:
 - give it `sudo` privileges
 - make it into a service with `systemd` or something likewise
 
-# SSH bridging credit
-
-When it comes to the heavy lifting of the SSH feature, `websocat`(https://github.com/vi/websocat) does a big part of it.
-
-1. An edge device gets a ssh request from clould.
-2. It starts a `websocat` session to bridge the local ssh onto a cloud session with websocket.
-3. Cloud then bridges the ssh session with TCP socket to the user. 
-
 # Env Vars
 
 - `EDGE_OS_EDGE_DIR`: full dir path to where the `edge` data is stored

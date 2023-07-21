@@ -3,18 +3,13 @@ use std::env;
 use std::fs;
 use std::str;
 use url;
-use std::process::{Command};
-use std::collections::HashMap;
-use std::sync::Arc;
 use std::{thread, time};
 use std::io;
 use futures_util::{future, pin_mut, StreamExt};
 use tokio::io::{AsyncReadExt};
-use tokio::sync::Mutex;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use tokio::net::UnixListener;
 use tokio::time::{sleep};
-use sysinfo::{PidExt, Pid, ProcessExt, System, SystemExt, Process};
 use std::os::unix::fs::PermissionsExt;
 use systemd_journal_logger::JournalLog;
 
@@ -35,9 +30,6 @@ async fn main() {
     let uuid = config::get_device_id(local_working_dir.clone());
     let password = config::get_device_password(local_working_dir.clone());
     info!("Starting edge-os-edge: {uuid}");
-
-    config::get_websocat(local_working_dir.clone()).await;
-    info!("websocat is properly installed");
 
     let team_hash = match env::var("EDGE_OS_CLOUD_TEAM_HASH") {
         Ok(val) => val,
@@ -61,17 +53,10 @@ async fn main() {
     debug!("WebSocket handshake has been successfully completed");
 
     let (write, read) = ws_stream.split();
-
     let ping_to_ws = ping_rx.map(Ok).forward(write);
-    let process_map: HashMap<String, u32> = HashMap::new();
-    let websocat_process_map = Arc::new(Mutex::new(process_map));
 
     let ws_to_edge = {
         read.for_each(|message| async {
-            // getting to websocat_process to see if that's populated already
-            let process_map = Arc::clone(&websocat_process_map);
-            let mut locked_websocat_process_map = process_map.lock().await;
-
             let command_str = message.unwrap().to_string();
 
             if command_str == "" {
@@ -81,49 +66,21 @@ async fn main() {
 
                 match &command_split[..] {
                     [""] => {
-                        // it's a pong response, 
-                        // use it to clean up outstanding websocat_processes a bit
-                        let system = System::new_all();
-                        let processes = system.processes();
-                        locked_websocat_process_map.retain(|_, v| is_websocat_process(processes, *v));
-
                         handle_pong();
                     },
 
                     ["SSH", session_id] => {
                         let session_id_str = session_id.to_string();
+                        let cloud_value = cloud.clone();
+                        let uuid_value = uuid.clone();
+                        let session_id_str_value = session_id_str.clone();
+                        debug!("creating ssh session with: {}", command_str);
 
-                        match locked_websocat_process_map.get(&session_id_str) {
-                            Some(&_process_id) => error!("websocat_process is already running, ignoring the command"),
-                            None => {
-                                // let process_id = create_tcp_to_websocat_process(cloud.clone(), local_working_dir.clone(), uuid.clone(), session_id_str.clone());
-                                // locked_websocat_process_map.insert(session_id_str.clone(), process_id);
+                        thread::spawn(move || {
+                            tcp_to_websocket::start_tcp_to_websocket_bridge(cloud_value, uuid_value, session_id_str_value)
+                        });
 
-                                let cloud_value = cloud.clone();
-                                let uuid_value = uuid.clone();
-                                let session_id_str_value = session_id_str.clone();
-                                debug!("creating ssh session with: {}", command_str);
-
-                                thread::spawn(move || {
-                                    tcp_to_websocket::start_tcp_to_websocket_bridge(cloud_value, uuid_value, session_id_str_value)
-                                });
-
-                                info!("ssh session created with: {}", command_str);
-                            }
-                        }
-                    },
-
-                    ["STOP_SESSION", session_id] => {
-                        let session_id_str = session_id.to_string();
-
-                        match locked_websocat_process_map.get(&session_id_str) {
-                            Some(&process_id) => {
-                                kill_websocat_process(process_id);
-                                locked_websocat_process_map.remove(&session_id_str);
-                                info!("websocat_process for session {} removed", session_id);
-                            },
-                            None => error!("websocat_process is not running, nothing to stop"),
-                        }
+                        info!("ssh session created with: {}", command_str);
                     },
 
                     _ => warn!("unknown message: '{}'", command_str),
@@ -254,47 +211,6 @@ async fn _read_stdin(tx: futures_channel::mpsc::UnboundedSender<Message>) {
     }
 }
 
-#[allow(dead_code)]
-fn create_tcp_to_websocat_process(cloud: String, local_working_dir: String, uuid: String, session_id: String, port: u32) -> u32 {
-    let websocat_path = format!("{}/websocat", local_working_dir);
-    let websocket_url = format!("{}/e-ssh/{}/{}/websocket", cloud, uuid, session_id);
-    info!("tcp connecting to: {websocket_url}");
-
-    let child = 
-        Command::new(websocat_path)
-            .arg("-v")
-            .arg("--binary")
-            .arg("--ping-interval=20")
-            .arg(websocket_url)
-            .arg(format!("tcp:127.0.0.1:{}", port))
-            .spawn()
-            .expect("failed to execute websocat");
-
-    return child.id();
-}
-
-fn kill_websocat_process(pid: u32) {
-    let system = System::new_all();
-
-    if is_websocat_process(system.processes(), pid) {
-        info!("killing websocat_process {}", pid);
-        system.process(Pid::from_u32(pid)).unwrap().kill();
-    } else {
-        error!("websocat_process {} does not exist, ignoring", pid)
-    }
-}
-
-fn is_websocat_process(processes: &HashMap<Pid, Process>, pid: u32) -> bool {
-    for (ppid, process) in &*processes {
-        if pid.to_string() == ppid.to_string() && process.name().contains("websocat") {
-            debug!("found websocat_process {}", pid);
-            return true;
-        }
-    }
-
-    return false;
-}
-
 fn handle_pong() {
-    // debug!("websocat getting pong back");
+    // debug!("getting pong");
 }
