@@ -50,7 +50,7 @@ defmodule EdgeOsCloudWeb.InstallController do
                 exit 1
         esac
 
-        url="https://github.com/wingchen/edge-os/releases/download/0.0.3/edgeos_edge_$architecture.tar.xz"
+        url="https://github.com/wingchen/edge-os/releases/download/0.0.4/edgeos_edge_$architecture.tar.xz"
         echo "downloading daemon from release url: $url"
         curl -o $DOWNLOAD_PATH -L "$url"
     }

@@ -18,7 +18,7 @@ defmodule EdgeOsCloud.RemoteIp do
       case peer do
         {{one, two, three, four}, port} -> "#{one}.#{two}.#{three}.#{four}:#{port}"
         others ->
-          Logger.warn("cannot get remote ip address from websocket connection: #{inspect others}")
+          Logger.warning("cannot get remote ip address from websocket connection: #{inspect others}")
           "wrong format: #{inspect others}"
       end
     else

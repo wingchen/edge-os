@@ -140,6 +140,6 @@ defmodule EdgeOsCloud.Sockets.EdgeSocket do
   end
 
   def handel_message(param_list, _edge) do
-    Logger.warn("param_list #{inspect param_list}") 
+    Logger.warning("param_list #{inspect param_list}") 
   end
 end

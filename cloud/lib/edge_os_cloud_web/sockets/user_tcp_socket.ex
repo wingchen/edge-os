@@ -101,7 +101,7 @@ defmodule EdgeOsCloud.Sockets.UserTcpSocket do
   end
 
   def handle_info(unknown_message, state) do
-  	Logger.warn("unknown incoming packet: #{inspect unknown_message}")
+  	Logger.warning("unknown incoming packet: #{inspect unknown_message}")
     {:noreply, state}
   end
 end

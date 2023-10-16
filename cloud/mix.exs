@@ -40,6 +40,7 @@ defmodule EdgeOsCloud.MixProject do
     [
       {:phoenix, "~> 1.6.15"},
       {:phoenix_ecto, "~> 4.4"},
+      {:ssl_verify_fun, "~> 1.1.7"},
       {:ecto_sql, "~> 3.6"},
       {:postgrex, ">= 0.0.0"},
       {:phoenix_html, "~> 3.0"},

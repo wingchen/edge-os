@@ -90,7 +90,7 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
 
   def handle_info({:check_tcp_readiness, session_id, counter}, socket) do
     if counter >= 3 do
-      Logger.warn("timeout trying to establish tcp session for #{session_id}. updating the UI")
+      Logger.warning("timeout trying to establish tcp session for #{session_id}. updating the UI")
       note = "We are not seeing the rigth processes from edge and server launched. Are you sure that there is an edge process running on the port? Please contact the system admin if this keeps happening."
       socket = push_event(socket, "ssh_error", %{title: "Timeout! TCP tunnel NOT established", note: note})
       {:noreply, socket}

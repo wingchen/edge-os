@@ -32,7 +32,7 @@ I would also suggest to use `cross`(https://github.com/cross-rs/cross) if you ar
 The official documentation is great already. For example, if you are on your PC but building for resberry pi:
 
 ```
-cross build --target arm-unknown-linux-gnueabi --release
+cross build --target x86_64-unknown-linux-gnu --release
 ```
 
 We can think about hooking it up to CI in the future for each release.
