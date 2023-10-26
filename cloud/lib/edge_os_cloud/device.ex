@@ -13,6 +13,12 @@ defmodule EdgeOsCloud.Device do
   alias EdgeOsCloud.Device.EdgeCustomMetrics
   alias EdgeOsCloud.Accounts.Team
 
+  require Logger
+
+  def edge_status_cache_key(edge_id) do
+    "edge_status_cache_key_#{edge_id}"
+  end
+
   @doc """
   Returns the list of active edges from user account.
 
@@ -81,6 +87,55 @@ defmodule EdgeOsCloud.Device do
     end
   end
 
+  def recent_edge_alerts_from_edges(edges) do
+    if length(edges) == 0 do
+      []
+    else
+      Enum.flat_map(edges, fn e -> 
+        cached_id = edge_status_cache_key(e.id)
+        {:ok, cached_statuses_str} = Redix.command(Redis, ["LRANGE", cached_id, "0", "-1"])
+        # Logger.debug("cached_statuses_str for #{cached_id} is #{inspect cached_statuses_str}")
+        cached_statuses = Enum.map(cached_statuses_str, fn status -> Jason.decode!(status) end)
+
+        high_cpu = length(cached_statuses) != 0 and Enum.all?(cached_statuses, fn status -> 
+          # check CPUs, it alerts out if all CPUs are high with their usages
+          Enum.all?(status["cpu"], fn cpu -> cpu["usage"] > 85.0 end)
+        end)
+
+        alerts = if high_cpu do
+          ["Edge #{e.name} has high CPU usage!"]
+        else
+          []
+        end
+
+        high_memory = length(cached_statuses) != 0 and Enum.all?(cached_statuses, fn status -> 
+          # check memory, it alerts out if all memory are high with their usages
+          memory = status["memory"]
+          memory["used_memory"] / memory["total_memory"] > 0.9
+        end)
+
+        alerts = if high_memory do
+          alerts ++ ["Edge #{e.name} has high memory usage!"]
+        else
+          alerts
+        end
+
+        disk_alerts = Enum.flat_map(cached_statuses, fn status -> 
+          # check disk, it alerts out if any disk usage is high
+          Enum.map(status["disk"], fn disk -> 
+            if disk["available"] / disk["total"] < 0.15 do
+              "Edge #{e.name} has high disk usage at #{disk["name"]}!"
+            else
+              nil
+            end
+          end) |> Enum.filter(fn a -> not is_nil(a) end)
+        end)
+
+        Enum.uniq(alerts ++ disk_alerts)
+      end)
+    end
+  end
+
   @doc """
   Gets a single edge.
 
@@ -146,6 +201,16 @@ defmodule EdgeOsCloud.Device do
     %EdgeActivity{}
     |> EdgeActivity.changeset(attrs)
     |> Repo.insert()
+  end
+
+  def cache_recent_edge_status(edge_id, payload) do
+    key = edge_status_cache_key(edge_id)
+    {:ok, size} = Redix.command(Redis, ["RPUSH", key, payload])
+
+    if size > 3 do
+      # only care about the latest 3
+      {:ok} = Redix.command(Redis, ["LTRIM", key, "-3", "-1"])
+    end
   end
 
   def create_edge_status(attrs \\ %{}) do

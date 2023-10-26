@@ -19,9 +19,13 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
           peer_data -> peer_data.address
         end
 
+        edges = list_edges(user.id)
+        edge_alerts = Device.recent_edge_alerts_from_edges(edges)
+
         updated_socket = 
           socket
-          |> assign(:edges, list_edges(user.id))
+          |> assign(:edge_alerts, edge_alerts)
+          |> assign(:edges, edges)
           |> assign(:current_user, user)
           |> assign(:user_ip, user_ip)
 

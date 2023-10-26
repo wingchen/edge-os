@@ -1,3 +1,6 @@
+<%= for alert <- @edge_alerts do %>
+    <p class="alert alert-danger" role="alert"><%= alert %></p>
+<% end %>
 <h1>Edge List</h1>
 
 <%= if @live_action in [:edit] do %>

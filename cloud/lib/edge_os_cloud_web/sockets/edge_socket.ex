@@ -119,6 +119,7 @@ defmodule EdgeOsCloud.Sockets.EdgeSocket do
 
         Logger.debug("edge status payload #{inspect payload}") 
         Device.create_edge_status(payload)
+        Device.cache_recent_edge_status(edge.id, json_payload)
 
       _ ->
         Logger.error("getting errorous payload for EDGE_STATUS: #{json_payload}")
