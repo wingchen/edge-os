@@ -53,6 +53,13 @@
               scp -rp -P <span class="badge badge-light tcp-port">[some_generated_port_number]</span> /your/source/path <span class="username">[your_user_name]</span>@<span class="badge badge-light tcp-url">xxx.edgeos.sailoi.com</span>:/your/destination/path
             </div>
           </p>
+
+          <p>
+            rsync example: <br/>
+            <div id="ssh-step-3-scp-command" class="p-3 mb-2 bg-success text-white">
+              rsync -hrc -e 'ssh -p <span class="badge badge-light tcp-port">[some_generated_port_number]</span>' --out-format="%i %f" --delete --progress --exclude path/to/eexclude /your/source/path <span class="username">[your_user_name]</span>@<span class="badge badge-light tcp-url">xxx.edgeos.sailoi.com</span>:/your/destination/path
+            </div>
+          </p>
         </div>
         <div id="ssh-step-3-disconnected">
           <div class="p-3 mb-2 bg-secondary text-white">The ssh session disconnected.</div>

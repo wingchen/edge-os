@@ -36,7 +36,7 @@ async fn tcp_to_websocket_loop(sender: futures_channel::mpsc::UnboundedSender<Me
         match tcp_stream.read(&mut buffer) {
             Ok(n) if n > 0 => {
                 let tcp_message = &buffer[..n];
-                debug!("Received message of size {} from TCP, passing alone", n);
+                // debug!("Received message of size {} from TCP, passing alone", n);
                 sender.unbounded_send(Message::binary(tcp_message)).unwrap();
             }
             Ok(_) => {

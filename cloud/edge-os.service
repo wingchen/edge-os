@@ -1,0 +1,14 @@
+[Unit]
+Description=Edge OS Daemon
+
+[Service]
+Type=simple
+User=root
+Group=root
+Restart=always
+RestartSec=1
+WorkingDirectory=/opt/edgeos
+ExecStart=/usr/bin/sh prod.sh > edgeos.log
+
+[Install]
+WantedBy=multi-user.target

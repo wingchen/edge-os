@@ -99,11 +99,11 @@ defmodule EdgeOsCloud.Device do
 
         high_cpu = length(cached_statuses) != 0 and Enum.all?(cached_statuses, fn status -> 
           # check CPUs, it alerts out if all CPUs are high with their usages
-          Enum.all?(status["cpu"], fn cpu -> cpu["usage"] > 85.0 end)
+          Enum.all?(status["cpu"], fn cpu -> cpu["usage"] > 90.0 end)
         end)
 
         alerts = if high_cpu do
-          ["Edge #{e.name} has high CPU usage!"]
+          ["Edge #{e.name} has high CPU usage of over 90%!"]
         else
           []
         end
@@ -115,7 +115,7 @@ defmodule EdgeOsCloud.Device do
         end)
 
         alerts = if high_memory do
-          alerts ++ ["Edge #{e.name} has high memory usage!"]
+          alerts ++ ["Edge #{e.name} has high memory usage of over 90%!"]
         else
           alerts
         end
@@ -123,8 +123,11 @@ defmodule EdgeOsCloud.Device do
         disk_alerts = Enum.flat_map(cached_statuses, fn status -> 
           # check disk, it alerts out if any disk usage is high
           Enum.map(status["disk"], fn disk -> 
-            if disk["available"] / disk["total"] < 0.15 do
-              "Edge #{e.name} has high disk usage at #{disk["name"]}!"
+            usage = disk["available"] / disk["total"]
+
+            if usage < 0.15 do
+              usage_format = :erlang.float_to_binary((1.0 - usage) * 100.0, [decimals: 1])
+              "Edge #{e.name} has high disk usage of #{usage_format}% at #{disk["name"]}!"
             else
               nil
             end
@@ -209,7 +212,7 @@ defmodule EdgeOsCloud.Device do
 
     if size > 3 do
       # only care about the latest 3
-      {:ok} = Redix.command(Redis, ["LTRIM", key, "-3", "-1"])
+      {:ok, _msg}= Redix.command(Redis, ["LTRIM", key, "-3", "-1"])
     end
   end
 
