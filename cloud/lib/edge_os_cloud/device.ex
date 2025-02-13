@@ -40,6 +40,18 @@ defmodule EdgeOsCloud.Device do
     Repo.all(query)
   end
 
+  def can_user_ssh_to_edge(user_id, edge_id) do
+    query = from e in Edge,
+          join: t in Team,
+          on: e.team_id == t.id,
+          where: e.deleted == false and t.deleted == false and (^user_id in t.admins or ^user_id in t.members) and e.id == ^edge_id,
+          preload: [team: t],
+          order_by: [desc: t.inserted_at],
+          select: e
+
+    length(Repo.all(query)) == 1
+  end
+
   def list_recent_edge_status(edge_id, from_time \\ nil, to_time \\ nil) do
     from_time =
       if is_nil(from_time) do

@@ -4,6 +4,7 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
 
   alias EdgeOsCloud.Device
   alias EdgeOsCloud.Device.Edge
+  alias EdgeOsCloud.Sockets.EdgeSSHUtils
 
   @impl true
   def mount(_params, session, socket) do
@@ -99,7 +100,7 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
       socket = push_event(socket, "ssh_error", %{title: "Timeout! TCP tunnel NOT established", note: note})
       {:noreply, socket}
     else
-      if is_session_ready(session_id) do
+      if EdgeSSHUtils.is_session_ready(session_id) do
         Logger.debug("ssh session for #{session_id} is ready. updating the UI")
         cloud_url = System.get_env("PHX_HOST", "127.0.0.1")
         session = Device.get_edge_session!(session_id)
@@ -127,7 +128,7 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
   end
 
   def handle_info({:tcp_disconnected, session_id}, socket) do
-    if is_session_ready(session_id) do
+    if EdgeSSHUtils.is_session_ready(session_id) do
       # check again in 3 secs until the session is finished
       Process.send_after(self(), {:tcp_disconnected, session_id}, 3000)
       {:noreply, socket}
@@ -142,20 +143,6 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
 
       {:noreply, socket}
     end
-  end
-
-  defp is_session_ready(session_id) do
-    user_process_ready = case Process.whereis(EdgeOsCloud.Sockets.EdgeTcpSocket.get_pid(session_id)) do
-      nil -> false
-      _user_pid -> true
-    end
-
-    edge_process_ready = case Process.whereis(EdgeOsCloud.Sockets.EdgeTcpSocket.get_pid(session_id)) do
-      nil -> false
-      _user_pid -> true
-    end
-
-    user_process_ready and edge_process_ready
   end
 
   defp list_edges(user_id) do

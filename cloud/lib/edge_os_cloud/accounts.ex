@@ -8,6 +8,7 @@ defmodule EdgeOsCloud.Accounts do
 
   alias EdgeOsCloud.Accounts.User
   alias EdgeOsCloud.Accounts.UserAction
+  alias EdgeOsCloud.Accounts.UserAPITokens
 
   require Logger
 
@@ -49,6 +50,33 @@ defmodule EdgeOsCloud.Accounts do
       [user] -> {:ok, user}
       [] -> {:ok, nil}
       _ -> raise "more than 1 user with eamil #{email} is found"
+    end
+  end
+
+  def get_user_via_token(token) do
+    native_time_now = DateTime.to_naive(DateTime.utc_now())
+
+    query = from t in UserAPITokens,
+          join: u in User, on: t.user_id == u.id,
+          where: t.token == ^token and t.expiration > ^native_time_now,
+          select: u
+
+    case Repo.all(query) do
+      [user | _tail] -> {:ok, user}
+      _ -> {:ok, nil}
+    end
+  end
+
+  def get_user_token(user) do
+    native_time_now = DateTime.to_naive(DateTime.utc_now())
+
+    query = from t in UserAPITokens,
+          where: t.expiration > ^native_time_now and t.user_id == ^user.id,
+          select: t
+
+    case Repo.all(query) do
+      [token | _tail] -> {:ok, token}
+      _ -> {:ok, nil}
     end
   end
 
@@ -165,6 +193,17 @@ defmodule EdgeOsCloud.Accounts do
   def create_user(attrs \\ %{}) do
     %User{}
     |> User.changeset(attrs)
+    |> Repo.insert()
+  end
+
+  def create_user_token(user) do
+    attrs = %{
+      "token" => UUID.uuid4() <> UUID.uuid4(),
+      "user_id" => user.id,
+    }
+
+    %UserAPITokens{}
+    |> UserAPITokens.changeset(attrs)
     |> Repo.insert()
   end
 

@@ -3,6 +3,7 @@ defmodule EdgeOsCloudWeb.PageController do
   require Logger
 
   alias EdgeOsCloud.Device
+  alias EdgeOsCloud.Accounts
 
   def index(conn, _params) do
     case get_session(conn, :current_user) do
@@ -74,5 +75,29 @@ defmodule EdgeOsCloudWeb.PageController do
     |> put_flash(:info, "You have been logged out!")
     |> clear_session()
     |> redirect(to: "/login")
+  end
+
+  def me(conn, _params) do
+    case get_session(conn, :current_user) do
+      nil -> 
+        conn
+        |> put_flash(:info, "You have been logged out!")
+        |> clear_session()
+        |> redirect(to: "/login")
+
+      user ->
+        user_token = case Accounts.get_user_token(user) do
+          {:ok, nil} ->
+            {:ok, token} = Accounts.create_user_token(user)
+            token
+          {:ok, token} -> 
+            token
+        end
+
+        conn
+        |> assign(:current_user, user)
+        |> assign(:token, user_token)
+        |> render("me.html")
+    end
   end
 end

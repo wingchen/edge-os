@@ -12,6 +12,11 @@ defmodule EdgeOsCloudWeb.Router do
 
   pipeline :api do
     plug :accepts, ["json"]
+    plug :fetch_session
+  end
+
+  pipeline :api_auth do
+    plug EdgeOsCloudWeb.APIAuth
   end
 
   scope "/", EdgeOsCloudWeb do
@@ -20,6 +25,8 @@ defmodule EdgeOsCloudWeb.Router do
     get "/", PageController, :index
     get "/login", PageController, :login
     get "/logout", PageController, :logout
+
+    get "/me", PageController, :me
 
     get "/dash/edge/:id", DashController, :edge
 
@@ -52,6 +59,13 @@ defmodule EdgeOsCloudWeb.Router do
 
     get "/:provider", AuthController, :request
     get "/:provider/callback", AuthController, :callback
+  end
+
+  scope "/api/v1", EdgeOsCloudWeb do
+    pipe_through [:api, :api_auth]
+
+    get "/list_edges", APIV1Controller, :list_edges
+    post "/ssh_connect/:edge_id", APIV1Controller, :ssh_connect
   end
 
   # Other scopes may use custom stacks.
