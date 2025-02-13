@@ -38,6 +38,10 @@ I will gradually add in code when I am not working on my day job.
 2. [Deploying EdgeOS to self-hosted cloud](https://github.com/wingchen/edge-os/wiki/Deploying-EdgeOS-to-self-hosted-cloud)
 3. [Deploying EdgeOS to edge to connect to your self-hosted cloud](https://github.com/wingchen/edge-os/wiki/Deploying-EdgeOS-to-edge-to-connect-to-your-self-hosted-cloud)
 
+## API Doc
+
+1. [Getting your user key and get connected](https://github.com/wingchen/edge-os/wiki/Getting-your-user-key-and-get-connected)
+
 # Issues and feature requests
 
 Please feel free to use the github for these: [https://github.com/wingchen/edge-os/issues](https://github.com/wingchen/edge-os/issues).
