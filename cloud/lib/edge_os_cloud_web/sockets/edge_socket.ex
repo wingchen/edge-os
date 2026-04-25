@@ -140,7 +140,41 @@ defmodule EdgeOsCloud.Sockets.EdgeSocket do
     end
   end
 
+  def handel_message(["WEBRTC_ANSWER", json_payload], edge) do
+    Logger.debug("getting WebRTC answer from edge #{edge.id}")
+
+    case Jason.decode(json_payload) do
+      {:ok, %{"session_id" => session_id, "sdp" => sdp}} ->
+        case Process.whereis(webrtc_peer_pid(session_id)) do
+          nil -> Logger.warning("no WebRTC peer found for session #{session_id} on edge #{edge.id}")
+          pid -> send(pid, {:webrtc_answer, sdp})
+        end
+
+      _ ->
+        Logger.error("invalid WEBRTC_ANSWER payload from edge #{edge.id}: #{json_payload}")
+    end
+  end
+
+  def handel_message(["ICE_CANDIDATE", json_payload], edge) do
+    Logger.debug("getting ICE candidate from edge #{edge.id}")
+
+    case Jason.decode(json_payload) do
+      {:ok, %{"session_id" => session_id, "candidate" => candidate}} ->
+        case Process.whereis(webrtc_peer_pid(session_id)) do
+          nil -> Logger.warning("no WebRTC peer found for session #{session_id} on edge #{edge.id}")
+          pid -> send(pid, {:ice_candidate, candidate})
+        end
+
+      _ ->
+        Logger.error("invalid ICE_CANDIDATE payload from edge #{edge.id}: #{json_payload}")
+    end
+  end
+
   def handel_message(param_list, _edge) do
-    Logger.warning("param_list #{inspect param_list}") 
+    Logger.warning("param_list #{inspect param_list}")
+  end
+
+  def webrtc_peer_pid(session_id) do
+    String.to_atom("webrtc_peer_session_#{session_id}")
   end
 end

@@ -75,6 +75,7 @@ if config_env() == :prod do
 
   config :edge_os_cloud, EdgeOsCloudWeb.Endpoint,
     url: [host: host, port: port, scheme: "https"],
+    force_ssl: [hsts: true],
     https: [
       ip: {0, 0, 0, 0},
       port: port,

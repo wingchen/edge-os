@@ -35,7 +35,6 @@ defmodule EdgeOsCloudWeb.APIAuth do
   # Private helper to extract Bearer token from the Authorization header
   defp get_bearer_token(conn) do
     with ["Bearer " <> token] <- get_req_header(conn, "authorization") do
-      Logger.debug("gettinbg token of #{token}")
       token
     else
       _ -> nil
