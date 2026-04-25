@@ -37,22 +37,26 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 - [x] `GET /api/v1/turn-credentials` authenticated endpoint
 
 ### 1B — Cloud WebRTC peer (replaces `EdgeTcpSocket`)
-- [ ] Integrate `ex_webrtc` (pure Elixir) as cloud-side WebRTC peer
-- [ ] Cloud initiates WebRTC offer to edge via `EdgeSocket` signaling
-- [ ] Once data channel is open, `UserTcpSocket` pipes TCP bytes through it instead of `EdgeTcpSocket`
-- [ ] `EdgeTcpSocket` left in place, unused for new devices
+- [x] Integrate `ex_webrtc` (pure Elixir) as cloud-side WebRTC peer
+- [x] Cloud initiates WebRTC offer to edge via `EdgeSocket` signaling
+- [x] `WebRTCPeer` registers under `EdgeTcpSocket`'s process name — `UserTcpSocket` and `is_session_ready` unchanged
+- [x] `EdgeSSHUtils` branches on `edge.edge_info["protocol"]` — old devices use TCP bridge, new devices use WebRTC
+- [x] `EdgeTcpSocket` left in place, unused for new devices
 
 ### 1C — New edge agent (alongside old code)
-- [ ] Integrate `str0m` (pure Rust, no C deps)
-- [ ] Edge advertises `"protocol": "webrtc"` in `EDGE_INFO`
-- [ ] Handle `WEBRTC_OFFER` → negotiate → data channel → local `127.0.0.1:22`
+- [x] Integrate `webrtc` crate (webrtc-rs) for peer connection handling
+- [x] Edge advertises `"protocol": "webrtc"` in `EDGE_INFO`
+- [x] Handle `WEBRTC_OFFER` → negotiate → data channel → local `127.0.0.1:22`
+- [x] Handle incoming `ICE_CANDIDATE` from cloud, route to active session
+- [x] TURN credentials passed inside offer payload — edge needs no TURN secret
 - [ ] Data channel: file transfer (replaces SCP tunnel)
-- [ ] `tcp_to_websocket.rs` stays dormant, serves old devices
+- [x] `tcp_to_websocket.rs` stays dormant, serves old devices
 
 ### 1D — coturn infra
-- [ ] coturn Docker sidecar in docker-compose
-- [ ] Open on Sailoi server: UDP/TCP 3478, UDP/TCP 5349, UDP 49152-65535
-- [ ] Shared `TURN_SECRET` env var between coturn and Elixir app
+- [x] coturn Docker sidecar in docker-compose (host networking, local dev)
+- [x] Production: `docker run` command documented in `prod.sh` comments
+- [ ] Open on Sailoi server: UDP/TCP 3478, UDP 49152-65535
+- [x] `TURN_SECRET` and `TURN_HOST` added to `prod.sh`; `TURN_SECRET` wired into `docker-compose.yaml`
 
 ### 1E — Legacy sunset *(no rush, when old devices have cycled out)*
 - [ ] Remove `EdgeTcpSocket`, `tcp_to_websocket.rs`, `TCPPortSelector`

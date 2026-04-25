@@ -17,3 +17,19 @@ services:
       - REDIS_PORT_NUMBER=7777
     ports:
       - '7777:7777'
+
+  coturn:
+    image: coturn/coturn:latest
+    restart: always
+    # host networking is required so coturn can learn its own IP for relay candidates
+    # on Linux this works natively; on Mac use `docker run --add-host` or a VM
+    network_mode: host
+    command: >
+      --use-auth-secret
+      --static-auth-secret=${TURN_SECRET:-changeme}
+      --realm=localhost
+      --min-port=49152
+      --max-port=65535
+      --no-tls
+      --no-dtls
+      --log-file=stdout
