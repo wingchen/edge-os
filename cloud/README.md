@@ -39,20 +39,41 @@ docker-compose up && mix phx.server
 
 ## Building for releases
 
-We can use the phoenix command to build releases:
+### With Docker (recommended — matches production Debian x86_64)
 
-```
-MIX_ENV=prod mix release 
-```
-
-The the binaries will be built at:
-
-```
-[wingchen@WT-Garuda cloud]$ ls _build/prod/rel/edge_os_cloud/bin/
-edge_os_cloud  edge_os_cloud.bat  migrate  migrate.bat  server  server.bat
+```bash
+docker build --platform linux/amd64 -t edgeos-cloud .
 ```
 
-The `_build/prod/rel/edge_os_cloud/bin/server` file is the one you want to run on server.
+**Run as a container:**
+```bash
+docker run --env-file .env -p 443:443 edgeos-cloud
+```
+
+**Extract the release binary for traditional systemd deployment:**
+```bash
+docker create --name edgeos-extract edgeos-cloud
+docker cp edgeos-extract:/app/. ./edge_os_cloud_release/
+docker rm edgeos-extract
+rsync -a ./edge_os_cloud_release/ user@edgeos-prod-01:/opt/edgeos/edge_os_cloud/
+```
+
+Then on the server: `sudo systemctl restart edge-os`
+
+### Without Docker (requires matching Elixir/OTP on build machine)
+
+```
+MIX_ENV=prod mix release
+```
+
+The binaries will be built at:
+
+```
+_build/prod/rel/edge_os_cloud/bin/
+edge_os_cloud  migrate  server
+```
+
+The `server` script is the one you want to run on the server.
 
 ## Install or Update in server
 

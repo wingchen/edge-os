@@ -59,9 +59,6 @@ defmodule EdgeOsCloud.MixProject do
       # edge id
       {:hashids, "~> 2.0"},
 
-      # uuid
-      {:uuid, "~> 1.1"},
-
       # time utils
       {:timex, "~> 3.7"},
 
