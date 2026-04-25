@@ -1,0 +1,67 @@
+#!/bin/bash
+# Runs after the .app is placed in /Applications.
+# Copies the edge binary to a stable path and registers the LaunchDaemon.
+
+set -e
+
+EDGE_DIR="/Library/Application Support/EdgeOS"
+EDGE_BINARY="$EDGE_DIR/edge-os-edge"
+PLIST="/Library/LaunchDaemons/com.sailoi.edgeos.plist"
+
+# Create config/data directory.
+# chown root:admin + chmod 775 lets the logged-in admin user (the Tauri app)
+# write config.json without a sudo prompt.
+mkdir -p "$EDGE_DIR"
+chown root:admin "$EDGE_DIR"
+chmod 775 "$EDGE_DIR"
+
+# Copy edge binary from the app bundle (Tauri appends target triple to sidecar name)
+SIDECAR=$(find /Applications/EdgeOS.app/Contents/MacOS -name "edge-os-edge-*" | head -1)
+if [ -z "$SIDECAR" ]; then
+    echo "ERROR: edge-os-edge sidecar not found in app bundle" >&2
+    exit 1
+fi
+cp "$SIDECAR" "$EDGE_BINARY"
+chmod 755 "$EDGE_BINARY"
+
+# Write LaunchDaemon plist
+cat > "$PLIST" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.sailoi.edgeos</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>$EDGE_BINARY</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>EDGE_OS_EDGE_DIR</key>
+        <string>$EDGE_DIR</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/var/log/edgeos.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/var/log/edgeos-error.log</string>
+</dict>
+</plist>
+EOF
+
+chown root:wheel "$PLIST"
+chmod 644 "$PLIST"
+
+launchctl load "$PLIST"
+
+exit 0

@@ -35,18 +35,12 @@ async fn main() {
     let password = config::get_device_password(local_working_dir.clone());
     info!("Starting edge-os-edge: {uuid}");
 
-    let team_hash = match env::var("EDGE_OS_CLOUD_TEAM_HASH") {
-        Ok(val) => val,
-        Err(_e) => "Q6rL8ENP9lYV97wzpxKGR2ybZ".to_string(),
-    };
-
-    let cloud = match env::var("EDGE_OS_CLOUD_URL") {
-        Ok(cloud_url) => cloud_url,
-        Err(_e) => "ws://127.0.0.1:4000".to_string(),
-    };
+    let (cloud, team_hash) = read_config(&local_working_dir);
 
     let cloud_server_url = format!("{}/et/{}/{}/{}/websocket", cloud, team_hash, uuid, password);
     info!("Connecting to: {cloud_server_url}");
+
+    write_status(&local_working_dir, "connecting", &cloud);
 
     let (ping_tx, ping_rx) = futures_channel::mpsc::unbounded();
     tokio::spawn(start_pinging(ping_tx.clone()));
@@ -55,6 +49,8 @@ async fn main() {
     let url = url::Url::parse(&cloud_server_url).unwrap();
     let (ws_stream, _) = connect_async(url).await.expect("WebSocket failed to connect");
     debug!("WebSocket handshake has been successfully completed");
+
+    write_status(&local_working_dir, "connected", &cloud);
 
     let (write, read) = ws_stream.split();
     let ping_to_ws = ping_rx.map(Ok).forward(write);
@@ -129,6 +125,43 @@ async fn main() {
 
     pin_mut!(ping_to_ws, ws_to_edge);
     future::select(ping_to_ws, ws_to_edge).await;
+
+    write_status(&local_working_dir, "disconnected", &cloud);
+}
+
+fn read_config(dir: &str) -> (String, String) {
+    let path = format!("{}/config.json", dir);
+    if let Ok(content) = fs::read_to_string(&path) {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
+            let url  = v.get("cloud_url").and_then(|v| v.as_str()).map(str::to_string);
+            let hash = v.get("team_hash").and_then(|v| v.as_str()).map(str::to_string);
+            if let (Some(u), Some(h)) = (url, hash) {
+                return (u, h);
+            }
+        }
+    }
+    // Fall back to env vars, then built-in defaults
+    let cloud = env::var("EDGE_OS_CLOUD_URL")
+        .unwrap_or_else(|_| "ws://127.0.0.1:4000".to_string());
+    let hash = env::var("EDGE_OS_CLOUD_TEAM_HASH")
+        .unwrap_or_else(|_| "Q6rL8ENP9lYV97wzpxKGR2ybZ".to_string());
+    (cloud, hash)
+}
+
+fn write_status(dir: &str, status: &str, cloud_url: &str) {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let json = format!(
+        r#"{{"status":"{}","cloud_url":"{}","updated_at":{}}}"#,
+        status, cloud_url, ts
+    );
+    let path = format!("{}/status.json", dir);
+    if let Err(e) = fs::write(&path, &json) {
+        error!("failed to write status file {}: {}", path, e);
+    }
 }
 
 // send ping from time to time so that the cloud server knows

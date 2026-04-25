@@ -65,16 +65,53 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 ---
 
 ## Phase 2 — Tauri Native App
-> Proper installable app. Zero-config onboarding. No terminal required. Built on the WebRTC foundation from Phase 1.
+> Proper installable app. Zero-config onboarding. No terminal required. Built on the WebRTC foundation from Phase 1. Tauri is the only distribution going forward — the original daemon-only package is retired.
+>
+> **Daemon model:** the edge agent binary runs as a **system-level** OS service (starts at boot, survives user logout, no UI required). The Tauri menubar app is the management UI only — it does not own the agent process.
+>
+> **Platform roles:**
+> - macOS / Linux desktop — full edge agent (system daemon) + management UI
 
-- [ ] Tauri v2 project wrapping the Rust edge client
-- [ ] Menu bar app (macOS) — connection status, camera count, recent events
-- [ ] macOS native notifications with thumbnails
-- [ ] Keychain integration for auth token storage
-- [ ] Launch at Login
-- [ ] Installers: `.dmg` (Mac), AppImage/`.deb` (Linux/Pi), `.exe` (Windows)
-- [ ] CoreML execution provider for ONNX — unlock Apple Neural Engine on Mac
-- [ ] Tauri v2 mobile — iOS + Android viewer (same Rust core, same web UI)
+### 2A — App shell
+- [x] Tauri v2 project in `app/` (alongside `cloud/` and `edge/`)
+- [x] Menubar app — `LSUIElement: true` + `ActivationPolicy::Accessory` — no dock icon on macOS
+- [x] Tray menu: status item (disabled, updated by 2C), separator, Quit
+- [x] Quit exits the UI only — daemon keeps running independently
+- [x] `set_tray_status` helper ready for 2C to wire in live daemon state
+
+### 2B — System daemon registration (macOS + Linux desktop only)
+- [x] macOS: `pkg-scripts/preinstall` unloads daemon on upgrade; `pkg-scripts/postinstall` copies edge binary to `/Library/Application Support/EdgeOS/`, writes LaunchDaemon plist, runs `launchctl load`
+- [x] `scripts/build-macos-pkg.sh` — wraps Tauri `.app` into a signed `.pkg` via `pkgbuild` + `productbuild`
+- [x] Linux: `scripts/install-linux-daemon.sh` (manual sudo step; TODO: fold into `.deb` postinst in 2E)
+- [x] Edge binary bundled as Tauri sidecar via `externalBin` in `tauri.conf.json`
+- [x] Tray polls daemon status every 5s — shows `● Daemon running` / `○ Daemon stopped` / `○ Daemon not installed`
+- [ ] Uninstaller stops + removes the service
+
+### 2C — IPC between UI and daemon (macOS + Linux only)
+- [x] Edge agent writes `$EDGE_OS_EDGE_DIR/status.json` on connect / disconnect / startup
+- [x] Tauri UI reads status file on each 5s poll — shows `● Connected`, `◌ Connecting...`, `○ Disconnected`
+- [x] File permissions work naturally: daemon (root) writes `644`, UI (user) reads
+
+### 2D — Auth & config
+- [x] Edge agent reads `$EDGE_OS_EDGE_DIR/config.json` on startup (falls back to env vars, then built-in defaults)
+- [x] `postinstall` sets `root:admin 775` on EdgeOS dir so admin-user Tauri app can write `config.json` without sudo
+- [x] First-run setup wizard (`setup.html`) — Cloud URL, Team Hash, API Token fields
+- [x] `save_config` Tauri command: writes `config.json`, stores token in OS keychain, restarts daemon via `osascript`/`pkexec`
+- [x] Keychain: `keyring` crate (macOS Keychain / Linux libsecret) under service `com.sailoi.edgeos`
+- [x] Settings menu item re-opens setup window for config changes
+
+### TODO — 2E: Installers
+> Deferred. macOS `.pkg` build script exists (`scripts/build-macos-pkg.sh`); notarization and Linux `.deb`/AppImage packaging not yet set up. CoreML execution provider for ONNX (Apple Neural Engine) also deferred to when Phase 3 camera inference is ready.
+
+### TODO — 2F: Mobile viewer
+> Deferred. Tauri v2 mobile (iOS + Android) for viewing camera feeds and managing edges. Depends on Phase 3 camera MVP being complete first.
+
+### TODO — Headless Linux (Pi / server)
+> Deferred. Headless Linux devices currently use the original daemon package (`edge-os.service`).
+> Future work: a `.deb` post-install script that writes the systemd unit and enables it, mirroring the macOS `.pkg` approach. No Tauri UI needed.
+
+### TODO — Windows
+> Deferred. The Windows build would be a viewer + management UI only (no edge agent, no daemon) since SSH on Windows is not a meaningful use case and ONVIF cameras are network devices independent of host OS. Not worth the effort until there is clear demand.
 
 ---
 

@@ -1,0 +1,11 @@
+#!/bin/bash
+# Runs before the package is installed. Unloads any running daemon so the
+# binary can be overwritten cleanly during an upgrade.
+
+PLIST="/Library/LaunchDaemons/com.sailoi.edgeos.plist"
+
+if [ -f "$PLIST" ]; then
+    launchctl unload "$PLIST" 2>/dev/null || true
+fi
+
+exit 0

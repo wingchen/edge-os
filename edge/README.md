@@ -1,10 +1,10 @@
 # edge-os-edge
 
-`edge-os-edge` is meant to run in IoT devices. It connects back to the mothership with websockets and retry connection when disconnected. The IoT cluster owner can then send commands to devices via the cloud portal.
+`edge-os-edge` is the edge agent binary. It connects back to the cloud over WebSocket/WebRTC and keeps the connection alive.
 
-To run this in your SoC and have it function normally, you will have to:
-- give it `sudo` privileges
-- make it into a service with `systemd` or something likewise
+> **Distribution:** for macOS and Linux desktop, use the Tauri app in `app/` — it bundles this binary and installs it as a system daemon automatically. See [`app/README.md`](../app/README.md) for the full build and install flow.
+>
+> Direct use of this binary (without the Tauri app) is for headless Linux devices (Pi, server) only.
 
 # Env Vars
 
