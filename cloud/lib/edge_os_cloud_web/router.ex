@@ -65,6 +65,7 @@ defmodule EdgeOsCloudWeb.Router do
     pipe_through [:api, :api_auth]
 
     get "/list_edges", APIV1Controller, :list_edges
+    get "/turn-credentials", APIV1Controller, :turn_credentials
     post "/ssh_connect/:edge_id", APIV1Controller, :ssh_connect
   end
 

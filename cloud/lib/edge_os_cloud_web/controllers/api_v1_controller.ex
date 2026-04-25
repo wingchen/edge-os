@@ -31,6 +31,15 @@ defmodule EdgeOsCloudWeb.APIV1Controller do
     end
   end
 
+  defp generate_turn_credentials(user_id) do
+    secret = System.get_env("TURN_SECRET", "")
+    ttl = 86_400
+    timestamp = System.os_time(:second) + ttl
+    username = "#{timestamp}:#{user_id}"
+    credential = :crypto.mac(:hmac, :sha, secret, username) |> Base.encode64()
+    %{username: username, credential: credential, ttl: ttl}
+  end
+
   defp wait_for_ssh_connection(session_id, n) when n <= 0 do
     message = "Session #{session_id} wait finished. we it's not ready"
     Logger.info(message)
@@ -48,6 +57,15 @@ defmodule EdgeOsCloudWeb.APIV1Controller do
       Process.sleep(3000)
       wait_for_ssh_connection(session_id, n - 1)
     end
+  end
+
+  def turn_credentials(conn, _params) do
+    user = get_session(conn, :current_user)
+    creds = generate_turn_credentials(user.id)
+
+    conn
+    |> put_status(:ok)
+    |> json(%{"ok" => true, "credentials" => creds})
   end
 
   def ssh_connect(conn, %{"edge_id" => edge_uuid}) do

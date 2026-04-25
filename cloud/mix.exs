@@ -71,6 +71,9 @@ defmodule EdgeOsCloud.MixProject do
 
       # reids
       {:redix, ">= 1.0.0"},
+
+      # webrtc
+      {:ex_webrtc, "~> 0.8"},
     ]
   end
 

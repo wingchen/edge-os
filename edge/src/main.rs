@@ -2,11 +2,14 @@ use log::{debug, info, warn, error, LevelFilter};
 use std::env;
 use std::fs;
 use std::str;
+use std::collections::HashMap;
+use std::sync::Arc;
 use url;
 use std::{thread, time};
 use std::io;
 use futures_util::{future, pin_mut, StreamExt};
 use tokio::io::{AsyncReadExt};
+use tokio::sync::{Mutex, mpsc as tokio_mpsc};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use tokio::net::UnixListener;
 use tokio::time::{sleep};
@@ -16,6 +19,7 @@ use systemd_journal_logger::JournalLog;
 mod config;
 mod edge_system;
 mod tcp_to_websocket;
+mod webrtc_session;
 
 #[tokio::main]
 async fn main() {
@@ -55,33 +59,67 @@ async fn main() {
     let (write, read) = ws_stream.split();
     let ping_to_ws = ping_rx.map(Ok).forward(write);
 
+    // keyed by session_id, routes incoming ICE_CANDIDATE messages to the right WebRTC task
+    let webrtc_sessions: Arc<Mutex<HashMap<String, tokio_mpsc::UnboundedSender<String>>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+
+    let signaling_tx = ping_tx.clone();
+    let cloud_ref = cloud.clone();
+    let uuid_ref = uuid.clone();
+
     let ws_to_edge = {
-        read.for_each(|message| async {
-            let command_str = message.unwrap().to_string();
+        read.for_each(move |message| {
+            let sessions = Arc::clone(&webrtc_sessions);
+            let signaling_tx = signaling_tx.clone();
+            let cloud = cloud_ref.clone();
+            let uuid = uuid_ref.clone();
+            async move {
+                let command_str = message.unwrap().to_string();
 
-            if command_str == "" {
-                debug!("ignoring the empty message");
-            } else {
-                let command_split: Vec<&str> = command_str.split_whitespace().collect();
+                if command_str.is_empty() {
+                    debug!("ignoring the empty message");
+                    return;
+                }
 
-                match &command_split[..] {
-                    [""] => {
-                        handle_pong();
-                    },
+                let mut parts = command_str.splitn(2, ' ');
+                let command = parts.next().unwrap_or("");
+                let payload = parts.next().unwrap_or("");
 
-                    ["SSH", session_id] => {
-                        let session_id_str = session_id.to_string();
+                match command {
+                    "" => handle_pong(),
+
+                    "SSH" => {
+                        let session_id_str = payload.to_string();
                         let cloud_value = cloud.clone();
                         let uuid_value = uuid.clone();
-                        let session_id_str_value = session_id_str.clone();
                         debug!("creating ssh session with: {}", command_str);
 
                         thread::spawn(move || {
-                            tcp_to_websocket::start_tcp_to_websocket_bridge(cloud_value, uuid_value, session_id_str_value)
+                            tcp_to_websocket::start_tcp_to_websocket_bridge(cloud_value, uuid_value, session_id_str)
                         });
 
                         info!("ssh session created with: {}", command_str);
-                    },
+                    }
+
+                    "WEBRTC_OFFER" => {
+                        let json = payload.to_string();
+                        let session_id = webrtc_session::extract_session_id(&json).unwrap_or_default();
+                        let (ice_tx, ice_rx) = tokio_mpsc::unbounded_channel();
+                        sessions.lock().await.insert(session_id.clone(), ice_tx);
+                        let tx = signaling_tx.clone();
+                        tokio::spawn(webrtc_session::handle_webrtc_offer(json, tx, ice_rx));
+                        info!("WebRTC offer received for session {}", session_id);
+                    }
+
+                    "ICE_CANDIDATE" => {
+                        let json = payload.to_string();
+                        let session_id = webrtc_session::extract_session_id(&json).unwrap_or_default();
+                        let lock = sessions.lock().await;
+                        match lock.get(&session_id) {
+                            Some(ice_tx) => { let _ = ice_tx.send(json); }
+                            None => warn!("no active WebRTC session for ICE candidate {}", session_id),
+                        }
+                    }
 
                     _ => warn!("unknown message: '{}'", command_str),
                 }

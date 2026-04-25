@@ -29,12 +29,23 @@ defmodule EdgeOsCloud.Sockets.EdgeSSHUtils do
             port: ssh_port,
           })
 
-          cmd = "SSH #{Device.get_session_id_hash(edge, session.id)}"
-          Logger.info("commading to edge #{edge.id} with command #{cmd}")
-          send(websocket_pid, cmd)
+          session_hash = Device.get_session_id_hash(edge, session.id)
 
-          # start a cloud ssh server to handle bridging
-          # we need to use an async task because UserTcpSocket init is blocking until an user connects in
+          if get_in(edge.edge_info, ["protocol"]) == "webrtc" do
+            Task.start(fn ->
+              EdgeOsCloud.Sockets.WebRTCPeer.start_link(
+                session: session,
+                edge: edge,
+                session_hash: session_hash
+              )
+            end)
+          else
+            cmd = "SSH #{session_hash}"
+            Logger.info("commanding edge #{edge.id} with #{cmd}")
+            send(websocket_pid, cmd)
+          end
+
+          # UserTcpSocket handles the user-facing TCP side for both old and new protocol
           Task.start(fn ->
             EdgeOsCloud.Sockets.UserTcpSocket.start_link(session_port: ssh_port, session_id: session.id, user_ip: user_ip)
           end)
