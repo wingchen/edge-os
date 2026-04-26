@@ -1,13 +1,21 @@
+use std::sync::Mutex;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
-    tray::TrayIconBuilder,
-    Manager, WebviewWindowBuilder,
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Manager, PhysicalPosition, WebviewWindowBuilder,
 };
+
+struct StatusMenuItem(Mutex<MenuItem<tauri::Wry>>);
 
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![save_config])
+        .invoke_handler(tauri::generate_handler![
+            save_config,
+            get_status,
+            open_setup,
+            quit_app,
+        ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
@@ -15,7 +23,6 @@ pub fn run() {
             build_tray(app)?;
             start_daemon_monitor(app.handle().clone());
 
-            // Show setup wizard on first run (no config.json yet)
             if !config_exists() {
                 show_setup_window(app.handle())?;
             }
@@ -26,44 +33,107 @@ pub fn run() {
         .expect("error running EdgeOS app");
 }
 
-// ── Setup window ─────────────────────────────────────────────────────────────
+// ── Status panel ──────────────────────────────────────────────────────────────
+
+fn toggle_status_panel(app: &tauri::AppHandle, click_pos: PhysicalPosition<f64>) {
+    match app.get_webview_window("status") {
+        Some(win) => {
+            if win.is_visible().unwrap_or(false) {
+                let _ = win.hide();
+            } else {
+                position_and_show(&win, click_pos);
+            }
+        }
+        None => {
+            let result = WebviewWindowBuilder::new(
+                app,
+                "status",
+                tauri::WebviewUrl::App("status.html".into()),
+            )
+            .title("")
+            .decorations(false)
+            .transparent(true)
+            .always_on_top(true)
+            .inner_size(320.0, 210.0)
+            .resizable(false)
+            .skip_taskbar(true)
+            .visible(false)
+            .build();
+
+            if let Ok(win) = result {
+                position_and_show(&win, click_pos);
+            }
+        }
+    }
+}
+
+fn position_and_show(win: &tauri::WebviewWindow, click_pos: PhysicalPosition<f64>) {
+    // Center panel horizontally under the click; keep it below the menu bar
+    let x = (click_pos.x - 160.0).max(0.0) as i32;
+    let y = (click_pos.y + 4.0) as i32;
+    let _ = win.set_position(PhysicalPosition::new(x, y));
+    let _ = win.show();
+    let _ = win.set_focus();
+}
+
+// ── Setup window ──────────────────────────────────────────────────────────────
 
 fn show_setup_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     if app.get_webview_window("setup").is_none() {
         WebviewWindowBuilder::new(app, "setup", tauri::WebviewUrl::App("setup.html".into()))
             .title("EdgeOS Setup")
-            .inner_size(480.0, 520.0)
+            .inner_size(440.0, 460.0)
             .resizable(false)
             .center()
             .build()?;
+    } else if let Some(win) = app.get_webview_window("setup") {
+        let _ = win.show();
+        let _ = win.set_focus();
     }
     Ok(())
 }
 
-// ── Tauri command: save_config ────────────────────────────────────────────────
+// ── Tauri commands ────────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn get_status() -> serde_json::Value {
+    let status = read_connection_status().unwrap_or_else(|| "unknown".to_string());
+    let (cloud_url, team_hash) = read_config_fields();
+    serde_json::json!({
+        "status":     status,
+        "cloud_url":  cloud_url,
+        "team_hash":  team_hash,
+    })
+}
+
+#[tauri::command]
+fn open_setup(app: tauri::AppHandle) -> Result<(), String> {
+    // Hide the status panel first
+    if let Some(win) = app.get_webview_window("status") {
+        let _ = win.hide();
+    }
+    show_setup_window(&app).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
 
 #[tauri::command]
 fn save_config(
     cloud_url: String,
     team_hash: String,
-    api_token: String,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    // Write config.json (directory is root:admin 775 so admin user can write)
     let config = serde_json::json!({
         "cloud_url": cloud_url,
         "team_hash": team_hash,
     });
     std::fs::write(config_file_path(), config.to_string()).map_err(|e| e.to_string())?;
 
-    // Store API token in the OS keychain
-    let entry = keyring::Entry::new("com.sailoi.edgeos", "api_token").map_err(|e| e.to_string())?;
-    entry.set_password(&api_token).map_err(|e| e.to_string())?;
+    let _ = restart_daemon(); // best-effort: silently skip if daemon not installed yet
 
-    // Restart daemon so it picks up the new config
-    restart_daemon().map_err(|e| e.to_string())?;
-
-    // Close setup window
     if let Some(win) = app.get_webview_window("setup") {
         let _ = win.close();
     }
@@ -79,14 +149,12 @@ fn restart_daemon() -> std::io::Result<()> {
             .args(["-e", script])
             .status()?;
     }
-
     #[cfg(target_os = "linux")]
     {
         std::process::Command::new("pkexec")
             .args(["systemctl", "restart", "edge-os"])
             .status()?;
     }
-
     Ok(())
 }
 
@@ -105,11 +173,12 @@ fn config_exists() -> bool {
     std::path::Path::new(config_file_path()).exists()
 }
 
-pub fn get_api_token() -> Option<String> {
-    keyring::Entry::new("com.sailoi.edgeos", "api_token")
-        .ok()?
-        .get_password()
-        .ok()
+fn read_config_fields() -> (String, String) {
+    let content = std::fs::read_to_string(config_file_path()).unwrap_or_default();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap_or_default();
+    let cloud_url = v.get("cloud_url").and_then(|u| u.as_str()).unwrap_or("").to_string();
+    let team_hash = v.get("team_hash").and_then(|h| h.as_str()).unwrap_or("").to_string();
+    (cloud_url, team_hash)
 }
 
 // ── Tray ──────────────────────────────────────────────────────────────────────
@@ -117,9 +186,12 @@ pub fn get_api_token() -> Option<String> {
 fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
     let status = MenuItem::with_id(app, "status", "● Checking...", false, None::<&str>)?;
     let sep1   = PredefinedMenuItem::separator(app)?;
-    let setup  = MenuItem::with_id(app, "setup", "Settings...", true, None::<&str>)?;
+    let setup  = MenuItem::with_id(app, "setup", "Settings…", true, None::<&str>)?;
     let sep2   = PredefinedMenuItem::separator(app)?;
     let quit   = MenuItem::with_id(app, "quit", "Quit EdgeOS", true, None::<&str>)?;
+
+    // Store status item in managed state so the monitor loop can update its text
+    app.manage(StatusMenuItem(Mutex::new(status.clone())));
 
     let menu = Menu::with_items(app, &[&status, &sep1, &setup, &sep2, &quit])?;
 
@@ -127,11 +199,22 @@ fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
         .tooltip("EdgeOS")
         .icon(app.default_window_icon().unwrap().clone())
         .menu(&menu)
-        .menu_on_left_click(true)
+        .show_menu_on_left_click(false) // left click shows status panel; right click shows menu
         .on_menu_event(|app, event| match event.id().as_ref() {
             "quit"  => app.exit(0),
             "setup" => { let _ = show_setup_window(app); }
             _       => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                position,
+                ..
+            } = event
+            {
+                toggle_status_panel(tray.app_handle(), position);
+            }
         })
         .build(app)?;
 
@@ -212,14 +295,8 @@ fn read_connection_status() -> Option<String> {
 }
 
 pub fn set_tray_status(app: &tauri::AppHandle, text: &str) -> tauri::Result<()> {
-    if let Some(tray) = app.tray_by_id("main") {
-        if let Some(menu) = tray.menu() {
-            if let Some(item) = menu.get("status") {
-                if let Some(item) = item.as_menuitem() {
-                    item.set_text(text)?;
-                }
-            }
-        }
+    if let Some(state) = app.try_state::<StatusMenuItem>() {
+        state.0.lock().unwrap().set_text(text)?;
     }
     Ok(())
 }

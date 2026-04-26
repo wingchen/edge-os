@@ -23,7 +23,13 @@ mod webrtc_session;
 
 #[tokio::main]
 async fn main() {
-    JournalLog::default().install().unwrap();
+    // Use journald only when launched by systemd (JOURNAL_STREAM is set by systemd).
+    // For interactive use (local.sh, terminal) fall through to env_logger → stderr.
+    if std::env::var("JOURNAL_STREAM").is_ok() {
+        let _ = JournalLog::default().install();
+    } else {
+        env_logger::init();
+    }
     log::set_max_level(LevelFilter::Debug);
 
     let local_working_dir = match env::var("EDGE_OS_EDGE_DIR") {
@@ -76,6 +82,8 @@ async fn main() {
                     debug!("ignoring the empty message");
                     return;
                 }
+
+                info!("[cloud→edge] {}", command_str);
 
                 let mut parts = command_str.splitn(2, ' ');
                 let command = parts.next().unwrap_or("");

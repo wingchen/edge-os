@@ -16,17 +16,17 @@ defmodule EdgeOsCloud.Sockets.WebRTCPeer do
   end
 
   def init({session, edge, session_hash}) do
-    # Register under the EdgeTcpSocket name so UserTcpSocket and is_session_ready
-    # find this process without any changes to those modules.
+    # One registration only — Erlang allows a process only one registered name.
+    # EdgeSocket signaling handlers decode the session hash to find this process
+    # via EdgeTcpSocket.get_pid. UserTcpSocket and is_session_ready also use this name.
     Process.register(self(), EdgeTcpSocket.get_pid(session.id))
-    # Also register under the WebRTC signaling name for EdgeSocket routing.
-    Process.register(self(), EdgeSocket.webrtc_peer_pid(session.id))
 
     {turn_ice_servers, turn_fields} = build_turn_config()
-    ice_servers = [%{urls: "stun:stun.l.google.com:19302"}] ++ turn_ice_servers
+    ice_servers = [%{urls: ["stun:stun.l.google.com:19302"]}] ++ turn_ice_servers
 
     {:ok, pc} = ExWebRTC.PeerConnection.start_link(ice_servers: ice_servers)
-    {:ok, dc_ref} = ExWebRTC.PeerConnection.create_data_channel(pc, "ssh-tunnel", ordered: true)
+    {:ok, dc} = ExWebRTC.PeerConnection.create_data_channel(pc, "ssh-tunnel", ordered: true)
+    dc_ref = dc.ref  # plain Erlang reference — what send_data and state_change events use
     {:ok, offer} = ExWebRTC.PeerConnection.create_offer(pc)
     :ok = ExWebRTC.PeerConnection.set_local_description(pc, offer)
 
@@ -36,7 +36,7 @@ defmodule EdgeOsCloud.Sockets.WebRTCPeer do
     Device.append_edge_session_action(session.id, EdgeSessionStage.get.edge_connected)
     Logger.info("WebRTCPeer started for session #{session.id}, offer sent to edge #{edge.id}")
 
-    {:ok, %{pc: pc, dc_ref: dc_ref, session: session, edge: edge, session_hash: session_hash}}
+    {:ok, %{pc: pc, dc_ref: dc_ref, session: session, edge: edge, session_hash: session_hash, dc_open: false, pending: []}}
   end
 
   # SDP answer from edge, routed here by EdgeSocket.handel_message
@@ -48,20 +48,13 @@ defmodule EdgeOsCloud.Sockets.WebRTCPeer do
   end
 
   # ICE candidate from edge, routed here by EdgeSocket.handel_message
-  def handle_info({:ice_candidate, candidate_json}, %{pc: pc, session: session} = state) do
-    case Jason.decode(candidate_json) do
-      {:ok, %{"candidate" => candidate_str, "sdpMLineIndex" => index, "sdpMid" => mid}} ->
-        candidate = %ExWebRTC.ICECandidate{
-          candidate: candidate_str,
-          sdp_m_line_index: index,
-          sdp_mid: mid
-        }
-        ExWebRTC.PeerConnection.add_ice_candidate(pc, candidate)
-
-      _ ->
-        Logger.error("invalid ICE candidate JSON for session #{session.id}: #{candidate_json}")
-    end
-
+  def handle_info({:ice_candidate, candidate_str, index, mid}, %{pc: pc} = state) do
+    candidate = %ExWebRTC.ICECandidate{
+      candidate: candidate_str,
+      sdp_m_line_index: index,
+      sdp_mid: mid
+    }
+    ExWebRTC.PeerConnection.add_ice_candidate(pc, candidate)
     {:noreply, state}
   end
 
@@ -77,15 +70,25 @@ defmodule EdgeOsCloud.Sockets.WebRTCPeer do
     {:noreply, state}
   end
 
-  # Data channel open — bridge is live
-  def handle_info({:ex_webrtc, _pc, {:data_channel_open, _dc_ref}}, %{session: session} = state) do
+  # Data channel became open — flush any buffered user data
+  # ex_webrtc sends {:data_channel_state_change, ref, :open} (not {:data_channel_open, ...})
+  def handle_info({:ex_webrtc, _pc, {:data_channel_state_change, _ref, :open}}, %{pc: pc, dc_ref: dc_ref, session: session, pending: pending} = state) do
     Logger.info("WebRTC data channel open for session #{session.id}")
     Device.append_edge_session_action(session.id, EdgeSessionStage.get.user_connected)
+    Enum.each(Enum.reverse(pending), fn data ->
+      ExWebRTC.PeerConnection.send_data(pc, dc_ref, data, :binary)
+    end)
+    {:noreply, %{state | dc_open: true, pending: []}}
+  end
+
+  def handle_info({:ex_webrtc, _pc, {:data_channel_state_change, _ref, state_name}}, state) do
+    Logger.debug("data channel state #{state_name} for session #{state.session.id}")
     {:noreply, state}
   end
 
   # Data from edge via data channel — forward to UserTcpSocket
-  def handle_info({:ex_webrtc, _pc, {:data_channel_message, _dc_ref, {:binary, data}}}, %{session: session} = state) do
+  # ex_webrtc sends {:data, ref, binary()} (not {:data_channel_message, ...})
+  def handle_info({:ex_webrtc, _pc, {:data, _ref, data}}, %{session: session} = state) do
     case Process.whereis(UserTcpSocket.get_pid(session.id)) do
       nil -> Logger.warning("UserTcpSocket not found for session #{session.id}")
       pid -> send(pid, {:edge_ssh_payload, data})
@@ -93,10 +96,14 @@ defmodule EdgeOsCloud.Sockets.WebRTCPeer do
     {:noreply, state}
   end
 
-  # Data from UserTcpSocket — forward to edge via data channel
-  def handle_info(data, %{pc: pc, dc_ref: dc_ref} = state) when is_binary(data) do
-    ExWebRTC.PeerConnection.send_data(pc, dc_ref, {:binary, data})
+  # Data from UserTcpSocket — forward to edge via data channel (buffer if channel not yet open)
+  def handle_info(data, %{pc: pc, dc_ref: dc_ref, dc_open: true} = state) when is_binary(data) do
+    ExWebRTC.PeerConnection.send_data(pc, dc_ref, data, :binary)
     {:noreply, state}
+  end
+
+  def handle_info(data, %{dc_open: false, pending: pending} = state) when is_binary(data) do
+    {:noreply, %{state | pending: [data | pending]}}
   end
 
   # UserTcpSocket signals TCP close — tear down the data channel
@@ -132,7 +139,7 @@ defmodule EdgeOsCloud.Sockets.WebRTCPeer do
         timestamp = System.os_time(:second) + ttl
         username = "#{timestamp}:edgeos"
         credential = :crypto.mac(:hmac, :sha, secret, username) |> Base.encode64()
-        ice = [%{urls: "turn:#{turn_host}:3478", username: username, credential: credential}]
+        ice = [%{urls: ["turn:#{turn_host}:3478"], username: username, credential: credential}]
         fields = %{turn_host: turn_host, turn_username: username, turn_credential: credential}
         {ice, fields}
     end

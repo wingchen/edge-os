@@ -11,6 +11,41 @@
 - `EDGE_OS_EDGE_DIR`: full dir path to where the `edge` data is stored
 - `EDGE_OS_CLOUD_URL`: full websocket path to where the `edge` should connect to, exp: `wss://edge.sailoi.com`
 
+# Development Workflow
+
+There are two ways to run the edge agent depending on what you're working on:
+
+## Edge-only (testing cloud connectivity)
+
+`local.sh` runs the binary directly in your terminal against the production cloud. Use this when iterating on edge code — no Tauri involved, fast feedback loop.
+
+```bash
+cargo build && ./local.sh
+```
+
+`local.sh` reads config from `test_data/config.json`. Set it up once:
+
+```bash
+mkdir -p test_data
+echo '{"cloud_url":"wss://edgeos.sailoi.com","team_hash":"YOUR_TEAM_HASH"}' > test_data/config.json
+```
+
+## Full stack (Tauri UI + edge agent)
+
+The Tauri app reads `status.json` from the system path (`/Library/Application Support/EdgeOS/` on macOS), not from `test_data/`. To see live status in the UI while developing, point the edge binary at the system path:
+
+```bash
+# Terminal 1 — run edge agent writing to system path
+EDGE_OS_EDGE_DIR="/Library/Application Support/EdgeOS" \
+RUST_LOG=debug \
+cargo run
+
+# Terminal 2 — run Tauri UI in dev mode (hot-reload)
+cd ../app && npm run tauri dev
+```
+
+Left-clicking the tray icon opens the status panel. It polls the status file every 3 seconds, so connection state updates live. Right-click for the menu (Settings, Quit).
+
 # Run test cases
 
 ```

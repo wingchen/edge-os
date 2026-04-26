@@ -71,6 +71,7 @@ defmodule EdgeOsCloud.MixProject do
 
       # webrtc
       {:ex_webrtc, "~> 0.8"},
+      {:ex_sctp, "~> 0.1"},
     ]
   end
 

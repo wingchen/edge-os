@@ -32,12 +32,16 @@ defmodule EdgeOsCloud.Sockets.EdgeSSHUtils do
           session_hash = Device.get_session_id_hash(edge, session.id)
 
           if get_in(edge.edge_info, ["protocol"]) == "webrtc" do
+            Logger.info("taking WebRTC path for edge #{edge.id} session #{session.id}")
             Task.start(fn ->
-              EdgeOsCloud.Sockets.WebRTCPeer.start_link(
+              case EdgeOsCloud.Sockets.WebRTCPeer.start_link(
                 session: session,
                 edge: edge,
                 session_hash: session_hash
-              )
+              ) do
+                {:ok, _pid} -> Logger.info("WebRTCPeer started for session #{session.id}")
+                {:error, reason} -> Logger.error("WebRTCPeer failed to start for session #{session.id}: #{inspect reason}")
+              end
             end)
           else
             cmd = "SSH #{session_hash}"

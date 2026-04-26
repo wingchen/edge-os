@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EdgeOS</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 320px;
+      height: 210px;
+      background: transparent;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .panel {
+      width: 320px;
+      height: 210px;
+      background: rgba(255, 255, 255, 0.97);
+      border-radius: 12px;
+      box-shadow:
+        0 0 0 0.5px rgba(0, 0, 0, 0.12),
+        0 4px 6px rgba(0, 0, 0, 0.07),
+        0 12px 28px rgba(0, 0, 0, 0.13);
+      display: flex;
+      flex-direction: column;
+      padding: 16px 18px 14px;
+      gap: 0;
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+    }
+
+    /* ── Status row ── */
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding-bottom: 13px;
+    }
+
+    .dot {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .dot.connected    { background: #34C759; box-shadow: 0 0 0 3px rgba(52,199,89,0.18); }
+    .dot.connecting   { background: #FF9500; box-shadow: 0 0 0 3px rgba(255,149,0,0.18); }
+    .dot.disconnected { background: #C7C7CC; box-shadow: none; }
+    .dot.unknown      { background: #C7C7CC; box-shadow: none; }
+
+    .status-label {
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: -0.2px;
+      color: #1c1c1e;
+      transition: color 0.3s;
+    }
+    .status-label.connected    { color: #1c7a36; }
+    .status-label.connecting   { color: #b36a00; }
+    .status-label.disconnected { color: #6e6e73; }
+    .status-label.unknown      { color: #6e6e73; }
+
+    /* ── Info rows ── */
+    .info-block {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      padding-bottom: 13px;
+    }
+
+    .info-row {
+      display: flex;
+      align-items: baseline;
+      gap: 7px;
+    }
+
+    .info-key {
+      font-size: 11px;
+      font-weight: 500;
+      color: #aeaeb2;
+      letter-spacing: 0.2px;
+      text-transform: uppercase;
+      width: 38px;
+      flex-shrink: 0;
+    }
+
+    .info-val {
+      font-size: 12.5px;
+      color: #3c3c43;
+      letter-spacing: -0.1px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 210px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .info-val.empty { color: #c7c7cc; font-style: italic; }
+
+    /* ── Divider ── */
+    .divider {
+      height: 0.5px;
+      background: rgba(60, 60, 67, 0.13);
+      margin-bottom: 12px;
+    }
+
+    /* ── Actions ── */
+    .actions {
+      display: flex;
+      gap: 8px;
+      margin-top: auto;
+    }
+
+    .btn {
+      flex: 1;
+      height: 28px;
+      border: 0.5px solid rgba(60, 60, 67, 0.22);
+      border-radius: 6px;
+      background: transparent;
+      font-size: 12.5px;
+      font-weight: 500;
+      font-family: inherit;
+      color: #3c3c43;
+      cursor: pointer;
+      transition: background 0.1s, border-color 0.1s;
+      -webkit-appearance: none;
+      letter-spacing: -0.1px;
+    }
+    .btn:hover  { background: rgba(60,60,67,0.06); border-color: rgba(60,60,67,0.32); }
+    .btn:active { background: rgba(60,60,67,0.12); }
+
+    .btn.danger       { color: #c0392b; border-color: rgba(192,57,43,0.25); }
+    .btn.danger:hover { background: rgba(192,57,43,0.06); border-color: rgba(192,57,43,0.38); }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <div class="status-row">
+      <div class="dot unknown" id="dot"></div>
+      <div class="status-label unknown" id="status-label">Checking…</div>
+    </div>
+
+    <div class="info-block">
+      <div class="info-row">
+        <span class="info-key">Cloud</span>
+        <span class="info-val empty" id="cloud-val">—</span>
+      </div>
+      <div class="info-row">
+        <span class="info-key">Team</span>
+        <span class="info-val empty" id="team-val">—</span>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="actions">
+      <button class="btn" id="settings-btn">Settings</button>
+      <button class="btn danger" id="quit-btn">Quit</button>
+    </div>
+  </div>
+
+  <script>
+    const dot         = document.getElementById('dot');
+    const statusLabel = document.getElementById('status-label');
+    const cloudVal    = document.getElementById('cloud-val');
+    const teamVal     = document.getElementById('team-val');
+
+    const STATUS_CONFIG = {
+      connected:    { text: 'Connected',    cls: 'connected' },
+      connecting:   { text: 'Connecting…',  cls: 'connecting' },
+      disconnected: { text: 'Disconnected', cls: 'disconnected' },
+      unknown:      { text: 'Unknown',      cls: 'unknown' },
+    };
+
+    function stripScheme(url) {
+      return (url || '').replace(/^wss?:\/\//, '').replace(/\/$/, '');
+    }
+
+    function truncateHash(hash) {
+      if (!hash || hash.length === 0) return null;
+      return hash.length > 6 ? '···' + hash.slice(-6) : hash;
+    }
+
+    function applyStatus(s) {
+      const cfg = STATUS_CONFIG[s] || STATUS_CONFIG.unknown;
+      dot.className         = 'dot ' + cfg.cls;
+      statusLabel.className = 'status-label ' + cfg.cls;
+      statusLabel.textContent = cfg.text;
+    }
+
+    function applyInfo(cloudUrl, teamHash) {
+      const cloud = stripScheme(cloudUrl);
+      if (cloud) {
+        cloudVal.textContent = cloud;
+        cloudVal.classList.remove('empty');
+      } else {
+        cloudVal.textContent = '—';
+        cloudVal.classList.add('empty');
+      }
+
+      const team = truncateHash(teamHash);
+      if (team) {
+        teamVal.textContent = team;
+        teamVal.classList.remove('empty');
+      } else {
+        teamVal.textContent = '—';
+        teamVal.classList.add('empty');
+      }
+    }
+
+    async function refresh() {
+      try {
+        const data = await window.__TAURI__.core.invoke('get_status');
+        applyStatus(data.status);
+        applyInfo(data.cloud_url, data.team_hash);
+      } catch (_) {
+        applyStatus('unknown');
+      }
+    }
+
+    refresh();
+    setInterval(refresh, 3000);
+
+    document.getElementById('settings-btn').addEventListener('click', () => {
+      window.__TAURI__.core.invoke('open_setup');
+    });
+
+    document.getElementById('quit-btn').addEventListener('click', () => {
+      window.__TAURI__.core.invoke('quit_app');
+    });
+
+    window.addEventListener('blur', () => {
+      window.__TAURI__.window.getCurrentWindow().hide();
+    });
+  </script>
+</body>
+</html>

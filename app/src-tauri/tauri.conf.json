@@ -7,6 +7,7 @@
     "frontendDist": "../src"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "label": "main",
@@ -34,10 +35,7 @@
       "../../edge/target/release/edge-os-edge"
     ],
     "macOS": {
-      "infoPlist": {
-        "LSUIElement": true,
-        "NSHighResolutionCapable": true
-      }
+      "infoPlist": "./Info.plist"
     }
   }
 }

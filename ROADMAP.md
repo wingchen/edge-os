@@ -58,6 +58,16 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 - [ ] Open on Sailoi server: UDP/TCP 3478, UDP 49152-65535
 - [x] `TURN_SECRET` and `TURN_HOST` added to `prod.sh`; `TURN_SECRET` wired into `docker-compose.yaml`
 
+### TODO — 1E-scale: Horizontal scaling via PubSub signaling
+> Currently `EdgeSocket` and `WebRTCPeer` communicate via node-local `Process.register`/`Process.whereis`. This means the user's session and the edge's WebSocket must land on the same Erlang node — sticky sessions required.
+>
+> With WebRTC the data channel is UDP-based (IP-addressed, not process-addressed), so once ICE connects the data path already scales horizontally. Only the signaling phase needs fixing:
+> - Replace `send(EdgeSocket.get_pid(edge.id), ...)` with a `Phoenix.PubSub` broadcast keyed on `edge_id`
+> - The node holding the edge's WebSocket subscribes to its topic and forwards offer/answer/ICE messages
+> - `WebRTCPeer` on any node can send/receive signaling without knowing which node the edge is on
+>
+> After this change: cloud nodes are fully stateless for the data path. Load balancers need no affinity. Horizontal scaling works out of the box.
+
 ### 1E — Legacy sunset *(no rush, when old devices have cycled out)*
 - [ ] Remove `EdgeTcpSocket`, `tcp_to_websocket.rs`, `TCPPortSelector`
 - [ ] Remove TCP port range from config
@@ -116,7 +126,60 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 ---
 
 ## Phase 3 — Camera MVP
-> Built on Phases 1 and 2. Video streams go P2P via WebRTC (cloud never sees frames). HLS used only as fallback for devices without a Tauri client.
+> Built on Phases 1 and 2.
+>
+> **Split responsibility:**
+> - **Local cameras** (same LAN as the Tauri machine) → managed and viewed in the **Tauri desktop app**. Live feeds via direct RTSP or edge agent relay. No cloud involvement in the video path.
+> - **Remote cameras** (different site, accessed over the internet) → managed and viewed in the **Phoenix cloud web UI**. Video relayed via WebRTC through the edge agent and cloud server.
+
+### Tauri app — local camera UI
+
+**Main window** (900×640, opens from tray icon):
+
+```
+┌─────────────────────────────────────────────────────┐
+│  [logo]  EdgeOS          ○ edge-228 · Connected      │  ← top bar
+├──────────┬──────────────────────────────────────────┤
+│          │                                          │
+│ Cameras  │   [Camera 1]        [Camera 2]           │
+│          │   ┌──────────┐      ┌──────────┐         │
+│ Events   │   │  live    │      │  live    │         │
+│          │   │  feed    │      │  feed    │         │
+│ Settings │   └──────────┘      └──────────┘         │
+│          │                                          │
+│  + Add   │   [Camera 3]        [+ Add Camera]       │
+│  Camera  │   ┌──────────┐      ┌──────────┐         │
+│          │   │  live    │      │  dotted  │         │
+│          │   │  feed    │      │  border  │         │
+│          │   └──────────┘      └──────────┘         │
+└──────────┴──────────────────────────────────────────┘
+```
+
+**Three views:**
+- **Cameras** — live grid; click any tile for full-screen + event timeline
+- **Events** — chronological detection feed with thumbnails and clip playback
+- **Settings** — zone config (draw polygons on frame), alert thresholds, edge config
+
+**Camera onboarding flow:**
+1. Click "+ Add Camera"
+2. App scans LAN for ONVIF devices (WS-Discovery)
+3. Lists found cameras with IP + model name
+4. User selects one (or enters manual RTSP URL) + credentials
+5. Camera appears in grid
+
+**Live feed path (local):**
+- Poll last-frame JPEG from edge agent as starting point (simpler than full RTSP)
+- Upgrade to direct RTSP decode (Rust RTSP client + ffmpeg) → frames into `<canvas>`
+- Full real-time: edge agent streams via WebRTC data channel → rendered in Tauri webview
+
+**Tasks:**
+- [ ] Main app window with sidebar navigation (Cameras / Events / Settings)
+- [ ] Camera grid — static JPEG snapshots first, live RTSP second
+- [ ] Camera onboarding wizard — ONVIF LAN scan + manual RTSP entry
+- [ ] Single camera full-screen view + event timeline
+- [ ] Events view — thumbnail list, clip playback
+- [ ] Zone configuration UI — draw polygons on camera still frame
+- [ ] Open main window from tray (replaces or augments current status panel)
 
 ### Edge client (Rust)
 - [ ] Pull RTSP stream via FFmpeg
@@ -126,17 +189,18 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 - [ ] Zone intersection logic (user-defined polygons)
 - [ ] Trigger local recording on detection (FFmpeg → .mp4)
 - [ ] Report events + thumbnails to edge-os cloud
-- [ ] Video track — camera feed via WebRTC data channel (replaces HLS for live view)
+- [ ] Serve last-frame JPEG endpoint for Tauri app polling
+- [ ] Stream camera feed via WebRTC data channel
 
-### Cloud (Elixir/Phoenix)
+### Cloud (Elixir/Phoenix) — remote camera access
 - [ ] `camera_device` type in device registry
 - [ ] Event storage schema (timestamp, thumbnail, clip path, camera id)
 - [ ] Notification dispatch — ntfy.sh push + email via SMTP
 - [ ] API endpoints for events and thumbnails
 
-### Web UI (LiveView)
+### Cloud Web UI (LiveView) — remote camera access
 - [ ] Camera list in dashboard
-- [ ] HLS live feed viewer (FFmpeg → HLS segments, fallback for browser-only access)
+- [ ] Live feed viewer — WebRTC stream relayed through edge agent
 - [ ] Events browser with clip playback
 - [ ] Zone configuration UI (draw polygons on camera frame)
 

@@ -99,56 +99,54 @@ defmodule EdgeOsCloud.Device do
     end
   end
 
+  # Returns %{edge_id => [condensed_alert_string]} — one entry per edge that has alerts.
+  # Messages are stripped of the edge name prefix since they appear inline in the row.
   def recent_edge_alerts_from_edges(edges) do
-    if length(edges) == 0 do
-      []
-    else
-      Enum.flat_map(edges, fn e -> 
-        cached_id = edge_status_cache_key(e.id)
-        {:ok, cached_statuses_str} = Redix.command(Redis, ["LRANGE", cached_id, "0", "-1"])
-        # Logger.debug("cached_statuses_str for #{cached_id} is #{inspect cached_statuses_str}")
-        cached_statuses = Enum.map(cached_statuses_str, fn status -> Jason.decode!(status) end)
+    Enum.reduce(edges, %{}, fn e, acc ->
+      alerts = edge_alerts_for(e)
+      if alerts == [], do: acc, else: Map.put(acc, e.id, alerts)
+    end)
+  end
 
-        high_cpu = length(cached_statuses) != 0 and Enum.all?(cached_statuses, fn status -> 
-          # check CPUs, it alerts out if all CPUs are high with their usages
-          Enum.all?(status["cpu"], fn cpu -> cpu["usage"] > 90.0 end)
+  defp edge_alerts_for(e) do
+    cached_id = edge_status_cache_key(e.id)
+    {:ok, cached_statuses_str} = Redix.command(Redis, ["LRANGE", cached_id, "0", "-1"])
+    cached_statuses = Enum.map(cached_statuses_str, fn s -> Jason.decode!(s) end)
+
+    alerts =
+      if length(cached_statuses) != 0 and
+           Enum.all?(cached_statuses, fn s ->
+             Enum.all?(s["cpu"], fn cpu -> cpu["usage"] > 90.0 end)
+           end) do
+        ["CPU >90%"]
+      else
+        []
+      end
+
+    alerts =
+      if length(cached_statuses) != 0 and
+           Enum.all?(cached_statuses, fn s ->
+             s["memory"]["used_memory"] / s["memory"]["total_memory"] > 0.9
+           end) do
+        alerts ++ ["Memory >90%"]
+      else
+        alerts
+      end
+
+    disk_alerts =
+      Enum.flat_map(cached_statuses, fn s ->
+        Enum.map(s["disk"], fn disk ->
+          usage = disk["available"] / disk["total"]
+
+          if usage < 0.15 do
+            pct = :erlang.float_to_binary((1.0 - usage) * 100.0, decimals: 1)
+            "Disk #{pct}% at #{disk["name"]}"
+          end
         end)
-
-        alerts = if high_cpu do
-          ["Edge #{e.name} has high CPU usage of over 90%!"]
-        else
-          []
-        end
-
-        high_memory = length(cached_statuses) != 0 and Enum.all?(cached_statuses, fn status -> 
-          # check memory, it alerts out if all memory are high with their usages
-          memory = status["memory"]
-          memory["used_memory"] / memory["total_memory"] > 0.9
-        end)
-
-        alerts = if high_memory do
-          alerts ++ ["Edge #{e.name} has high memory usage of over 90%!"]
-        else
-          alerts
-        end
-
-        disk_alerts = Enum.flat_map(cached_statuses, fn status -> 
-          # check disk, it alerts out if any disk usage is high
-          Enum.map(status["disk"], fn disk -> 
-            usage = disk["available"] / disk["total"]
-
-            if usage < 0.15 do
-              usage_format = :erlang.float_to_binary((1.0 - usage) * 100.0, [decimals: 1])
-              "Edge #{e.name} has high disk usage of #{usage_format}% at #{disk["name"]}!"
-            else
-              nil
-            end
-          end) |> Enum.filter(fn a -> not is_nil(a) end)
-        end)
-
-        Enum.uniq(alerts ++ disk_alerts)
+        |> Enum.filter(& &1)
       end)
-    end
+
+    Enum.uniq(alerts ++ disk_alerts)
   end
 
   @doc """

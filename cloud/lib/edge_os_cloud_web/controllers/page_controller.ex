@@ -79,7 +79,7 @@ defmodule EdgeOsCloudWeb.PageController do
 
   def me(conn, _params) do
     case get_session(conn, :current_user) do
-      nil -> 
+      nil ->
         conn
         |> put_flash(:info, "You have been logged out!")
         |> clear_session()
@@ -90,13 +90,23 @@ defmodule EdgeOsCloudWeb.PageController do
           {:ok, nil} ->
             {:ok, token} = Accounts.create_user_token(user)
             token
-          {:ok, token} -> 
+          {:ok, token} ->
             token
         end
+
+        teams_with_hash =
+          Accounts.list_teams_for_user(user.id)
+          |> Enum.map(fn team ->
+            {team, Accounts.get_team_id_hash(team.id)}
+          end)
+
+        cloud_url = "wss://#{System.get_env("PHX_HOST", "edgeos.sailoi.com")}"
 
         conn
         |> assign(:current_user, user)
         |> assign(:token, user_token)
+        |> assign(:teams_with_hash, teams_with_hash)
+        |> assign(:cloud_url, cloud_url)
         |> render("me.html")
     end
   end

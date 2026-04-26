@@ -2,7 +2,6 @@ use bytes::Bytes;
 use futures_channel::mpsc::UnboundedSender;
 use log::{debug, error, info};
 use serde::Deserialize;
-use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -11,11 +10,12 @@ use tokio_tungstenite::tungstenite::protocol::Message;
 use webrtc::api::APIBuilder;
 use webrtc::data_channel::data_channel_message::DataChannelMessage;
 use webrtc::data_channel::RTCDataChannel;
+use webrtc::ice_transport::ice_credential_type::RTCIceCredentialType;
 use webrtc::ice_transport::ice_server::RTCIceServer;
 use webrtc::peer_connection::configuration::RTCConfiguration;
 use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
-use webrtc::peer_connection::RTCPeerConnection;
+
 
 #[derive(Deserialize)]
 pub struct OfferPayload {
@@ -61,7 +61,7 @@ pub async fn handle_webrtc_offer(
             urls: vec![format!("turn:{}:3478", host)],
             username: user,
             credential: cred,
-            ..Default::default()
+            credential_type: RTCIceCredentialType::Password,
         });
     }
 

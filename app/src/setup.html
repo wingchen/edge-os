@@ -4,144 +4,183 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>EdgeOS Setup</title>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet" />
   <style>
+    :root {
+      --blue:      #2d8eff;
+      --blue-dark: #1a6ed8;
+      --blue-soft: #e8f2ff;
+      --dark:      #3a3b45;
+      --muted:     #858796;
+      --border:    #d1d3e2;
+      --bg:        #f8f9fc;
+      --white:     #ffffff;
+      --success:   #1cc88a;
+      --error:     #e74a3b;
+    }
+
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     html, body {
-      width: 480px;
-      height: 520px;
+      width: 440px;
+      height: 460px;
       overflow: hidden;
-      background: #f2f2f7;
-      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+      background: var(--bg);
+      font-family: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       -webkit-font-smoothing: antialiased;
-      color: #1c1c1e;
+      color: var(--dark);
     }
 
-    .container {
-      padding: 36px 40px 32px;
+    .card {
+      margin: 24px 28px;
+      background: var(--white);
+      border-radius: 12px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.08);
+      overflow: hidden;
+    }
+
+    /* ── Top blue stripe ── */
+    .card-top {
+      background: linear-gradient(135deg, #2d8eff 0%, #1a6ed8 100%);
+      padding: 28px 32px 24px;
       display: flex;
-      flex-direction: column;
-      height: 100%;
+      align-items: center;
+      gap: 16px;
     }
 
-    .header { margin-bottom: 28px; }
+    .card-top img {
+      width: 48px;
+      height: 48px;
+      flex-shrink: 0;
+      filter: drop-shadow(0 2px 8px rgba(0,0,0,0.25));
+    }
 
-    .logo {
+    .card-top-text {}
+
+    .card-title {
       font-size: 22px;
-      font-weight: 700;
-      letter-spacing: -0.5px;
-      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+      font-weight: 800;
+      color: #ffffff;
+      letter-spacing: -0.3px;
+      line-height: 1;
     }
-    .logo span { color: #007AFF; }
 
-    .subtitle {
+    .card-subtitle {
       margin-top: 4px;
-      font-size: 13px;
-      color: #8e8e93;
+      font-size: 12.5px;
+      color: rgba(255,255,255,0.75);
+      font-weight: 600;
     }
 
-    .form {
+    /* ── Form body ── */
+    .card-body {
+      padding: 24px 32px 28px;
       display: flex;
       flex-direction: column;
-      gap: 14px;
-      flex: 1;
+      gap: 16px;
     }
 
-    .field { display: flex; flex-direction: column; gap: 5px; }
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
 
     label {
-      font-size: 12px;
-      font-weight: 600;
-      color: #3c3c43;
-      letter-spacing: 0.1px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
     }
 
     input[type="text"],
     input[type="password"] {
-      height: 36px;
+      height: 40px;
       padding: 0 12px;
-      border: 1px solid rgba(60, 60, 67, 0.29);
-      border-radius: 8px;
-      background: #fff;
-      font-size: 13px;
+      border: 1.5px solid var(--border);
+      border-radius: 7px;
       font-family: inherit;
-      color: #1c1c1e;
+      font-size: 13.5px;
+      color: var(--dark);
+      background: var(--white);
       outline: none;
       transition: border-color 0.15s, box-shadow 0.15s;
       -webkit-appearance: none;
     }
 
     input:focus {
-      border-color: #007AFF;
-      box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.18);
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(45,142,255,0.15);
     }
 
-    input::placeholder { color: #c7c7cc; }
+    input::placeholder { color: #c0c3d3; }
 
-    .password-wrapper { position: relative; }
-    .password-wrapper input { width: 100%; padding-right: 40px; }
+    .pw-wrap { position: relative; }
+    .pw-wrap input { padding-right: 42px; width: 100%; }
 
-    .toggle-btn {
+    .eye-btn {
       position: absolute;
-      right: 10px;
-      top: 50%;
+      right: 11px; top: 50%;
       transform: translateY(-50%);
-      background: none;
-      border: none;
-      cursor: pointer;
-      padding: 0;
-      display: flex;
-      align-items: center;
-      color: #8e8e93;
+      background: none; border: none;
+      cursor: pointer; padding: 2px;
+      color: var(--muted);
+      display: flex; align-items: center;
+      transition: color 0.12s;
     }
-    .toggle-btn:hover { color: #3c3c43; }
+    .eye-btn:hover { color: var(--blue); }
 
     .helper {
       font-size: 11px;
-      color: #8e8e93;
-      margin-top: 1px;
+      color: #b0b3c4;
+      font-weight: 600;
     }
 
-    .actions { margin-top: 6px; }
-
+    /* ── Button ── */
     #save-btn {
       width: 100%;
-      height: 36px;
-      background: #007AFF;
-      color: #fff;
+      height: 42px;
+      background: var(--blue);
       border: none;
       border-radius: 8px;
-      font-size: 14px;
-      font-weight: 600;
+      color: #fff;
       font-family: inherit;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
       cursor: pointer;
-      transition: background 0.12s;
-      -webkit-appearance: none;
+      transition: background 0.15s, box-shadow 0.15s, transform 0.1s;
+      margin-top: 2px;
     }
-    #save-btn:hover  { background: #0063e0; }
-    #save-btn:active { background: #0051b8; }
-    #save-btn:disabled { background: #b0c8f5; cursor: not-allowed; }
+    #save-btn:hover  { background: var(--blue-dark); box-shadow: 0 4px 12px rgba(45,142,255,0.35); }
+    #save-btn:active { transform: translateY(1px); }
+    #save-btn:disabled { background: #a8c8f8; cursor: not-allowed; box-shadow: none; transform: none; }
 
+    /* ── Status ── */
     #status-msg {
       display: none;
-      margin-top: 10px;
-      padding: 8px 12px;
+      padding: 9px 14px;
       border-radius: 7px;
       font-size: 12.5px;
-      line-height: 1.4;
+      font-weight: 600;
+      line-height: 1.45;
     }
-    #status-msg.success { display: block; background: rgba(52,199,89,0.12); color: #1a7f37; }
-    #status-msg.error   { display: block; background: rgba(255,59,48,0.10); color: #c0392b; }
+    #status-msg.success { display: block; background: #d4f5e9; color: #0f7a55; }
+    #status-msg.error   { display: block; background: #fde8e6; color: #c0392b; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="header">
-      <div class="logo">Edge<span>OS</span></div>
-      <div class="subtitle">Connect this device to your team</div>
+  <div class="card">
+    <div class="card-top">
+      <img src="./logo.png" alt="EdgeOS" />
+      <div class="card-top-text">
+        <div class="card-title">EdgeOS</div>
+        <div class="card-subtitle">Connect this device to your team</div>
+      </div>
     </div>
 
-    <div class="form">
+    <div class="card-body">
       <div class="field">
         <label for="cloud-url">Cloud URL</label>
         <input type="text" id="cloud-url" placeholder="wss://edgeos.sailoi.com" autocomplete="off" spellcheck="false" />
@@ -152,56 +191,33 @@
         <input type="text" id="team-hash" placeholder="from your EdgeOS team settings" autocomplete="off" spellcheck="false" />
       </div>
 
-      <div class="field">
-        <label for="api-token">API Token</label>
-        <div class="password-wrapper">
-          <input type="password" id="api-token" placeholder="from your EdgeOS profile" autocomplete="off" />
-          <button class="toggle-btn" id="toggle-token" type="button" title="Show / hide token">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-              <circle cx="12" cy="12" r="3"/>
-            </svg>
-          </button>
-        </div>
-        <div class="helper">Generate a token at your EdgeOS profile → API Tokens</div>
-      </div>
-    </div>
-
-    <div class="actions">
       <button id="save-btn">Save &amp; Connect</button>
       <div id="status-msg"></div>
     </div>
   </div>
 
   <script>
-    const tokenInput = document.getElementById('api-token');
-    document.getElementById('toggle-token').addEventListener('click', () => {
-      tokenInput.type = tokenInput.type === 'password' ? 'text' : 'password';
-    });
-
     document.getElementById('save-btn').addEventListener('click', async () => {
-      const cloudUrl = document.getElementById('cloud-url').value.trim();
+      const cloudUrl = document.getElementById('cloud-url').value.trim() || 'wss://edgeos.sailoi.com';
       const teamHash = document.getElementById('team-hash').value.trim();
-      const apiToken = document.getElementById('api-token').value.trim();
-      const btn      = document.getElementById('save-btn');
-      const status   = document.getElementById('status-msg');
+      const btn    = document.getElementById('save-btn');
+      const status = document.getElementById('status-msg');
 
-      if (!cloudUrl || !teamHash || !apiToken) {
+      if (!teamHash) {
         status.className = 'error';
         status.textContent = 'All fields are required.';
         return;
       }
 
       btn.disabled = true;
-      btn.textContent = 'Saving…';
+      btn.textContent = 'Connecting…';
       status.className = '';
-      status.style.display = 'none';
 
       try {
-        await window.__TAURI__.core.invoke('save_config', { cloudUrl, teamHash, apiToken });
+        await window.__TAURI__.core.invoke('save_config', { cloudUrl, teamHash });
         status.className = 'success';
-        status.textContent = '✓ Connected. The daemon will restart automatically.';
-        btn.textContent = 'Saved';
+        status.textContent = '✓ Saved. The daemon will restart automatically.';
+        btn.textContent = 'Connected';
       } catch (err) {
         status.className = 'error';
         status.textContent = err || 'Something went wrong. Check permissions and try again.';

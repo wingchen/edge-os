@@ -15,6 +15,11 @@
 #   docker rm edgeos-extract
 #   rsync -a ./edge_os_cloud_release/ user@edgeos-prod-01:/opt/edgeos/edge_os_cloud/
 
+# ─── Rust toolchain stage ────────────────────────────────────────────────────
+# Provides a current Rust to compile the ex_sctp NIF — Debian's packaged
+# rustc is too old (1.63; ex_sctp needs 1.65+).
+FROM rust:slim-bookworm AS rust-base
+
 # ─── Build stage ─────────────────────────────────────────────────────────────
 FROM hexpm/elixir:1.17.3-erlang-25.3.1-debian-bookworm-20260421-slim AS builder
 
@@ -24,6 +29,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
+
+COPY --from=rust-base /usr/local/rustup /usr/local/rustup
+COPY --from=rust-base /usr/local/cargo  /usr/local/cargo
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH="/usr/local/cargo/bin:${PATH}"
 
 WORKDIR /app
 

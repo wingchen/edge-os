@@ -197,9 +197,12 @@ defmodule EdgeOsCloud.Accounts do
   end
 
   def create_user_token(user) do
+    expiration = NaiveDateTime.utc_now() |> NaiveDateTime.add(365 * 24 * 60 * 60, :second)
+
     attrs = %{
       "token" => UUID.uuid4() <> UUID.uuid4(),
       "user_id" => user.id,
+      "expiration" => expiration,
     }
 
     %UserAPITokens{}

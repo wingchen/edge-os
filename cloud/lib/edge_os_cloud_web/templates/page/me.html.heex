@@ -1,69 +1,136 @@
 <section class="phx-hero">
-   <h1>User Details</h1>
+  <h1>My Account</h1>
 </section>
+
+<%# ── Connect EdgeOS App ──────────────────────────────────────────────────── %>
 <div class="row">
-   <!-- Area Chart -->
-   <div class="col-xl-8 col-lg-7">
-      <div class="card shadow mb-4">
-         <!-- Card Header - Dropdown -->
-         <div
-            class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
-            <h6 class="m-0 font-weight-bold text-primary">API Token</h6>
-         </div>
-         <!-- Card Body -->
-         <div class="card-body">
-            <table class="table">
-              <thead>
-                <tr>
-                  <th scope="col">Token</th>
-                  <th scope="col">Expiration</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <th scope="row"><%= assigns[:token].token %></th>
-                  <td><%= Timex.format!(assigns[:token].expiration, "{0M}-{0D} {h24}:{m}") %> UTC</td>
-                </tr>
-              </tbody>
-            </table>
-         </div>
+  <div class="col-12">
+    <div class="card shadow mb-4">
+      <div class="card-header py-3 d-flex align-items-center">
+        <h6 class="m-0 font-weight-bold text-primary">
+          <i class="fas fa-laptop mr-2"></i>Connect EdgeOS App
+        </h6>
       </div>
-   </div>
-   <!-- Pie Chart -->
-   <div class="col-xl-4 col-lg-5">
-      <div class="card shadow mb-4">
-         <!-- Card Header - Dropdown -->
-         <div
-            class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
-            <h6 class="m-0 font-weight-bold text-primary">User Status</h6>
-         </div>
-         <!-- Card Body -->
-         <div class="card-body">
-            <%# <table class="table">
-              <thead>
-                <tr>
-                  <th scope="col">#</th>
-                  <th scope="col">First</th>
-                  <th scope="col">Last</th>
-                  <th scope="col">Handle</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <th scope="row">1</th>
-                  <td>Mark</td>
-                  <td>Otto</td>
-                  <td>@mdo</td>
-                </tr>
-                <tr>
-                  <th scope="row">3</th>
-                  <td>Larry</td>
-                  <td>the Bird</td>
-                  <td>@twitter</td>
-                </tr>
-              </tbody>
-            </table> %>
-         </div>
+      <div class="card-body">
+        <p class="text-gray-600 mb-4">
+          Install the EdgeOS desktop app, open it, and enter the values below into the setup wizard.
+        </p>
+
+        <%# Step 1 — Cloud URL %>
+        <div class="mb-4">
+          <label class="text-xs font-weight-bold text-uppercase text-gray-600 mb-1">
+            1 &nbsp;·&nbsp; Cloud URL
+          </label>
+          <p class="text-sm text-muted mb-2">
+            The server your EdgeOS app will connect to. Use the default unless you are self-hosting.
+          </p>
+          <div class="input-group">
+            <input type="text" class="form-control form-control-sm bg-light"
+              id="copy-cloud-url" value={@cloud_url} readonly />
+            <div class="input-group-append">
+              <button class="btn btn-sm btn-outline-primary" onclick="copyField('copy-cloud-url', this)">
+                Copy
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <%# Step 2 — Team Registration Key %>
+        <div class="mb-4">
+          <label class="text-xs font-weight-bold text-uppercase text-gray-600 mb-1">
+            2 &nbsp;·&nbsp; Team Registration Key
+          </label>
+          <p class="text-sm text-muted mb-2">
+            Tells the app which team this device belongs to. The device will appear in that team's edge list automatically on first connection.
+          </p>
+          <%= if Enum.empty?(@teams_with_hash) do %>
+            <div class="alert alert-warning py-2 mb-0">
+              You are not a member of any team yet.
+              <a href="/teams/new">Create a team</a> to get a registration key.
+            </div>
+          <% else %>
+            <%= for {team, hash} <- @teams_with_hash do %>
+              <div class="mb-2">
+                <small class="text-muted"><%= team.name %></small>
+                <div class="input-group">
+                  <input type="text" class="form-control form-control-sm bg-light font-monospace"
+                    id={"copy-team-#{team.id}"} value={hash} readonly />
+                  <div class="input-group-append">
+                    <button class="btn btn-sm btn-outline-primary"
+                      onclick={"copyField('copy-team-#{team.id}', this)"}>
+                      Copy
+                    </button>
+                  </div>
+                </div>
+              </div>
+            <% end %>
+          <% end %>
+        </div>
+
+        <%# Step 3 — API Token %>
+        <div class="mb-2">
+          <label class="text-xs font-weight-bold text-uppercase text-gray-600 mb-1">
+            3 &nbsp;·&nbsp; API Token
+            <span class="text-muted font-weight-normal text-lowercase">
+              <%= if @token.expiration do %>
+                · expires <%= Timex.format!(@token.expiration, "{0D} {Mshort} {YYYY}") %> UTC
+              <% else %>
+                · no expiry set
+              <% end %>
+            </span>
+          </label>
+          <p class="text-sm text-muted mb-2">
+            Lets the app show your edges and open SSH sessions on your behalf. Treat it like a password — do not share it.
+          </p>
+          <div class="input-group">
+            <input type="password" class="form-control form-control-sm bg-light font-monospace"
+              id="copy-api-token" value={@token.token} readonly />
+            <div class="input-group-append">
+              <button class="btn btn-sm btn-outline-secondary"
+                onclick="toggleToken()" id="toggle-token-btn" title="Show / hide">
+                <i class="fas fa-eye" id="toggle-token-icon"></i>
+              </button>
+              <button class="btn btn-sm btn-outline-primary"
+                onclick="copyField('copy-api-token', this)">
+                Copy
+              </button>
+            </div>
+          </div>
+          <small class="text-muted">
+            Keep this secret — it grants API access to your EdgeOS account.
+          </small>
+        </div>
       </div>
-   </div>
+    </div>
+  </div>
 </div>
+
+<script>
+  function copyField(id, btn) {
+    var el = document.getElementById(id);
+    var prev = el.type;
+    el.type = 'text';
+    el.select();
+    document.execCommand('copy');
+    el.type = prev;
+    var orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    btn.classList.replace('btn-outline-primary', 'btn-success');
+    setTimeout(function() {
+      btn.textContent = orig;
+      btn.classList.replace('btn-success', 'btn-outline-primary');
+    }, 1500);
+  }
+
+  function toggleToken() {
+    var el = document.getElementById('copy-api-token');
+    var icon = document.getElementById('toggle-token-icon');
+    if (el.type === 'password') {
+      el.type = 'text';
+      icon.classList.replace('fa-eye', 'fa-eye-slash');
+    } else {
+      el.type = 'password';
+      icon.classList.replace('fa-eye-slash', 'fa-eye');
+    }
+  }
+</script>
