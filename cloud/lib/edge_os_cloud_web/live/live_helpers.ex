@@ -27,22 +27,22 @@ defmodule EdgeOsCloudWeb.LiveHelpers do
     assigns = assign_new(assigns, :return_to, fn -> nil end)
 
     ~H"""
-    <div id="modal" class="alert alert-warning" role="alert">
-      <p class="mb-0">
+    <div id="modal" class="card shadow mb-4">
+      <div class="card-body">
         <%= render_slot(@inner_block) %>
-      </p>
-      <p class="mb-0">
+      </div>
+      <div class="card-footer bg-transparent border-top-0 pt-0">
         <%= if @return_to do %>
           <%= live_patch "Cancel",
             to: @return_to,
             id: "close",
-            class: "btn btn-outline-danger",
+            class: "btn btn-outline-secondary btn-sm",
             phx_click: hide_modal()
           %>
         <% else %>
-        <a id="close" class="btn btn-outline-danger" phx-click={hide_modal()} href="#" role="button">Cancel</a>
+          <a id="close" class="btn btn-outline-secondary btn-sm" phx-click={hide_modal()} href="#" role="button">Cancel</a>
         <% end %>
-      </p>
+      </div>
     </div>
     """
   end

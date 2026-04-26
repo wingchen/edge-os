@@ -1,55 +1,107 @@
-<h1>Past Sessions</h1>
+<%
+  stages = EdgeOsCloud.Device.EdgeSessionStage.get()
 
-<!-- DataTales -->
-<div class="card shadow mb-4">
-    <div class="card-header py-3">
-        <h6 class="m-0 font-weight-bold text-primary">Sessions</h6>
-    </div>
-    <div class="card-body">
-        <div class="table-responsive">
-            <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
-              <thead>
-                  <tr>
-                    <th>Edge</th>
-                    <th>Edge Port</th>
-                    <th>Tunnel Port</th>
-                    <th>Start Time</th>
-                    <th>End Time</th>
-                    <th>User</th>
-                    <th>Actions</th>
-                  </tr>
-              </thead>
-              <tfoot>
-                  <tr>
-                    <th>Edge</th>
-                    <th>Edge Port</th>
-                    <th>Tunnel Port</th>
-                    <th>Start Time</th>
-                    <th>End Time</th>
-                    <th>User</th>
-                    <th>Actions</th>
-                  </tr>
-              </tfoot>
-              <tbody>
-              <%= for session <- @sessions do %>
-                <tr>
-                    <td><%= @edge_map[session.edge_id] %></td>
-                    <td>TBD</td>
-                    <td><%= session.port %></td>
-                    <td><%= session.inserted_at %></td>
-                    <td><%= session.updated_at %></td>
-                    <td><%= EdgeOsCloud.Accounts.get_user!(session.user_id).name %></td>
-                    <td>
-                      <%= if not is_nil(session.actions) do %>
-                        <%= for action <- session.actions do %>
-                          <span class="badge bg-primary"><%= Atom.to_string(EdgeOsCloud.Device.EdgeSessionStage.get_invert[action]) %></span>
-                        <% end %>
-                      <% end %>
-                    </td>
-                </tr>
-              <% end %>
-              </tbody>
-            </table>
-        </div>
-    </div>
+  session_status = fn actions ->
+    cond do
+      is_nil(actions) or actions == [] ->
+        {:unknown, "Unknown", "badge-light border", "#858796"}
+      stages.user_disconnected in actions ->
+        {:completed, "Completed", "badge-success", "#1cc88a"}
+      stages.user_connected in actions ->
+        {:active, "Active", "badge-primary", "#2d8eff"}
+      stages.edge_connected in actions ->
+        {:tunnel_only, "Tunnel only", "badge-secondary", "#858796"}
+      true ->
+        {:unknown, "Unknown", "badge-light border", "#858796"}
+    end
+  end
+
+  format_duration = fn start_dt, end_dt ->
+    secs = NaiveDateTime.diff(end_dt, start_dt, :second)
+    cond do
+      secs < 60   -> "#{secs}s"
+      secs < 3600 -> "#{div(secs, 60)}m #{rem(secs, 60)}s"
+      true        -> "#{div(secs, 3600)}h #{div(rem(secs, 3600), 60)}m"
+    end
+  end
+
+  # Group sessions by date for the timeline
+  grouped = @sessions
+    |> Enum.group_by(fn s ->
+      Calendar.strftime(s.inserted_at, "%b %d, %Y")
+    end)
+    |> Enum.sort_by(fn {_label, [first | _]} ->
+      NaiveDateTime.to_date(first.inserted_at)
+    end, {:desc, Date})
+%>
+
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <div>
+    <h1 class="h3 mb-0 text-gray-800">Activity</h1>
+    <p class="mb-0 text-muted" style="font-size:0.85rem;">
+      User-triggered actions across all devices
+      <span class="ml-2 badge badge-light border" style="font-size:0.7rem;">SSH sessions</span>
+      <span class="ml-1 badge badge-light border text-muted" style="font-size:0.7rem;">Camera views — coming in Phase 3</span>
+    </p>
+  </div>
+  <span class="text-muted" style="font-size:0.82rem;"><%= length(@sessions) %> events</span>
 </div>
+
+<%= if Enum.empty?(@sessions) do %>
+  <div class="card shadow">
+    <div class="card-body text-center py-5">
+      <i class="fas fa-history fa-3x text-gray-300 mb-3 d-block"></i>
+      <p class="text-muted mb-1" style="font-size:0.9rem;">No activity yet.</p>
+      <p class="text-muted mb-0" style="font-size:0.82rem;">
+        SSH sessions and camera views will appear here once you connect to a device.
+      </p>
+    </div>
+  </div>
+<% else %>
+  <%= for {date_label, day_sessions} <- grouped do %>
+    <div class="mb-1" style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:#858796;font-weight:700;">
+      <%= date_label %>
+    </div>
+    <div class="card shadow mb-4">
+      <div class="card-body p-0">
+        <%= for {session, idx} <- Enum.with_index(day_sessions) do %>
+          <% {_key, label, badge_class, dot_color} = session_status.(session.actions) %>
+          <% edge_name = @edge_map[session.edge_id] || "Unknown device" %>
+          <% user_name = EdgeOsCloud.Accounts.get_user!(session.user_id).name %>
+          <% duration = format_duration.(session.inserted_at, session.updated_at) %>
+          <div class={"d-flex align-items-center px-3 px-sm-4 py-3" <> if idx > 0, do: " border-top", else: ""}>
+
+            <%# Type icon %>
+            <div class="mr-3 flex-shrink-0 d-flex align-items-center justify-content-center"
+                 style="width:36px;height:36px;border-radius:8px;background:#eef4ff;">
+              <i class="fas fa-terminal" style="color:#2d8eff;font-size:0.85rem;"></i>
+            </div>
+
+            <%# Content %>
+            <div class="flex-grow-1 mr-3" style="min-width:0;">
+              <div class="d-flex align-items-baseline" style="gap:8px;">
+                <span class="font-weight-bold text-dark" style="font-size:0.875rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                  <%= edge_name %>
+                </span>
+                <span class="text-muted" style="font-size:0.75rem;flex-shrink:0;">SSH Session</span>
+              </div>
+              <div class="text-muted" style="font-size:0.78rem;">
+                <%= user_name %> · <%= Calendar.strftime(session.inserted_at, "%H:%M") %>
+              </div>
+            </div>
+
+            <%# Duration + status %>
+            <div class="text-right flex-shrink-0">
+              <div class="d-none d-sm-block" style="font-size:0.78rem;color:#858796;margin-bottom:3px;"><%= duration %></div>
+              <span class={"badge " <> badge_class} style="font-size:0.7rem;">
+                <span style={"display:inline-block;width:5px;height:5px;border-radius:50%;background:" <> dot_color <> ";margin-right:4px;vertical-align:middle;"}></span>
+                <%= label %>
+              </span>
+            </div>
+
+          </div>
+        <% end %>
+      </div>
+    </div>
+  <% end %>
+<% end %>

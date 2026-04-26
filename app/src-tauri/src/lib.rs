@@ -14,6 +14,7 @@ pub fn run() {
             save_config,
             get_status,
             open_setup,
+            open_main_window,
             quit_app,
         ])
         .setup(|app| {
@@ -23,7 +24,9 @@ pub fn run() {
             build_tray(app)?;
             start_daemon_monitor(app.handle().clone());
 
-            if !config_exists() {
+            if config_exists() {
+                show_main_window(app.handle())?;
+            } else {
                 show_setup_window(app.handle())?;
             }
 
@@ -74,6 +77,31 @@ fn position_and_show(win: &tauri::WebviewWindow, click_pos: PhysicalPosition<f64
     let _ = win.set_position(PhysicalPosition::new(x, y));
     let _ = win.show();
     let _ = win.set_focus();
+}
+
+// ── Main window ───────────────────────────────────────────────────────────────
+
+fn show_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
+    match app.get_webview_window("main-app") {
+        Some(win) => {
+            let _ = win.show();
+            let _ = win.set_focus();
+        }
+        None => {
+            WebviewWindowBuilder::new(app, "main-app", tauri::WebviewUrl::App("main.html".into()))
+                .title("EdgeOS")
+                .inner_size(900.0, 640.0)
+                .min_inner_size(700.0, 500.0)
+                .resizable(true)
+                .build()?;
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn open_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    show_main_window(&app).map_err(|e| e.to_string())
 }
 
 // ── Setup window ──────────────────────────────────────────────────────────────
@@ -138,6 +166,8 @@ fn save_config(
         let _ = win.close();
     }
 
+    show_main_window(&app).map_err(|e| e.to_string())?;
+
     Ok(())
 }
 
@@ -184,16 +214,17 @@ fn read_config_fields() -> (String, String) {
 // ── Tray ──────────────────────────────────────────────────────────────────────
 
 fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
-    let status = MenuItem::with_id(app, "status", "● Checking...", false, None::<&str>)?;
-    let sep1   = PredefinedMenuItem::separator(app)?;
-    let setup  = MenuItem::with_id(app, "setup", "Settings…", true, None::<&str>)?;
-    let sep2   = PredefinedMenuItem::separator(app)?;
-    let quit   = MenuItem::with_id(app, "quit", "Quit EdgeOS", true, None::<&str>)?;
+    let status  = MenuItem::with_id(app, "status", "● Checking...", false, None::<&str>)?;
+    let sep1    = PredefinedMenuItem::separator(app)?;
+    let open    = MenuItem::with_id(app, "open",  "Open EdgeOS", true, None::<&str>)?;
+    let setup   = MenuItem::with_id(app, "setup", "Settings…",   true, None::<&str>)?;
+    let sep2    = PredefinedMenuItem::separator(app)?;
+    let quit    = MenuItem::with_id(app, "quit",  "Quit EdgeOS", true, None::<&str>)?;
 
     // Store status item in managed state so the monitor loop can update its text
     app.manage(StatusMenuItem(Mutex::new(status.clone())));
 
-    let menu = Menu::with_items(app, &[&status, &sep1, &setup, &sep2, &quit])?;
+    let menu = Menu::with_items(app, &[&status, &sep1, &open, &setup, &sep2, &quit])?;
 
     TrayIconBuilder::with_id("main")
         .tooltip("EdgeOS")
@@ -202,6 +233,7 @@ fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
         .show_menu_on_left_click(false) // left click shows status panel; right click shows menu
         .on_menu_event(|app, event| match event.id().as_ref() {
             "quit"  => app.exit(0),
+            "open"  => { let _ = show_main_window(app); }
             "setup" => { let _ = show_setup_window(app); }
             _       => {}
         })

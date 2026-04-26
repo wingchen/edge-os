@@ -108,11 +108,15 @@ async fn main() {
                     "WEBRTC_OFFER" => {
                         let json = payload.to_string();
                         let session_id = webrtc_session::extract_session_id(&json).unwrap_or_default();
+                        let connection_type = webrtc_session::extract_connection_type(&json);
                         let (ice_tx, ice_rx) = tokio_mpsc::unbounded_channel();
                         sessions.lock().await.insert(session_id.clone(), ice_tx);
                         let tx = signaling_tx.clone();
-                        tokio::spawn(webrtc_session::handle_webrtc_offer(json, tx, ice_rx));
-                        info!("WebRTC offer received for session {}", session_id);
+                        match connection_type.as_str() {
+                            "camera" => tokio::spawn(webrtc_session::handle_camera_offer(json, tx, ice_rx)),
+                            _        => tokio::spawn(webrtc_session::handle_webrtc_offer(json, tx, ice_rx)),
+                        };
+                        info!("WebRTC {} offer received for session {}", connection_type, session_id);
                     }
 
                     "ICE_CANDIDATE" => {

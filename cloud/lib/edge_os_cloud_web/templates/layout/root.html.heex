@@ -19,6 +19,71 @@
 
     <!-- Custom styles for this template-->
     <link href="/css/sb-admin-2.css" rel="stylesheet">
+
+    <style>
+      /* ── Logo bleed fix (tablet + collapsed sidebar) ── */
+      .sidebar-brand {
+        overflow: hidden;
+        padding: 1rem 0.5rem;
+      }
+      .sidebar-brand img {
+        max-width: 100%;
+        height: auto;
+        object-fit: contain;
+      }
+
+      /* ── Phone sidebar: hidden by default, overlay when .toggled ── */
+      /* On phone we invert the SB Admin 2 toggle logic:
+         default = hidden (width 0), .toggled = open (14rem overlay) */
+      @media (max-width: 575.98px) {
+        #accordionSidebar {
+          position: fixed !important;
+          top: 0; left: 0;
+          height: 100vh;
+          z-index: 1055;
+          width: 0 !important;
+          overflow: hidden !important;
+          transition: width 0.25s ease;
+        }
+        #accordionSidebar.toggled {
+          width: 14rem !important;
+          overflow-y: auto !important;
+        }
+        /* Full-width content since sidebar is overlaid */
+        #wrapper #content-wrapper {
+          margin-left: 0 !important;
+        }
+      }
+
+      /* Backdrop for mobile sidebar */
+      #sidebar-backdrop {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.4);
+        z-index: 1054;
+        transition: opacity 0.25s;
+      }
+      #sidebar-backdrop.show { display: block; }
+
+      /* ── Phone content adjustments ── */
+      @media (max-width: 575.98px) {
+        .container-fluid { padding-left: 0.75rem; padding-right: 0.75rem; }
+        h1.h3 { font-size: 1.15rem; }
+        /* Search bar full-width */
+        #edge-search { max-width: 100% !important; }
+        #edge-search + div { max-width: 100% !important; }
+        /* Camera feed shorter on phone */
+        #feed-placeholder { height: 220px !important; }
+        /* Topbar tighter */
+        .topbar.shadow { padding-left: 0.5rem; padding-right: 0.5rem; }
+      }
+
+      /* ── Tablet: keep icon sidebar but fix brand ── */
+      @media (max-width: 767.98px) {
+        .sidebar-brand img { max-height: 36px; }
+      }
+    </style>
     <script defer phx-track-static type="text/javascript" src={Routes.static_path(@conn, "/assets/app.js")}></script>
 
     <!-- Favicons-->
@@ -36,6 +101,40 @@
 
     <!-- Custom scripts for all pages-->
     <script src="/js/sb-admin-2.min.js"></script>
+    <script>
+      (function() {
+        var btn     = document.getElementById('sidebarToggleTop');
+        var sidebar = document.getElementById('accordionSidebar');
+        var backdrop = document.getElementById('sidebar-backdrop');
+        if (!btn || !sidebar || !backdrop) return;
+
+        // Watch the sidebar's class list — SB Admin 2 toggles .toggled on it.
+        // On phone we invert: .toggled = open, no .toggled = closed.
+        var observer = new MutationObserver(function() {
+          if (window.innerWidth >= 576) return;
+          if (sidebar.classList.contains('toggled')) {
+            backdrop.classList.add('show');
+          } else {
+            backdrop.classList.remove('show');
+          }
+        });
+        observer.observe(sidebar, { attributes: true, attributeFilter: ['class'] });
+
+        // Tapping the backdrop triggers the button to reverse the toggle
+        backdrop.addEventListener('click', function() {
+          btn.click();
+        });
+
+        // Close sidebar when a nav link is tapped on phone
+        sidebar.querySelectorAll('.nav-link').forEach(function(link) {
+          link.addEventListener('click', function() {
+            if (window.innerWidth < 576 && sidebar.classList.contains('toggled')) {
+              btn.click();
+            }
+          });
+        });
+      })();
+    </script>
 </head>
 
 <body id="page-top">
@@ -62,29 +161,22 @@
                 Menu
             </div>
 
-            <!-- Nav Item - Dashboard -->
             <li class="nav-item">
-                <a class="nav-link" href="/">
-                    <i class="fas fa-fw fa-tachometer-alt"></i>
-                    <span>Dashboard</span></a>
+                <a class="nav-link" href="/edges">
+                    <i class="fas fa-fw fa-cubes"></i>
+                    <span>Devices</span></a>
             </li>
 
             <li class="nav-item">
                 <a class="nav-link" href="/teams">
-                    <i class="fas fa-fw fa-people-arrows"></i>
+                    <i class="fas fa-fw fa-users"></i>
                     <span>Teams</span></a>
             </li>
 
             <li class="nav-item">
-                <a class="nav-link" href="/edges">
-                    <i class="fas fa-fw fa-cubes"></i>
-                    <span>Edges</span></a>
-            </li>
-
-            <li class="nav-item">
                 <a class="nav-link" href="/sessions">
-                    <i class="fas fa-fw fa-table"></i>
-                    <span>Sessions</span></a>
+                    <i class="fas fa-fw fa-history"></i>
+                    <span>Activity</span></a>
             </li>
 
             <!-- Divider -->
@@ -180,6 +272,9 @@
     <a class="scroll-to-top rounded" href="#page-top">
         <i class="fas fa-angle-up"></i>
     </a>
+
+    <!-- Mobile sidebar backdrop -->
+    <div id="sidebar-backdrop"></div>
 
     <!-- Logout Modal-->
     <div class="modal fade" id="logoutModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"

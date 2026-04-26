@@ -125,12 +125,63 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 
 ---
 
+## Phase 2.5 — Browser↔Edge P2P Foundation
+> Lays the data-flow architecture before Phase 3 camera work begins. Validates that a browser can open a WebRTC data channel directly to the edge with the cloud handling signaling only — no camera data or event data ever touches the cloud server.
+>
+> **Principle:** Cloud = authentication + signaling only. All camera data, events, and thumbnails flow P2P between browser and edge over an encrypted WebRTC data channel (DTLS). If the edge is offline, the browser sees nothing — that is the correct tradeoff for a privacy-first product.
+>
+> **Signaling flow:**
+> ```
+> Browser JS ──offer──→ LiveView ──→ EdgeSocket ──→ Edge
+> Browser JS ←─answer─ LiveView ←── EdgeSocket ←── Edge
+> Browser JS ←─ICE────→ LiveView ←─→ EdgeSocket ←─→ Edge
+>                  (cloud sees signaling only, never data)
+> Browser ←──────────── WebRTC data channel ──────────→ Edge
+> ```
+
+### 2.5A — Edge: connection type routing
+- [x] Add `connection_type` field to WEBRTC_OFFER payload: `"ssh"` vs `"camera"`
+- [x] Edge routes `"ssh"` offers to existing SSH bridge handler (no change)
+- [x] Edge routes `"camera"` offers to new stub camera handler — opens data channel, echoes pong to validate P2P
+
+### 2.5B — Cloud: browser signaling path
+- [x] LiveView JS hook: browser creates `RTCPeerConnection`, generates offer, sends to LiveView via `pushEvent`
+- [x] LiveView forwards browser offer to edge via `EdgeSocket` (same `send/2` path as today)
+- [x] LiveView receives edge answer + ICE candidates, forwards back to browser via `push_event`
+- [x] TURN credentials passed to browser (same HMAC generation as SSH path)
+- [x] Session scoped to the authenticated user — no unauthenticated signaling
+
+### 2.5C — Validate end-to-end ✓
+- [x] Browser opens data channel to edge, sends `{type: "ping"}`, edge replies `{type: "pong"}`
+- [x] Confirmed: "✓ P2P validated. Direct browser ↔ edge data channel works. Cloud saw only signaling."
+- [ ] Test via TURN relay (simulate NAT) to confirm relay path works from browser
+
+### 2.5D — Define data channel protocol (spec only, no implementation)
+> Agree on the message format before Phase 3 builds on top. Implementation happens in Phase 3.
+>
+> **Browser → Edge:**
+> ```json
+> {"type": "LIST_EVENTS", "since": <timestamp>, "limit": 50}
+> {"type": "GET_THUMBNAIL", "event_id": "..."}
+> {"type": "START_STREAM", "camera_id": "..."}
+> {"type": "STOP_STREAM", "camera_id": "..."}
+> ```
+> **Edge → Browser:**
+> ```json
+> {"type": "EVENT_LIST", "events": [{id, camera, timestamp, class, confidence}]}
+> {"type": "THUMBNAIL", "event_id": "...", "data": <binary JPEG>}
+> {"type": "FRAME", "camera_id": "...", "data": <binary JPEG>}  // MJPEG at 5-10fps
+> {"type": "PONG"}
+> ```
+
+---
+
 ## Phase 3 — Camera MVP
-> Built on Phases 1 and 2.
+> Built on Phase 2.5 (browser↔edge P2P already validated).
 >
 > **Split responsibility:**
 > - **Local cameras** (same LAN as the Tauri machine) → managed and viewed in the **Tauri desktop app**. Live feeds via direct RTSP or edge agent relay. No cloud involvement in the video path.
-> - **Remote cameras** (different site, accessed over the internet) → managed and viewed in the **Phoenix cloud web UI**. Video relayed via WebRTC through the edge agent and cloud server.
+> - **Remote cameras** (different site) → viewed in the **Phoenix cloud web UI** via browser↔edge WebRTC P2P. Cloud handles auth + signaling only — no video, events, or thumbnails stored on or routed through the cloud.
 
 ### Tauri app — local camera UI
 
