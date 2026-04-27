@@ -30,20 +30,20 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 ## Phase 2 — WebRTC Transport Layer
 > Foundation for everything that follows. Replaces the TCP bridge for new devices while keeping the existing TCP path alive for devices already online. SSH relays through TURN (traffic is low enough); video will go P2P in Phase 3.
 
-### 1A — Cloud signaling (additive only, no existing code changed)
+### 2A — Cloud signaling (additive only, no existing code changed)
 - [x] New message clauses in `EdgeSocket.handel_message`: `WEBRTC_ANSWER`, `ICE_CANDIDATE` (edge→cloud); cloud→edge uses existing `handle_info`
-- [ ] `protocol_version` field handling in `EDGE_INFO` — cloud uses this to pick old vs new path
+- [x] `protocol_version` field handling in `EDGE_INFO` — cloud uses this to pick old vs new path
 - [x] TURN credential generation — time-limited HMAC (`generate_turn_credentials/1`)
 - [x] `GET /api/v1/turn-credentials` authenticated endpoint
 
-### 1B — Cloud WebRTC peer (replaces `EdgeTcpSocket`)
+### 2B — Cloud WebRTC peer (replaces `EdgeTcpSocket`)
 - [x] Integrate `ex_webrtc` (pure Elixir) as cloud-side WebRTC peer
 - [x] Cloud initiates WebRTC offer to edge via `EdgeSocket` signaling
 - [x] `WebRTCPeer` registers under `EdgeTcpSocket`'s process name — `UserTcpSocket` and `is_session_ready` unchanged
 - [x] `EdgeSSHUtils` branches on `edge.edge_info["protocol"]` — old devices use TCP bridge, new devices use WebRTC
 - [x] `EdgeTcpSocket` left in place, unused for new devices
 
-### 1C — New edge agent (alongside old code)
+### 2C — New edge agent (alongside old code)
 - [x] Integrate `webrtc` crate (webrtc-rs) for peer connection handling
 - [x] Edge advertises `"protocol": "webrtc"` in `EDGE_INFO`
 - [x] Handle `WEBRTC_OFFER` → negotiate → data channel → local `127.0.0.1:22`
@@ -52,13 +52,13 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 - [ ] Data channel: file transfer (replaces SCP tunnel)
 - [x] `tcp_to_websocket.rs` stays dormant, serves old devices
 
-### 1D — coturn infra
+### 2D — coturn infra
 - [x] coturn Docker sidecar in docker-compose (host networking, local dev)
 - [x] Production: `docker run` command documented in `prod.sh` comments
 - [ ] Open on Sailoi server: UDP/TCP 3478, UDP 49152-65535
 - [x] `TURN_SECRET` and `TURN_HOST` added to `prod.sh`; `TURN_SECRET` wired into `docker-compose.yaml`
 
-### TODO — 1E-scale: Horizontal scaling via PubSub signaling
+### TODO — 2E-scale: Horizontal scaling via PubSub signaling
 > Currently `EdgeSocket` and `WebRTCPeer` communicate via node-local `Process.register`/`Process.whereis`. This means the user's session and the edge's WebSocket must land on the same Erlang node — sticky sessions required.
 >
 > With WebRTC the data channel is UDP-based (IP-addressed, not process-addressed), so once ICE connects the data path already scales horizontally. Only the signaling phase needs fixing:
@@ -68,7 +68,7 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 >
 > After this change: cloud nodes are fully stateless for the data path. Load balancers need no affinity. Horizontal scaling works out of the box.
 
-### 1E — Legacy sunset *(no rush, when old devices have cycled out)*
+### 2E — Legacy sunset *(no rush, when old devices have cycled out)*
 - [ ] Remove `EdgeTcpSocket`, `tcp_to_websocket.rs`, `TCPPortSelector`
 - [ ] Remove TCP port range from config
 
@@ -82,14 +82,14 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 > **Platform roles:**
 > - macOS / Linux desktop — full edge agent (system daemon) + management UI
 
-### 2A — App shell
+### 3A — App shell
 - [x] Tauri v2 project in `app/` (alongside `cloud/` and `edge/`)
 - [x] Menubar app — `LSUIElement: true` + `ActivationPolicy::Accessory` — no dock icon on macOS
 - [x] Tray menu: status item (disabled, updated by 2C), separator, Quit
 - [x] Quit exits the UI only — daemon keeps running independently
 - [x] `set_tray_status` helper ready for 2C to wire in live daemon state
 
-### 2B — System daemon registration (macOS + Linux desktop only)
+### 3B — System daemon registration (macOS + Linux desktop only)
 - [x] macOS: `pkg-scripts/preinstall` unloads daemon on upgrade; `pkg-scripts/postinstall` copies edge binary to `/Library/Application Support/EdgeOS/`, writes LaunchDaemon plist, runs `launchctl load`
 - [x] `scripts/build-macos-pkg.sh` — wraps Tauri `.app` into a signed `.pkg` via `pkgbuild` + `productbuild`
 - [x] Linux: `scripts/install-linux-daemon.sh` (manual sudo step; TODO: fold into `.deb` postinst in 2E)
@@ -97,12 +97,12 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 - [x] Tray polls daemon status every 5s — shows `● Daemon running` / `○ Daemon stopped` / `○ Daemon not installed`
 - [ ] Uninstaller stops + removes the service
 
-### 2C — IPC between UI and daemon (macOS + Linux only)
+### 3C — IPC between UI and daemon (macOS + Linux only)
 - [x] Edge agent writes `$EDGE_OS_EDGE_DIR/status.json` on connect / disconnect / startup
 - [x] Tauri UI reads status file on each 5s poll — shows `● Connected`, `◌ Connecting...`, `○ Disconnected`
 - [x] File permissions work naturally: daemon (root) writes `644`, UI (user) reads
 
-### 2D — Auth & config
+### 3D — Auth & config
 - [x] Edge agent reads `$EDGE_OS_EDGE_DIR/config.json` on startup (falls back to env vars, then built-in defaults)
 - [x] `postinstall` sets `root:admin 775` on EdgeOS dir so admin-user Tauri app can write `config.json` without sudo
 - [x] First-run setup wizard (`setup.html`) — Cloud URL, Team Hash, API Token fields
@@ -110,11 +110,11 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 - [x] Keychain: `keyring` crate (macOS Keychain / Linux libsecret) under service `com.sailoi.edgeos`
 - [x] Settings menu item re-opens setup window for config changes
 
-### TODO — 2E: Installers
-> Deferred. macOS `.pkg` build script exists (`scripts/build-macos-pkg.sh`); notarization and Linux `.deb`/AppImage packaging not yet set up. CoreML execution provider for ONNX (Apple Neural Engine) also deferred to when Phase 3 camera inference is ready.
+### TODO — 3E: Installers
+> Deferred. macOS `.pkg` build script exists (`scripts/build-macos-pkg.sh`); notarization and Linux `.deb`/AppImage packaging not yet set up. CoreML execution provider for ONNX (Apple Neural Engine) also deferred to when Phase 6 camera inference is ready.
 
-### TODO — 2F: Mobile viewer
-> Deferred. Tauri v2 mobile (iOS + Android) for viewing camera feeds and managing edges. Depends on Phase 3 camera MVP being complete first.
+### TODO — 3F: Mobile viewer
+> Deferred. Tauri v2 mobile (iOS + Android) for viewing camera feeds and managing edges. Depends on Phase 6 camera MVP being complete first.
 
 ### Headless Linux (Pi / server)
 > Critical for the Maker and MSP segments. Headless Linux devices (Raspberry Pi, VPS, home server) are the primary deployment target for DIY users and IT consultants. A smooth one-command install here is the difference between community adoption and a GitHub repo nobody uses.
@@ -143,24 +143,24 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 > Browser ←──────────── WebRTC data channel ──────────→ Edge
 > ```
 
-### 2.5A — Edge: connection type routing
+### 4A — Edge: connection type routing
 - [x] Add `connection_type` field to WEBRTC_OFFER payload: `"ssh"` vs `"camera"`
 - [x] Edge routes `"ssh"` offers to existing SSH bridge handler (no change)
 - [x] Edge routes `"camera"` offers to new stub camera handler — opens data channel, echoes pong to validate P2P
 
-### 2.5B — Cloud: browser signaling path
+### 4B — Cloud: browser signaling path
 - [x] LiveView JS hook: browser creates `RTCPeerConnection`, generates offer, sends to LiveView via `pushEvent`
 - [x] LiveView forwards browser offer to edge via `EdgeSocket` (same `send/2` path as today)
 - [x] LiveView receives edge answer + ICE candidates, forwards back to browser via `push_event`
 - [x] TURN credentials passed to browser (same HMAC generation as SSH path)
 - [x] Session scoped to the authenticated user — no unauthenticated signaling
 
-### 2.5C — Validate end-to-end ✓
+### 4C — Validate end-to-end ✓
 - [x] Browser opens data channel to edge, sends `{type: "ping"}`, edge replies `{type: "pong"}`
 - [x] Confirmed: "✓ P2P validated. Direct browser ↔ edge data channel works. Cloud saw only signaling."
 - [ ] Test via TURN relay (simulate NAT) to confirm relay path works from browser
 
-### 2.5D — Define data channel protocol (spec only, no implementation)
+### 4D — Define data channel protocol (spec only, no implementation)
 > Agree on the message format before Phase 3 builds on top. Implementation happens in Phase 3.
 >
 > **Browser → Edge:**
@@ -363,7 +363,7 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 ## Phase 9 — Mobile Viewer
 > Airbnb hosts, property managers, and retail owners will ask "can I check my cameras from my phone?" on day one. This phase delivers a read-only mobile viewer — live feeds, event notifications, alert review. No camera management or config; that stays on desktop.
 >
-> Built on Tauri v2 mobile (iOS + Android from one codebase). Depends on Phase 3 camera feed being stable.
+> Built on Tauri v2 mobile (iOS + Android from one codebase). Depends on Phase 6 camera feed being stable.
 
 - [ ] iOS and Android build targets in Tauri v2 project
 - [ ] Live camera feed view — WebRTC stream from edge, same P2P path as browser
