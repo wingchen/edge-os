@@ -21,11 +21,11 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
         end
 
         edges = list_edges(user.id)
-        edge_alerts = Device.recent_edge_alerts_from_edges(edges)
+        edge_alerts_map = Device.recent_edge_alerts_from_edges(edges)
 
-        updated_socket = 
+        updated_socket =
           socket
-          |> assign(:edge_alerts, edge_alerts)
+          |> assign(:edge_alerts_map, edge_alerts_map)
           |> assign(:edges, edges)
           |> assign(:current_user, user)
           |> assign(:user_ip, user_ip)
@@ -95,9 +95,9 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
 
   def handle_info({:check_tcp_readiness, session_id, counter}, socket) do
     if counter >= 3 do
-      Logger.warning("timeout trying to establish tcp session for #{session_id}. updating the UI")
-      note = "We are not seeing the rigth processes from edge and server launched. Are you sure that there is an edge process running on the port? Please contact the system admin if this keeps happening."
-      socket = push_event(socket, "ssh_error", %{title: "Timeout! TCP tunnel NOT established", note: note})
+      Logger.warning("timeout trying to establish connection for session #{session_id}")
+      note = "The edge did not complete the connection handshake in time. Check that the edge is online and has a stable connection to the cloud. If the problem persists, check the edge logs."
+      socket = push_event(socket, "ssh_error", %{title: "Connection timed out", note: note})
       {:noreply, socket}
     else
       if EdgeSSHUtils.is_session_ready(session_id) do

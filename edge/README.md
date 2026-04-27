@@ -1,15 +1,67 @@
 # edge-os-edge
 
-`edge-os-edge` is meant to run in IoT devices. It connects back to the mothership with websockets and retry connection when disconnected. The IoT cluster owner can then send commands to devices via the cloud portal.
+`edge-os-edge` is the edge agent binary. It connects back to the cloud over WebSocket/WebRTC and keeps the connection alive.
 
-To run this in your SoC and have it function normally, you will have to:
-- give it `sudo` privileges
-- make it into a service with `systemd` or something likewise
+> **Distribution:** for macOS and Linux desktop, use the Tauri app in `app/` — it bundles this binary and installs it as a system daemon automatically. See [`app/README.md`](../app/README.md) for the full build and install flow.
+>
+> Direct use of this binary (without the Tauri app) is for headless Linux devices (Pi, server) only.
 
 # Env Vars
 
 - `EDGE_OS_EDGE_DIR`: full dir path to where the `edge` data is stored
 - `EDGE_OS_CLOUD_URL`: full websocket path to where the `edge` should connect to, exp: `wss://edge.sailoi.com`
+
+# Development Workflow
+
+There are two ways to run the edge agent depending on what you're working on:
+
+## Edge-only (testing cloud connectivity)
+
+Use this when iterating on edge code — no Tauri involved, fast feedback loop.
+
+```bash
+cargo build && ./local.sh --local
+```
+
+`--local` reads config from `test_data/config.json`. Set it up once:
+
+```bash
+mkdir -p test_data
+echo '{"cloud_url":"wss://edgeos.sailoi.com","team_hash":"YOUR_TEAM_HASH"}' > test_data/config.json
+```
+
+## Full stack (Tauri UI + edge agent)
+
+The Tauri app writes config to the system path and reads `status.json` from the same place:
+
+| Platform | System path |
+|----------|-------------|
+| macOS    | `/Library/Application Support/EdgeOS/` |
+| Linux    | `/opt/edge-os-edge/` |
+
+`local.sh` (without `--local`) automatically uses the system path for the current OS. The recommended dev flow:
+
+**Step 1 — prepare the system config dir (once, Linux only):**
+```bash
+sudo mkdir -p /opt/edge-os-edge && sudo chmod 777 /opt/edge-os-edge
+```
+
+**Step 2 — run the Tauri app and fill in the setup wizard:**
+```bash
+cd ../app && npm run dev
+```
+Enter your Cloud URL and Team Hash. The Tauri app writes `config.json` to the system path and opens the main window.
+
+**Step 3 — run the edge agent in a second terminal:**
+```bash
+./local.sh
+```
+The agent reads `config.json` from the system path, connects to the cloud, and writes `status.json`. The Tauri UI polls `status.json` every 5 seconds and flips to "Connected".
+
+**Troubleshooting:**
+- Tauri shows "Not running" → the edge agent isn't running. Run `./local.sh` in the edge directory.
+- No new edge appears in the cloud dashboard → same cause, the agent never connected.
+- `Permission denied` writing config → run Step 1 above to make the system dir writable.
 
 # Run test cases
 

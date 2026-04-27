@@ -1,0 +1,10 @@
+_build/
+deps/
+.git/
+.gitignore
+.elixir_ls/
+erl_crash.dump
+*.log
+test/
+doc/
+node_modules/

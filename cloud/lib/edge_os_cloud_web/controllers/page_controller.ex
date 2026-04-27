@@ -7,41 +7,8 @@ defmodule EdgeOsCloudWeb.PageController do
 
   def index(conn, _params) do
     case get_session(conn, :current_user) do
-      nil -> 
-        conn
-        |> redirect(to: "/login")
-
-      user ->
-        user_edges = Device.list_active_account_edges(user.id)
-        user_online_edges = Enum.filter(user_edges, fn x -> Device.edge_online?(x.id) end)
-        user_edge_map = Enum.into(user_edges, %{}, fn x -> {x.id, x} end)
-
-        # get edge beacon counts
-        edges_statuss = Device.list_recent_edge_status_from_edges(user_edges |> Enum.map(fn x -> x.id end))
-        timestamps = edges_statuss |> Enum.map(fn [t, _ei, _c] -> t end) |> Enum.uniq()
-
-        # this generates a nested map: {edge_id, edge_name} -> timestamp -> count
-        edges_statuss_map = Enum.reduce(edges_statuss, %{}, fn [t, ei, c], acc ->
-          edge = user_edge_map[ei]
-          key = {ei, edge.name}
-
-          if Map.has_key?(acc, key) do
-            # add the edge id and count into the map
-            sub_map = acc[key]
-            Map.put(acc, key, Map.put(sub_map, t, c))
-          else
-            # create a new key in the map
-            Map.put(acc, key, %{t => c})
-          end
-        end)
-
-        conn
-        |> assign(:current_user, user)
-        |> assign(:user_edges, user_edges)
-        |> assign(:timestamps, timestamps)
-        |> assign(:edges_statuss_map, edges_statuss_map)
-        |> assign(:user_online_edges, length(user_online_edges))
-        |> render("index.html")
+      nil  -> redirect(conn, to: "/login")
+      _user -> redirect(conn, to: "/edges")
     end
   end
 
@@ -79,7 +46,7 @@ defmodule EdgeOsCloudWeb.PageController do
 
   def me(conn, _params) do
     case get_session(conn, :current_user) do
-      nil -> 
+      nil ->
         conn
         |> put_flash(:info, "You have been logged out!")
         |> clear_session()
@@ -90,13 +57,23 @@ defmodule EdgeOsCloudWeb.PageController do
           {:ok, nil} ->
             {:ok, token} = Accounts.create_user_token(user)
             token
-          {:ok, token} -> 
+          {:ok, token} ->
             token
         end
+
+        teams_with_hash =
+          Accounts.list_teams_for_user(user.id)
+          |> Enum.map(fn team ->
+            {team, Accounts.get_team_id_hash(team.id)}
+          end)
+
+        cloud_url = "wss://#{System.get_env("PHX_HOST", "edgeos.sailoi.com")}"
 
         conn
         |> assign(:current_user, user)
         |> assign(:token, user_token)
+        |> assign(:teams_with_hash, teams_with_hash)
+        |> assign(:cloud_url, cloud_url)
         |> render("me.html")
     end
   end

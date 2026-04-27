@@ -37,6 +37,7 @@ defmodule EdgeOsCloudWeb.Router do
     live "/edges", EdgeLive.Index, :index
     live "/edges/:id/edit", EdgeLive.Index, :edit
     live "/edges/:id/connect", EdgeLive.Index, :connect
+    live "/edges/:id/camera", EdgeLive.Camera, :show
     live "/edges/:id", EdgeLive.Show, :show
 
     live "/users", UserLive.Index, :index

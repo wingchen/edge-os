@@ -144,10 +144,13 @@ defmodule EdgeOsCloud.Sockets.EdgeSocket do
     Logger.debug("getting WebRTC answer from edge #{edge.id}")
 
     case Jason.decode(json_payload) do
-      {:ok, %{"session_id" => session_id, "sdp" => sdp}} ->
-        case Process.whereis(webrtc_peer_pid(session_id)) do
-          nil -> Logger.warning("no WebRTC peer found for session #{session_id} on edge #{edge.id}")
-          pid -> send(pid, {:webrtc_answer, sdp})
+      {:ok, %{"session_id" => session_hash, "sdp" => sdp}} ->
+        case find_webrtc_peer(session_hash, edge) do
+          nil ->
+            # No SSH peer registered — this is a browser↔edge camera session, route via PubSub
+            Phoenix.PubSub.broadcast(EdgeOsCloud.PubSub, "browser_session:#{session_hash}", {:webrtc_answer, sdp})
+          pid ->
+            send(pid, {:webrtc_answer, sdp})
         end
 
       _ ->
@@ -159,10 +162,15 @@ defmodule EdgeOsCloud.Sockets.EdgeSocket do
     Logger.debug("getting ICE candidate from edge #{edge.id}")
 
     case Jason.decode(json_payload) do
-      {:ok, %{"session_id" => session_id, "candidate" => candidate}} ->
-        case Process.whereis(webrtc_peer_pid(session_id)) do
-          nil -> Logger.warning("no WebRTC peer found for session #{session_id} on edge #{edge.id}")
-          pid -> send(pid, {:ice_candidate, candidate})
+      {:ok, %{"session_id" => session_hash, "candidate" => candidate_str} = data} ->
+        index = Map.get(data, "sdpMLineIndex", 0)
+        mid   = Map.get(data, "sdpMid", "")
+        case find_webrtc_peer(session_hash, edge) do
+          nil ->
+            # Browser↔edge camera session — route via PubSub
+            Phoenix.PubSub.broadcast(EdgeOsCloud.PubSub, "browser_session:#{session_hash}", {:ice_candidate, candidate_str, index, mid})
+          pid ->
+            send(pid, {:ice_candidate, candidate_str, index, mid})
         end
 
       _ ->
@@ -174,7 +182,15 @@ defmodule EdgeOsCloud.Sockets.EdgeSocket do
     Logger.warning("param_list #{inspect param_list}")
   end
 
-  def webrtc_peer_pid(session_id) do
-    String.to_atom("webrtc_peer_session_#{session_id}")
+  # Decode the session hash (signed with the edge's salt) to get the integer
+  # session ID, then look up the WebRTCPeer via the EdgeTcpSocket process name.
+  # Returns the pid or nil.
+  defp find_webrtc_peer(session_hash, edge) do
+    try do
+      session_id = EdgeOsCloud.HashIdHelper.decode(session_hash, edge.salt)
+      Process.whereis(EdgeOsCloud.Sockets.EdgeTcpSocket.get_pid(session_id))
+    rescue
+      _ -> nil
+    end
   end
 end

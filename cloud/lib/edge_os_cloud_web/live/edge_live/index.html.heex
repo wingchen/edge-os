@@ -1,8 +1,3 @@
-<%= for alert <- @edge_alerts do %>
-    <p class="alert alert-danger" role="alert"><%= alert %></p>
-<% end %>
-<h1>Edge List</h1>
-
 <%= if @live_action in [:edit] do %>
   <.modal return_to={Routes.edge_index_path(@socket, :index)} class="modal fade" id="editEdgeModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLongTitle" aria-hidden="true">
     <.live_component
@@ -31,177 +26,211 @@
   </.modal>
 <% end %>
 
-<!-- DataTales -->
-<div class="card shadow mb-4">
-    <div class="card-header py-3">
-        <h6 class="m-0 font-weight-bold text-primary">Devices</h6>
-    </div>
-    <div class="card-body">
-        <div class="table-responsive">
-            <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Team</th>
-                        <th>IPv4</th>
-                        <th>Status</th>
-                        <th>Status Since</th>
-                        <th>Created Time</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tfoot>
-                    <tr>
-                        <th>Name</th>
-                        <th>Team</th>
-                        <th>IPv4</th>
-                        <th>Status</th>
-                        <th>Status Since</th>
-                        <th>Created Time</th>
-                        <th>Actions</th>
-                    </tr>
-                </tfoot>
-                <tbody>
-                    <%= for edge <- @edges do %>
-                    <tr>
-                        <td><%= edge.name %></td>
-                        <td><%= edge.team.name %></td>
-                        <td><%= edge.ip %></td>
+<%
+  online_count = Enum.count(@edges, fn e -> EdgeOsCloud.Device.edge_online?(e.id) end)
+%>
 
-                        <%= if EdgeOsCloud.Device.edge_online?(edge.id) do %>
-                        <td class="bg-success text-white">Connected</td>
-                        <% else %>
-                        <td class="bg-gray-500 text-white">Disconnected</td>
-                        <% end %>
-
-                        <td><%= edge.updated_at %></td>
-                        <td><%= edge.inserted_at %></td>
-                        <td>
-                            <%= live_patch to: Routes.edge_index_path(@socket, :edit, edge), class: "btn btn-warning btn-circle btn-sm", "data-toggle": "tooltip", title: "edit the edge name", replace: false do %>
-                                <i class="fas fa-edit"></i>
-                            <% end %>
-                            <%= link to: "#", phx_click: "info", phx_value_id: edge.id, data: [], class: "btn btn-info btn-circle btn-sm", "data-toggle": "tooltip", title: "check edge stats", replace: false do %>
-                                <i class="fas fa-info-circle"></i>
-                            <% end %>
-
-                          <%= if EdgeOsCloud.Device.edge_online?(edge.id) do %>
-                            <%= live_patch to: Routes.edge_index_path(@socket, :connect, edge), class: "btn btn-primary btn-circle btn-sm", "data-toggle": "tooltip", title: "ssh to edge", replace: false do %>
-                                <i class="fas fa-terminal"></i>
-                            <% end %>
-                          <% end %>
-
-                            <%= link to: "#", phx_click: "delete", phx_value_id: edge.id, data: [confirm: "Edge is about to be deleted. Are you sure?"], class: "btn btn-danger btn-circle btn-sm", "data-toggle": "tooltip", title: "remove edge", replace: false do %>
-                                <i class="fas fa-trash"></i>
-                            <% end %>
-                        </td>
-                    </tr>
-                    <% end %>
-                </tbody>
-            </table>
-        </div>
-    </div>
-
-  <script>
-    function updatePort() {
-        let portNumber = document.getElementById("connect-port-number").value;
-        console.log('portNumber is set to be', portNumber);
-        document.getElementById("button-connect").setAttribute("phx-value-port-number", portNumber);
-    }
-
-    function update_ssh_username() {
-        const inputValue = document.getElementById('ssh_username').value;
-
-        var dom_list = document.getElementsByClassName("username");
-        for(let i = 0; i < dom_list.length; i++) {
-            dom_list[i].innerHTML = inputValue;
-        }
-    }
-
-    function update_ssh_tunnel_port() {
-        const inputValue = document.getElementById('ssh_tunnel_port').value;
-
-        var dom_list = document.getElementsByClassName("tunnel_port");
-        for(let i = 0; i < dom_list.length; i++) {
-            dom_list[i].innerHTML = inputValue;
-        }
-    }
-
-    window.addEventListener(`phx:step2`, (e) => {
-      let s2_s1 = document.getElementById("ssh-step-1");
-      if(s2_s1) s2_s1.hidden = "true";
-
-      let s2_s2 = document.getElementById("ssh-step-2");
-      if(s2_s2) {
-        s2_s2.hidden = undefined;
-        if (e.detail.note) document.getElementById("ssh-step-2-note").innerHTML = e.detail.note;
-      }
-
-      let s2_s3 = document.getElementById("ssh-step-3");
-      if(s2_s3) s2_s3.hidden = "true";
-
-      let s2_serror = document.getElementById("ssh-step-error");
-      if(s2_serror) s2_serror.hidden = "true";
-    });
-
-    window.addEventListener(`phx:step3`, (e) => {
-      let s3_s1 = document.getElementById("ssh-step-1");
-      if(s3_s1) s3_s1.hidden = undefined;
-
-      let s3_s2 = document.getElementById("ssh-step-2");
-      if(s3_s2) s3_s2.hidden = "true";
-
-      let s3_s3 = document.getElementById("ssh-step-3");
-      if(s3_s3) {
-        s3_s3.hidden = undefined;
-        if (e.detail.title) document.getElementById("ssh-step-3-title").innerHTML = e.detail.title;
-        if (e.detail.note) document.getElementById("ssh-step-3-note").innerHTML = e.detail.note;
-        if (e.detail.finishnote) document.getElementById("ssh-step-3-finishnote").innerHTML = e.detail.finishnote;
-
-        if (e.detail.tcp_url) {
-            document.getElementById("ssh-step-3-connected").hidden = undefined;
-            document.getElementById("ssh-step-3-disconnected").hidden = "true";
-
-            var dom_list = document.getElementsByClassName("tcp-port");
-            for(let i = 0; i < dom_list.length; i++) {
-              dom_list[i].innerHTML = e.detail.tcp_port;
-            }
-
-            var dom_list = document.getElementsByClassName("tcp-url");
-            for(let i = 0; i < dom_list.length; i++) {
-              dom_list[i].innerHTML = e.detail.tcp_url;
-            }
-        }
-
-        if (e.detail.disconnected) {
-            document.getElementById("ssh-step-3-connected").hidden = "true";
-            document.getElementById("ssh-step-3-disconnected").hidden = undefined;
-        }
-      }
-
-      let s3_serror = document.getElementById("ssh-step-error");
-      if(s3_serror) s3_serror.hidden = "true";
-    });
-
-    window.addEventListener(`phx:ssh_error`, (e) => {
-      let serror_s1 = document.getElementById("ssh-step-1");
-      if(serror_s1) serror_s1.hidden = undefined;
-
-      let serror_s2 = document.getElementById("ssh-step-2");
-      if(serror_s2) serror_s2.hidden = "true";
-
-      let serror_s3 = document.getElementById("ssh-step-3");
-      if(serror_s3) serror_s3.hidden = "true";
-
-      let serror_serror = document.getElementById("ssh-step-error");
-      if(serror_serror) {
-        serror_serror.hidden = undefined;
-        if (e.detail.title) document.getElementById("ssh-step-error-title").innerHTML = e.detail.title;
-        if (e.detail.note) document.getElementById("ssh-step-error-note").innerHTML = e.detail.note;
-      }
-    });
-
-    $(function () {
-      $('[data-toggle="tooltip"]').tooltip();
-    });
-  </script>
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <div>
+    <h1 class="h3 mb-0 text-gray-800">Devices</h1>
+    <p class="mb-0 text-muted" style="font-size:0.85rem;">
+      <span class="text-success font-weight-bold"><%= online_count %> online</span>
+      · <span id="edge-count"><%= length(@edges) %></span> total
+    </p>
+  </div>
 </div>
+
+<div class="mb-4" style="position:relative;max-width:360px;">
+  <i class="fas fa-search" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#b0b3c4;font-size:0.85rem;pointer-events:none;"></i>
+  <input
+    id="edge-search"
+    type="text"
+    placeholder="Search by device or team name…"
+    oninput="filterEdges(this.value)"
+    autocomplete="off"
+    style="width:100%;padding:8px 12px 8px 34px;border:1.5px solid #d1d3e2;border-radius:8px;font-size:0.875rem;font-family:inherit;color:#3a3b45;outline:none;transition:border-color 0.15s,box-shadow 0.15s;"
+    onfocus="this.style.borderColor='#2d8eff';this.style.boxShadow='0 0 0 3px rgba(45,142,255,0.15)'"
+    onblur="this.style.borderColor='#d1d3e2';this.style.boxShadow='none'"
+  />
+</div>
+
+<%= if Enum.empty?(@edges) do %>
+  <div class="card shadow">
+    <div class="card-body text-center py-5">
+      <i class="fas fa-cubes fa-3x text-gray-300 mb-3"></i>
+      <p class="text-muted mb-1">No devices yet.</p>
+      <p class="text-muted" style="font-size:0.85rem;">
+        Add a device via <a href="/teams">Teams</a> or install the EdgeOS agent on a machine.
+      </p>
+    </div>
+  </div>
+<% else %>
+  <div class="row">
+    <%= for edge <- @edges do %>
+      <% online = EdgeOsCloud.Device.edge_online?(edge.id) %>
+      <% alerts = Map.get(@edge_alerts_map, edge.id, []) %>
+      <div class="col-xl-4 col-md-6 mb-4 edge-card-col"
+           data-name={String.downcase(edge.name)}
+           data-team={String.downcase(edge.team.name)}>
+        <div class={"card shadow h-100 " <> if online, do: "border-left-success", else: "border-left-secondary"}>
+          <div class="card-body pb-2">
+
+            <%# Status + name row %>
+            <div class="d-flex align-items-start justify-content-between mb-1">
+              <div class="d-flex align-items-center">
+                <span class="mr-2" style={"width:9px;height:9px;border-radius:50%;flex-shrink:0;background:" <> if online, do: "#1cc88a", else: "#858796"}></span>
+                <h6 class="mb-0 font-weight-bold text-dark" style="font-size:0.95rem;"><%= edge.name %></h6>
+              </div>
+              <div class="d-flex align-items-center ml-2" style="gap:6px;flex-shrink:0;">
+                <%= if not Enum.empty?(alerts) do %>
+                  <span class="edge-alert-tip" data-tip={Enum.join(alerts, " • ")}>
+                    <i class="fas fa-exclamation-triangle text-warning" style="font-size:0.8rem;"></i>
+                  </span>
+                <% end %>
+                <span class={"badge " <> if online, do: "badge-success", else: "badge-secondary"}>
+                  <%= if online, do: "Online", else: "Offline" %>
+                </span>
+              </div>
+            </div>
+
+            <%# Metadata %>
+            <p class="mb-1" style="font-size:0.78rem;color:#858796;">
+              <i class="fas fa-users fa-fw mr-1"></i><%= edge.team.name %>
+            </p>
+            <p class="mb-0" style="font-size:0.78rem;color:#858796;">
+              <i class="fas fa-clock fa-fw mr-1"></i><%= Calendar.strftime(edge.updated_at, "%b %d, %H:%M") %>
+            </p>
+
+          </div>
+          <div class="card-footer bg-transparent border-top pt-2 pb-2 d-flex" style="gap:6px;">
+            <%= live_patch to: Routes.edge_index_path(@socket, :edit, edge), class: "btn btn-sm btn-outline-secondary", replace: false do %>
+              <i class="fas fa-edit mr-1"></i>Rename
+            <% end %>
+
+            <%= if online do %>
+              <%= live_patch to: Routes.edge_index_path(@socket, :connect, edge), class: "btn btn-sm btn-outline-primary", replace: false do %>
+                <i class="fas fa-terminal mr-1"></i>SSH
+              <% end %>
+              <%= link to: "/edges/#{edge.id}/camera", class: "btn btn-sm btn-outline-info" do %>
+                <i class="fas fa-video mr-1"></i>Camera
+              <% end %>
+            <% end %>
+
+            <%= link to: "#", phx_click: "delete", phx_value_id: edge.id, data: [confirm: "Delete #{edge.name}? This cannot be undone."], class: "btn btn-sm btn-outline-danger ml-auto" do %>
+              <i class="fas fa-trash"></i>
+            <% end %>
+          </div>
+        </div>
+      </div>
+    <% end %>
+  </div>
+<% end %>
+
+<div id="edge-no-results" style="display:none;" class="col-12">
+  <div class="card shadow">
+    <div class="card-body text-center py-4">
+      <i class="fas fa-search fa-2x text-gray-300 mb-2 d-block"></i>
+      <p class="text-muted mb-0" style="font-size:0.9rem;">No devices match <strong id="edge-no-results-term"></strong></p>
+    </div>
+  </div>
+</div>
+
+<script>
+  function filterEdges(query) {
+    const q = query.trim().toLowerCase();
+    const cols = document.querySelectorAll('.edge-card-col');
+    let visible = 0;
+
+    cols.forEach(col => {
+      const name = col.dataset.name || '';
+      const team = col.dataset.team || '';
+      const match = !q || name.includes(q) || team.includes(q);
+      col.style.display = match ? '' : 'none';
+      if (match) visible++;
+    });
+
+    const noResults = document.getElementById('edge-no-results');
+    noResults.style.display = visible === 0 && q ? '' : 'none';
+    if (visible === 0 && q) {
+      document.getElementById('edge-no-results-term').textContent = '"' + query.trim() + '"';
+    }
+
+    const countEl = document.getElementById('edge-count');
+    if (countEl) countEl.textContent = visible;
+  }
+</script>
+
+<style>
+  .edge-alert-tip { position: relative; display: inline-block; cursor: help; }
+  .edge-alert-tip::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(33,37,41,0.92);
+    color: #fff;
+    padding: 5px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    z-index: 9999;
+  }
+  .edge-alert-tip:hover::after { opacity: 1; }
+</style>
+
+<script>
+  window.addEventListener(`phx:step2`, (e) => {
+    let s2_s1 = document.getElementById("ssh-step-1");
+    if(s2_s1) s2_s1.hidden = "true";
+    let s2_s2 = document.getElementById("ssh-step-2");
+    if(s2_s2) { s2_s2.hidden = undefined; if (e.detail.note) document.getElementById("ssh-step-2-note").innerHTML = e.detail.note; }
+    let s2_s3 = document.getElementById("ssh-step-3");
+    if(s2_s3) s2_s3.hidden = "true";
+    let s2_serror = document.getElementById("ssh-step-error");
+    if(s2_serror) s2_serror.hidden = "true";
+  });
+  window.addEventListener(`phx:step3`, (e) => {
+    let s3_s1 = document.getElementById("ssh-step-1");
+    if(s3_s1) s3_s1.hidden = undefined;
+    let s3_s2 = document.getElementById("ssh-step-2");
+    if(s3_s2) s3_s2.hidden = "true";
+    let s3_s3 = document.getElementById("ssh-step-3");
+    if(s3_s3) {
+      s3_s3.hidden = undefined;
+      if (e.detail.title) document.getElementById("ssh-step-3-title").innerHTML = e.detail.title;
+      if (e.detail.note) document.getElementById("ssh-step-3-note").innerHTML = e.detail.note;
+      if (e.detail.finishnote) document.getElementById("ssh-step-3-finishnote").innerHTML = e.detail.finishnote;
+      if (e.detail.tcp_url) {
+        document.getElementById("ssh-step-3-connected").hidden = undefined;
+        document.getElementById("ssh-step-3-disconnected").hidden = "true";
+        document.querySelectorAll(".tcp-port").forEach(el => el.innerHTML = e.detail.tcp_port);
+        document.querySelectorAll(".tcp-url").forEach(el => el.innerHTML = e.detail.tcp_url);
+      }
+      if (e.detail.disconnected) {
+        document.getElementById("ssh-step-3-connected").hidden = "true";
+        document.getElementById("ssh-step-3-disconnected").hidden = undefined;
+      }
+    }
+    let s3_serror = document.getElementById("ssh-step-error");
+    if(s3_serror) s3_serror.hidden = "true";
+  });
+  window.addEventListener(`phx:ssh_error`, (e) => {
+    let serror_s1 = document.getElementById("ssh-step-1");
+    if(serror_s1) serror_s1.hidden = undefined;
+    let serror_s2 = document.getElementById("ssh-step-2");
+    if(serror_s2) serror_s2.hidden = "true";
+    let serror_s3 = document.getElementById("ssh-step-3");
+    if(serror_s3) serror_s3.hidden = "true";
+    let serror_serror = document.getElementById("ssh-step-error");
+    if(serror_serror) {
+      serror_serror.hidden = undefined;
+      if (e.detail.title) document.getElementById("ssh-step-error-title").innerHTML = e.detail.title;
+      if (e.detail.note) document.getElementById("ssh-step-error-note").innerHTML = e.detail.note;
+    }
+  });
+</script>

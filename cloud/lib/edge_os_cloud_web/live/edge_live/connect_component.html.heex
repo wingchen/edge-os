@@ -1,76 +1,143 @@
-<div>
-  <h2><%= @title %></h2>
-  <div class="card">
-    <div class="card-body">
-      <h5 class="card-title">TCP tunnel connection to <%= @edge.name %></h5>
+<div id="connect-component-root">
+  <div class="d-flex align-items-center mb-3">
+    <div>
+      <h5 class="mb-0 font-weight-bold text-dark">SSH Connection</h5>
+      <p class="mb-0 text-muted" style="font-size:0.82rem;"><%= @edge.name %></p>
+    </div>
+    <span class="badge badge-primary ml-auto" style="font-size:0.72rem;">WebRTC tunnel</span>
+  </div>
 
-      <div id="ssh-step-1">
-        <p>Click the button below to connect ssh:</p>
-        <%= link to: "#", phx_target: @myself, phx_click: "ssh", phx_value_id: @edge.id, class: "btn btn-primary btn-sm active", replace: false do %>
-          Connect SSH
-        <% end %>
+  <%# Step 1: initial %>
+  <div id="ssh-step-1">
+    <p class="text-muted mb-3" style="font-size:0.875rem;">
+      Opens an encrypted tunnel to this device. The connection is established via WebRTC — the cloud handles signaling only.
+    </p>
+    <%= link to: "#", phx_target: @myself, phx_click: "ssh", phx_value_id: @edge.id, class: "btn btn-primary btn-sm", replace: false do %>
+      <i class="fas fa-terminal mr-1"></i>Connect SSH
+    <% end %>
+  </div>
+
+  <%# Step 2: negotiating %>
+  <div id="ssh-step-2" hidden>
+    <div class="d-flex align-items-center text-muted py-2" style="font-size:0.875rem;">
+      <div class="spinner-border spinner-border-sm mr-3 text-primary" role="status">
+        <span class="sr-only">Loading...</span>
+      </div>
+      <span id="ssh-step-2-note">Setting up tunnel…</span>
+    </div>
+  </div>
+
+  <%# Step 3: connected / disconnected %>
+  <div id="ssh-step-3" hidden>
+
+    <%# Connected state %>
+    <div id="ssh-step-3-connected">
+      <div class="d-flex align-items-center mb-3">
+        <span style="width:8px;height:8px;border-radius:50%;background:#1cc88a;flex-shrink:0;" class="mr-2"></span>
+        <span class="font-weight-bold text-success" style="font-size:0.875rem;" id="ssh-step-3-title">Tunnel ready</span>
+        <span class="text-muted ml-2" style="font-size:0.8rem;" id="ssh-step-3-note"></span>
       </div>
 
-      <div id="ssh-step-2" hidden>
-        <div class="spinner-border" role="status">
-          <span class="sr-only">Loading...</span>
+      <%# Pre-fill inputs %>
+      <div class="row mb-3" style="font-size:0.82rem;">
+        <div class="col-6">
+          <label class="text-muted mb-1" style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Username</label>
+          <input type="text" class="form-control form-control-sm" id="ssh_username"
+            oninput="update_ssh_username()" placeholder="your edge username" />
         </div>
-
-        <div id="ssh-step-2-note">
-          Setting up the ssh tunnel...
-        </div>
-      </div>
-
-      <div id="ssh-step-3" class="alert alert-success" role="alert" hidden>
-        <h4 class="alert-heading" id="ssh-step-3-title">You are connected!</h4>
-        <div id="ssh-step-3-connected">
-          <p id="ssh-step-3-note">Now you can ssh in with the following commands.</p>
-
-          <p>
-            You can also input username or tunnel port to get them replaced inline below: <br/>
-
-            <input type="text" class="form-control" id="ssh_username" onchange="update_ssh_username()" placeholder="your username in the edge"/>
-            <input type="number" class="form-control" id="ssh_tunnel_port" onchange="update_ssh_tunnel_port()" placeholder="the port number you wish to tunnel to"/>
-          </p>
-
-          <p>
-            Regular ssh: <br/>
-            <div id="ssh-step-3-command" class="p-3 mb-2 bg-success text-white">
-              ssh <span class="username">[your_user_name]</span>@<span class="badge badge-light tcp-url">xxx.edgeos.sailoi.com</span> -p <span class="badge badge-light tcp-port">[some_generated_port_number]</span>
-            </div>
-          </p>
-
-          <p>
-            ssh tunneling example: <br/>
-            <div id="ssh-step-3-tunnel-command" class="p-3 mb-2 bg-success text-white">
-              ssh -L <span class="tunnel_port">5566</span>:localhost:<span class="tunnel_port">5566</span> <span class="username">[your_user_name]</span>@<span class="badge badge-light tcp-url">xxx.edgeos.sailoi.com</span> -p <span class="badge badge-light tcp-port">[some_generated_port_number]</span>
-            </div>
-          </p>
-
-          <p>
-            scp example: <br/>
-            <div id="ssh-step-3-scp-command" class="p-3 mb-2 bg-success text-white">
-              scp -rp -P <span class="badge badge-light tcp-port">[some_generated_port_number]</span> /your/source/path <span class="username">[your_user_name]</span>@<span class="badge badge-light tcp-url">xxx.edgeos.sailoi.com</span>:/your/destination/path
-            </div>
-          </p>
-
-          <p>
-            rsync example: <br/>
-            <div id="ssh-step-3-scp-command" class="p-3 mb-2 bg-success text-white">
-              rsync -hrc -e 'ssh -p <span class="badge badge-light tcp-port">[some_generated_port_number]</span>' --out-format="%i %f" --delete --progress --exclude path/to/eexclude /your/source/path <span class="username">[your_user_name]</span>@<span class="badge badge-light tcp-url">xxx.edgeos.sailoi.com</span>:/your/destination/path
-            </div>
-          </p>
-        </div>
-        <div id="ssh-step-3-disconnected">
-          <div class="p-3 mb-2 bg-secondary text-white">The ssh session disconnected.</div>
-          <p id="ssh-step-3-finishnote">Now you can ssh in with the following command:</p>
+        <div class="col-6">
+          <label class="text-muted mb-1" style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Tunnel port</label>
+          <input type="number" class="form-control form-control-sm" id="ssh_tunnel_port"
+            oninput="update_ssh_tunnel_port()" placeholder="port to forward" />
         </div>
       </div>
 
-      <div id="ssh-step-error" class="alert alert-danger" role="alert" hidden>
-        <h4 class="alert-heading" id="ssh-step-error-title">Error!!</h4>
-        <div id="ssh-step-error-note" class="p-3 mb-2 .bg-danger">Something has happened...</div>
+      <%# Command blocks %>
+      <div class="mb-2">
+        <p class="text-muted mb-1" style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Regular SSH</p>
+        <div class="ssh-cmd-block" style="background:#1e2733;border-radius:6px;padding:10px 14px;position:relative;">
+          <code class="text-light ssh-cmd-text" style="font-size:0.82rem;word-break:break-all;">
+            ssh <span class="username">[user]</span>@<span class="tcp-url">—</span> -p <span class="tcp-port">—</span>
+          </code>
+          <button class="ssh-copy-btn" onclick="copyCmd(this)" style="position:absolute;top:6px;right:8px;background:rgba(255,255,255,0.1);border:none;color:rgba(255,255,255,0.6);font-size:0.7rem;border-radius:4px;padding:2px 8px;cursor:pointer;">Copy</button>
+        </div>
+      </div>
+
+      <div class="mb-2">
+        <p class="text-muted mb-1" style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">SSH Tunnel</p>
+        <div class="ssh-cmd-block" style="background:#1e2733;border-radius:6px;padding:10px 14px;position:relative;">
+          <code class="text-light ssh-cmd-text" style="font-size:0.82rem;word-break:break-all;">
+            ssh -L <span class="tunnel_port">5566</span>:localhost:<span class="tunnel_port">5566</span> <span class="username">[user]</span>@<span class="tcp-url">—</span> -p <span class="tcp-port">—</span>
+          </code>
+          <button class="ssh-copy-btn" onclick="copyCmd(this)" style="position:absolute;top:6px;right:8px;background:rgba(255,255,255,0.1);border:none;color:rgba(255,255,255,0.6);font-size:0.7rem;border-radius:4px;padding:2px 8px;cursor:pointer;">Copy</button>
+        </div>
+      </div>
+
+      <div class="mb-2">
+        <p class="text-muted mb-1" style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">SCP</p>
+        <div class="ssh-cmd-block" style="background:#1e2733;border-radius:6px;padding:10px 14px;position:relative;">
+          <code class="text-light ssh-cmd-text" style="font-size:0.82rem;word-break:break-all;">
+            scp -rp -P <span class="tcp-port">—</span> /your/source/path <span class="username">[user]</span>@<span class="tcp-url">—</span>:/your/destination/path
+          </code>
+          <button class="ssh-copy-btn" onclick="copyCmd(this)" style="position:absolute;top:6px;right:8px;background:rgba(255,255,255,0.1);border:none;color:rgba(255,255,255,0.6);font-size:0.7rem;border-radius:4px;padding:2px 8px;cursor:pointer;">Copy</button>
+        </div>
+      </div>
+
+      <div class="mb-0">
+        <p class="text-muted mb-1" style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">rsync</p>
+        <div class="ssh-cmd-block" style="background:#1e2733;border-radius:6px;padding:10px 14px;position:relative;">
+          <code class="text-light ssh-cmd-text" style="font-size:0.82rem;word-break:break-all;">
+            rsync -hrc -e 'ssh -p <span class="tcp-port">—</span>' --out-format="%i %f" --delete --progress --exclude path/to/exclude /your/source/path <span class="username">[user]</span>@<span class="tcp-url">—</span>:/your/destination/path
+          </code>
+          <button class="ssh-copy-btn" onclick="copyCmd(this)" style="position:absolute;top:6px;right:8px;background:rgba(255,255,255,0.1);border:none;color:rgba(255,255,255,0.6);font-size:0.7rem;border-radius:4px;padding:2px 8px;cursor:pointer;">Copy</button>
+        </div>
+      </div>
+    </div>
+
+    <%# Disconnected state %>
+    <div id="ssh-step-3-disconnected" hidden>
+      <div class="d-flex align-items-center mb-2">
+        <span style="width:8px;height:8px;border-radius:50%;background:#858796;flex-shrink:0;" class="mr-2"></span>
+        <span class="text-muted font-weight-bold" style="font-size:0.875rem;">Session ended</span>
+      </div>
+      <p class="text-muted mb-2" style="font-size:0.82rem;" id="ssh-step-3-finishnote">
+        Your SSH session has concluded.
+      </p>
+      <p class="text-muted" style="font-size:0.82rem;">
+        Click <strong>Connect SSH</strong> above to start a new session.
+      </p>
+    </div>
+
+  </div>
+
+  <%# Error state %>
+  <div id="ssh-step-error" hidden>
+    <div class="d-flex align-items-start p-3" style="background:#fff5f5;border:1px solid #fed7d7;border-radius:6px;">
+      <i class="fas fa-exclamation-circle text-danger mr-2 mt-1" style="font-size:0.9rem;"></i>
+      <div>
+        <p class="mb-1 font-weight-bold text-danger" style="font-size:0.875rem;" id="ssh-step-error-title">Connection failed</p>
+        <p class="mb-0 text-muted" style="font-size:0.82rem;" id="ssh-step-error-note">Something went wrong.</p>
       </div>
     </div>
   </div>
+
+<script>
+  function copyCmd(btn) {
+    const code = btn.previousElementSibling.textContent.replace(/\s+/g, ' ').trim();
+    navigator.clipboard.writeText(code).then(() => {
+      btn.textContent = 'Copied!';
+      setTimeout(() => btn.textContent = 'Copy', 2000);
+    });
+  }
+
+  function update_ssh_username() {
+    const val = document.getElementById('ssh_username').value || '[user]';
+    document.querySelectorAll('.username').forEach(el => el.textContent = val);
+  }
+
+  function update_ssh_tunnel_port() {
+    const val = document.getElementById('ssh_tunnel_port').value || '5566';
+    document.querySelectorAll('.tunnel_port').forEach(el => el.textContent = val);
+  }
+</script>
 </div>

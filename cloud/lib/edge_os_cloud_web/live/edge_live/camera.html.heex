@@ -1,0 +1,201 @@
+<div class="container-fluid">
+  <div class="row mb-3">
+    <div class="col">
+      <h4 class="mb-0">
+        <a href="/edges" class="text-muted" style="font-size:0.9rem;">← Edges</a>
+        <span class="mx-2 text-muted">/</span>
+        <%= @edge.name %>
+        <span class="badge badge-secondary ml-2" style="font-size:0.7rem;">P2P Camera</span>
+      </h4>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="col-lg-8">
+      <div class="card shadow mb-4">
+        <div class="card-header d-flex align-items-center justify-content-between">
+          <h6 class="m-0 font-weight-bold text-primary">Live Feed</h6>
+          <span id="p2p-badge" class="badge badge-secondary">Not connected</span>
+        </div>
+        <div class="card-body p-0">
+          <div id="feed-placeholder" style="height:420px;background:#1a2035;display:flex;flex-direction:column;align-items:center;justify-content:center;color:rgba(255,255,255,0.3);font-size:0.85rem;">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:12px;opacity:0.3">
+              <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+            </svg>
+            <span id="feed-status-text">Click Connect to establish a direct P2P connection to this edge</span>
+          </div>
+        </div>
+        <div class="card-footer d-flex align-items-center">
+          <button id="connect-btn" phx-hook="BrowserWebRTC" class="btn btn-primary btn-sm">
+            Connect
+          </button>
+          <button id="disconnect-btn" class="btn btn-outline-secondary btn-sm ml-2" style="display:none;">
+            Disconnect
+          </button>
+          <span id="p2p-log" class="ml-auto text-muted" style="font-size:0.8rem;"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-4">
+      <div class="card shadow mb-4">
+        <div class="card-header">
+          <h6 class="m-0 font-weight-bold text-primary">Connection Info</h6>
+        </div>
+        <div class="card-body" style="font-size:0.85rem;">
+          <div class="d-flex justify-content-between mb-2">
+            <span class="text-muted">Edge</span>
+            <strong><%= @edge.name %></strong>
+          </div>
+          <div class="d-flex justify-content-between mb-2">
+            <span class="text-muted">Edge status</span>
+            <span class={"badge " <> if(@edge.status, do: "badge-success", else: "badge-secondary")}>
+              <%= if @edge.status, do: "Online", else: "Offline" %>
+            </span>
+          </div>
+          <div class="d-flex justify-content-between mb-2">
+            <span class="text-muted">Data path</span>
+            <span class="text-info">Browser ↔ Edge (P2P)</span>
+          </div>
+          <div class="d-flex justify-content-between mb-2">
+            <span class="text-muted">Cloud role</span>
+            <span>Signaling only</span>
+          </div>
+          <hr />
+          <div id="conn-details" style="display:none;">
+            <div class="d-flex justify-content-between mb-2">
+              <span class="text-muted">ICE state</span>
+              <span id="ice-state" class="font-weight-bold">—</span>
+            </div>
+            <div class="d-flex justify-content-between mb-2">
+              <span class="text-muted">Ping / Pong</span>
+              <span id="ping-result">—</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Register the BrowserWebRTC LiveView hook.
+// window.liveSocket is set by app.js before the LiveView component mounts,
+// so adding to hooks here is safe — the hook is picked up on component mount.
+(function registerWebRTCHook() {
+  if (!window.liveSocket) {
+    setTimeout(registerWebRTCHook, 20);
+    return;
+  }
+
+  window.liveSocket.hooks.BrowserWebRTC = {
+    mounted() {
+      const hook = this;
+      let pc = null;
+      let dc = null;
+
+      function log(msg) {
+        const el = document.getElementById('p2p-log');
+        if (el) el.textContent = msg;
+      }
+
+      function badge(text, cls) {
+        const el = document.getElementById('p2p-badge');
+        if (el) { el.textContent = text; el.className = 'badge badge-' + cls; }
+      }
+
+      function feedStatus(text) {
+        const el = document.getElementById('feed-status-text');
+        if (el) el.textContent = text;
+      }
+
+      function stop() {
+        if (dc) { dc.close(); dc = null; }
+        if (pc) { pc.close(); pc = null; }
+        badge('Not connected', 'secondary');
+        feedStatus('Click Connect to establish a direct P2P connection to this edge');
+        document.getElementById('connect-btn').style.display = 'inline-block';
+        document.getElementById('disconnect-btn').style.display = 'none';
+        document.getElementById('conn-details').style.display = 'none';
+        log('disconnected');
+      }
+
+      function start() {
+        const iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+        pc = new RTCPeerConnection({ iceServers });
+
+        pc.oniceconnectionstatechange = () => {
+          const s = pc.iceConnectionState;
+          const el = document.getElementById('ice-state');
+          if (el) el.textContent = s;
+          log('ICE: ' + s);
+          if (s === 'connected' || s === 'completed') {
+            badge('P2P Connected', 'success');
+            document.getElementById('conn-details').style.display = 'block';
+          }
+          if (s === 'failed') badge('Failed', 'danger');
+        };
+
+        pc.onicecandidate = ({ candidate }) => {
+          if (!candidate) return;
+          hook.pushEvent('browser_ice_candidate', {
+            candidate:     candidate.candidate,
+            sdpMLineIndex: candidate.sdpMLineIndex,
+            sdpMid:        candidate.sdpMid || '',
+          });
+        };
+
+        dc = pc.createDataChannel('camera', { ordered: true });
+
+        dc.onopen = () => {
+          log('data channel open — sending ping…');
+          feedStatus('Data channel open. Sending ping to edge…');
+          dc.send(JSON.stringify({ type: 'ping' }));
+        };
+
+        dc.onmessage = ({ data }) => {
+          try {
+            const msg = JSON.parse(data);
+            if (msg.type === 'pong') {
+              log('✓ pong received');
+              feedStatus('✓ P2P validated. Direct browser ↔ edge data channel works. Cloud saw only signaling.');
+              const el = document.getElementById('ping-result');
+              if (el) { el.textContent = '✓ pong received'; el.style.color = '#1cc88a'; }
+            }
+          } catch (_) {}
+        };
+
+        pc.createOffer()
+          .then(offer => pc.setLocalDescription(offer))
+          .then(() => {
+            badge('Negotiating…', 'warning');
+            feedStatus('Negotiating P2P connection via cloud signaling…');
+            log('offer sent to edge via cloud…');
+            hook.pushEvent('browser_webrtc_offer', { sdp: pc.localDescription.sdp });
+            document.getElementById('connect-btn').style.display = 'none';
+            document.getElementById('disconnect-btn').style.display = 'inline-block';
+          })
+          .catch(e => { log('offer failed: ' + e); badge('Error', 'danger'); });
+      }
+
+      this.el.addEventListener('click', start);
+      document.getElementById('disconnect-btn').addEventListener('click', stop);
+
+      // Edge answer received via LiveView
+      this.handleEvent('webrtc_answer', ({ sdp }) => {
+        if (!pc) return;
+        pc.setRemoteDescription({ type: 'answer', sdp })
+          .then(() => log('remote description set'))
+          .catch(e => log('setRemoteDescription: ' + e));
+      });
+
+      // Edge ICE candidate received via LiveView
+      this.handleEvent('ice_candidate', ({ candidate, sdpMLineIndex, sdpMid }) => {
+        if (!pc) return;
+        pc.addIceCandidate({ candidate, sdpMLineIndex, sdpMid })
+          .catch(e => log('addIceCandidate: ' + e));
+      });
+    }
+  };
+})();
+</script>
