@@ -18,7 +18,7 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 
 ---
 
-## Phase 0 — Security Hardening
+## Phase 1 — Security Hardening
 > Prerequisite. Fix before building on top.
 
 - [ ] `runtime.exs:35` — change database SSL from `verify: :verify_none` to `verify: :verify_peer`
@@ -27,7 +27,7 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 
 ---
 
-## Phase 1 — WebRTC Transport Layer
+## Phase 2 — WebRTC Transport Layer
 > Foundation for everything that follows. Replaces the TCP bridge for new devices while keeping the existing TCP path alive for devices already online. SSH relays through TURN (traffic is low enough); video will go P2P in Phase 3.
 
 ### 1A — Cloud signaling (additive only, no existing code changed)
@@ -74,7 +74,7 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 
 ---
 
-## Phase 2 — Tauri Native App
+## Phase 3 — Tauri Native App
 > Proper installable app. Zero-config onboarding. No terminal required. Built on the WebRTC foundation from Phase 1. Tauri is the only distribution going forward — the original daemon-only package is retired.
 >
 > **Daemon model:** the edge agent binary runs as a **system-level** OS service (starts at boot, survives user logout, no UI required). The Tauri menubar app is the management UI only — it does not own the agent process.
@@ -116,16 +116,20 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 ### TODO — 2F: Mobile viewer
 > Deferred. Tauri v2 mobile (iOS + Android) for viewing camera feeds and managing edges. Depends on Phase 3 camera MVP being complete first.
 
-### TODO — Headless Linux (Pi / server)
-> Deferred. Headless Linux devices currently use the original daemon package (`edge-os.service`).
-> Future work: a `.deb` post-install script that writes the systemd unit and enables it, mirroring the macOS `.pkg` approach. No Tauri UI needed.
+### Headless Linux (Pi / server)
+> Critical for the Maker and MSP segments. Headless Linux devices (Raspberry Pi, VPS, home server) are the primary deployment target for DIY users and IT consultants. A smooth one-command install here is the difference between community adoption and a GitHub repo nobody uses.
+
+- [ ] One-command install script: `curl -sSL https://get.edgeos.io | bash` — detects OS, installs binary, writes systemd unit, starts service
+- [ ] Quick-start guide: Pi-specific README (flash SD card → run install → scan QR code in cloud UI → done)
+- [ ] `.deb` package with `postinst` that writes systemd unit and enables it on install
+- [ ] Documented uninstall path
 
 ### TODO — Windows
 > Deferred. The Windows build would be a viewer + management UI only (no edge agent, no daemon) since SSH on Windows is not a meaningful use case and ONVIF cameras are network devices independent of host OS. Not worth the effort until there is clear demand.
 
 ---
 
-## Phase 2.5 — Browser↔Edge P2P Foundation
+## Phase 4 — Browser↔Edge P2P Foundation
 > Lays the data-flow architecture before Phase 3 camera work begins. Validates that a browser can open a WebRTC data channel directly to the edge with the cloud handling signaling only — no camera data or event data ever touches the cloud server.
 >
 > **Principle:** Cloud = authentication + signaling only. All camera data, events, and thumbnails flow P2P between browser and edge over an encrypted WebRTC data channel (DTLS). If the edge is offline, the browser sees nothing — that is the correct tradeoff for a privacy-first product.
@@ -176,8 +180,20 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 
 ---
 
-## Phase 3 — Camera MVP
-> Built on Phase 2.5 (browser↔edge P2P already validated).
+## Phase 5 — Developer & Community Experience
+> Prerequisite for any public launch or marketing effort. Traffic from Hacker News, Hackaday, or r/selfhosted converts to nothing without a good README, quick-start, and a working demo. This phase costs nothing but time and unlocks Priority 1 go-to-market (Makers + MSPs).
+
+- [ ] **GitHub README overhaul** — hero section with screenshot/demo GIF, one-command quick-start, architecture diagram (privacy-first P2P flow), badges (build status, license)
+- [ ] **Raspberry Pi quick-start guide** — step-by-step: flash SD card → `curl install` → QR code appears → scan in cloud UI → device online. Target: working in under 10 minutes
+- [ ] **"How it works" page** — plain-language explanation of the WebRTC P2P architecture for non-engineers. Answers "is my video going to your servers?" definitively
+- [ ] **Self-hosted cloud deployment guide** — Docker Compose one-liner for spinning up the cloud server on a VPS. Targets MSPs and IT consultants who want to run their own instance
+- [ ] **Demo instance** — a live cloud server at `demo.edgeos.io` (or similar) with a sandboxed edge device, so people can explore the UI without installing anything
+- [ ] **Changelog / release notes** — public CHANGELOG.md so the community can follow progress
+
+---
+
+## Phase 6 — Camera MVP
+> Built on Phase 4 (browser↔edge P2P already validated).
 >
 > **Split responsibility:**
 > - **Local cameras** (same LAN as the Tauri machine) → managed and viewed in the **Tauri desktop app**. Live feeds via direct RTSP or edge agent relay. No cloud involvement in the video path.
@@ -224,40 +240,114 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 - Full real-time: edge agent streams via WebRTC data channel → rendered in Tauri webview
 
 **Tasks:**
-- [ ] Main app window with sidebar navigation (Cameras / Events / Settings)
-- [ ] Camera grid — static JPEG snapshots first, live RTSP second
-- [ ] Camera onboarding wizard — ONVIF LAN scan + manual RTSP entry
+- [x] Main app window with sidebar navigation (Cameras / Events / Settings)
+- [x] Camera grid — mocked with fake CSS gradient feeds (`app/src/main.html`)
+- [x] Camera onboarding wizard — Add Camera modal with scan + manual RTSP entry (UI only, no backend)
+- [x] Events view — mocked event table with confidence bars (UI only, no backend)
+- [x] Open main window from tray
+- [ ] Camera grid — wire up real JPEG snapshots from edge agent (replaces fake feeds)
 - [ ] Single camera full-screen view + event timeline
-- [ ] Events view — thumbnail list, clip playback
-- [ ] Zone configuration UI — draw polygons on camera still frame
-- [ ] Open main window from tray (replaces or augments current status panel)
+- [ ] Digital fence configuration UI — draw and label fence polygons on a camera still frame (see Digital Fences section below)
+
+### Digital Fences
+> Not everything in a camera frame matters. A shop camera pointing at a street will see hundreds of pedestrians a day — without fences, every one of them triggers an AI Guard evaluation and burns credits. Digital fences are the primary mechanism for controlling AI Guard credit consumption while keeping alerts meaningful.
+>
+> **How it works:**
+> - User draws one or more named polygons on a still frame of each camera (e.g. "Register area", "Back door", "Parking lot entrance")
+> - Each fence can be independently enabled/disabled and assigned alert sensitivity
+> - YOLO detections are filtered on the edge: only detections whose bounding box intersects an active fence are forwarded to AI Guard
+> - Detections entirely outside all fences are discarded locally — zero cloud cost, zero credit spend
+> - The fence config is stored on the edge device, not the cloud — no privacy leakage
+>
+> **Why this matters for the credit model:** A camera with no fences in a busy environment could easily generate 500+ AI Guard evaluations/day. The same camera with a well-placed fence on the door generates 5–20. Fences turn AI Guard from a runaway cost into a predictable, low spend. Users who configure fences well spend less and get better alerts — the incentives align.
+
+**Fence UI tasks (Tauri app):**
+- [ ] Still-frame capture from camera for fence drawing canvas
+- [ ] Draw polygon tool — click to place vertices, close polygon, label it
+- [ ] Edit / delete existing fences
+- [ ] Per-fence toggles: enabled/disabled, sensitivity (all detections vs. person only vs. vehicle only)
+- [ ] Preview overlay — show active fences on the live camera grid thumbnail
+
+**Fence UI tasks (Cloud web UI):**
+- [ ] Same polygon drawing UI for remotely managed cameras
+- [ ] Fence config synced to edge device via WebRTC data channel
+
+**Fence backend tasks (Edge Rust client):**
+- [ ] Store fence polygons in `config.json` per camera
+- [ ] Point-in-polygon / bounding-box intersection check on every YOLO detection
+- [ ] Metrics: log how many detections were fenced out vs. passed through (visible in Settings view)
 
 ### Edge client (Rust)
+
+**Target hardware (in priority order):**
+1. **Raspberry Pi 4/5 (headless Linux)** — canonical DIY device. Cheap, runs 24/7, huge community. Primary development and test target.
+2. **Any headless Linux box** — NUC, old laptop, VPS-class machine. Same binary as Pi.
+3. **Mac Mini** — plausible for small businesses that already have one. Tauri app runs as management UI.
+
+**Target cameras (in priority order):**
+1. **ONVIF/RTSP IP cameras** — Reolink, Hikvision, Dahua, Amcrest. Already deployed in SMB market. Single protocol regardless of edge hardware. A $30 Reolink is what DIYers and retail owners actually buy today. **Implement first.**
+2. **USB cameras via V4L2** — Pi + USB webcam fallback for pure DIY setups with no IP cameras. Both paths converge at the same YOLO inference pipeline. **Implement second.**
+
+**Tasks — RTSP path (Priority 1):**
 - [ ] Pull RTSP stream via FFmpeg
-- [ ] Extract frames at 1fps
+- [ ] Extract frames at configurable fps (default 1fps, tunable per camera)
 - [ ] Frame differencing as cheap motion pre-filter before AI
-- [ ] YOLOv8n inference via `ort` crate (CPU first)
-- [ ] Zone intersection logic (user-defined polygons)
-- [ ] Trigger local recording on detection (FFmpeg → .mp4)
-- [ ] Report events + thumbnails to edge-os cloud
+- [ ] YOLOv8n inference via `ort` crate (CPU first, CoreML on Apple Silicon later)
+- [ ] **Digital fence enforcement** — only pass detections to AI Guard if the bounding box intersects an active fence polygon. Detections fully outside all fences are discarded before any cloud call. This is the primary credit burn control mechanism.
+- [ ] Trigger local recording on detection (FFmpeg → .mp4 clip)
+- [ ] Report events + thumbnails to edge-os cloud (fenced events only)
 - [ ] Serve last-frame JPEG endpoint for Tauri app polling
 - [ ] Stream camera feed via WebRTC data channel
+
+**Tasks — V4L2 path (Priority 2, Pi + USB camera):**
+- [ ] Capture frames from V4L2 device (`/dev/video0`)
+- [ ] Feed into same frame differencing + YOLO pipeline as RTSP path
+- [ ] Camera discovery — list available `/dev/video*` devices for onboarding UI
 
 ### Cloud (Elixir/Phoenix) — remote camera access
 - [ ] `camera_device` type in device registry
 - [ ] Event storage schema (timestamp, thumbnail, clip path, camera id)
 - [ ] Notification dispatch — ntfy.sh push + email via SMTP
 - [ ] API endpoints for events and thumbnails
+- [ ] `POST /api/v1/ai_guard/token` — credit check, Google Vertex AI / AWS Bedrock short-lived token generation, credit deduction, token issuance log
+- [ ] Token redemption tracking — mark token used when edge reports result
+- [ ] Rate limiter on token issuance per user
 
 ### Cloud Web UI (LiveView) — remote camera access
-- [ ] Camera list in dashboard
-- [ ] Live feed viewer — WebRTC stream relayed through edge agent
+- [x] Live feed viewer page — `/edges/:id/camera` with full browser↔edge WebRTC P2P hook (`camera.html.heex`, `camera.ex`)
+- [ ] Camera list in `/edges` dashboard (link to camera page per device)
 - [ ] Events browser with clip playback
-- [ ] Zone configuration UI (draw polygons on camera frame)
+- [ ] Digital fence configuration UI (draw polygons on camera frame — see Digital Fences section in Phase 3)
 
 ---
 
-## Phase 4 — ONVIF Multi-Camera Support
+## Phase 7 — Billing & Monetization
+> Adds the billing layer for managed TURN relay and AI Guard credits. See BUSINESS_MODEL.md for pricing strategy, plan structure, and AI Guard architecture decisions.
+
+- [ ] Stripe integration — relay subscription + AI Guard credit top-up
+- [ ] Billing page in cloud web UI — plan, credit balance, top-up, invoice history
+- [ ] Usage gate — TURN credential endpoint rejects without active relay subscription
+- [ ] Credit balance per user, decremented $0.10 on each AI Guard token issuance
+- [ ] Auto-pause AI Guard at $0 — token endpoint rejects with "top up to continue"
+- [ ] Credit alert notifications at 50%, 20%, 10% balance (email + in-app)
+- [ ] Weekly digest email — evaluations used, credits spent, top-triggered fences
+- [ ] Webhook handler for Stripe events (failed payment → downgrade, cancellation → revoke)
+- [ ] Sign-up flow — email + password, self-service, no sales call
+- [ ] Team creation wizard on first login (currently manual)
+- [ ] In-app upgrade prompt when user hits a paid feature on free tier
+- [ ] `POST /api/v1/ai_guard/token` — credit check, Vertex AI / Bedrock short-lived token generation, deduct credit, log issuance
+- [ ] Token redemption tracking — mark used when edge reports result
+- [ ] Rate limiter on token issuance per user per hour
+
+### AI Guard user controls (edge + cloud UI)
+- [ ] Trigger hours per camera — start/end time, active days. Edge skips evaluation outside window.
+- [ ] Frames per event — configurable 1–10, default 3. Show estimated cost per evaluation in UI.
+- [ ] Event cooldown per fence — suppress re-evaluation from same fence for X min (default 5)
+- [ ] Credit balance visible in camera settings — current balance + estimated evaluations remaining
+
+---
+
+## Phase 8 — ONVIF Multi-Camera Support
 > Works with any IP camera, not just D-Link.
 
 - [ ] WS-Discovery (multicast UDP) — auto-discover cameras on LAN
@@ -270,7 +360,21 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 
 ---
 
-## Phase 5 — Advanced AI & Model Management
+## Phase 9 — Mobile Viewer
+> Airbnb hosts, property managers, and retail owners will ask "can I check my cameras from my phone?" on day one. This phase delivers a read-only mobile viewer — live feeds, event notifications, alert review. No camera management or config; that stays on desktop.
+>
+> Built on Tauri v2 mobile (iOS + Android from one codebase). Depends on Phase 3 camera feed being stable.
+
+- [ ] iOS and Android build targets in Tauri v2 project
+- [ ] Live camera feed view — WebRTC stream from edge, same P2P path as browser
+- [ ] Events feed — thumbnail list, tap to view clip, dismiss / confirm alert
+- [ ] Push notifications — urgent AI Guard alerts routed to mobile via ntfy or APNs/FCM
+- [ ] Multi-site switcher — property managers with multiple edges can switch between them
+- [ ] App Store + Google Play submission
+
+---
+
+## Phase 10 — Advanced AI & Model Management
 > From single model to platform.
 
 - [ ] Model hot-swap — push new model from cloud, no app update needed
@@ -298,4 +402,4 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 
 ## Immediate Next Step
 
-**Phase 0 security fixes** (items 3-5 only — items 1 and 2 are superseded by Phase 1). Then **Phase 1A** cloud signaling — purely additive changes to `EdgeSocket`, sets the foundation without touching any existing code.
+**Phase 4C** — test TURN relay path from browser to confirm relay fallback works. Then **Phase 6 Camera MVP** — local camera feed in Tauri app, followed by remote camera access in the cloud web UI.
