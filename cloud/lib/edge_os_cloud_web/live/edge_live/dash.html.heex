@@ -197,6 +197,9 @@
         document.querySelectorAll('.detail-btn').forEach(btn => {
           btn.addEventListener('click', () => openDetail(btn.dataset.camId, btn.dataset.camName));
         });
+
+        // Auto-fetch one snapshot for cameras that already have a frame
+        cameras.filter(c => c.has_frame).forEach(c => fetchThumbnail(c.id));
       }
 
       // ── Live view per-camera toggle ────────────────────────────────────────
