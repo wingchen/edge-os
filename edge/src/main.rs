@@ -20,6 +20,8 @@ mod config;
 mod edge_system;
 mod tcp_to_websocket;
 mod webrtc_session;
+mod rtsp_camera;
+mod camera_manager;
 
 #[tokio::main]
 async fn main() {
@@ -46,6 +48,16 @@ async fn main() {
     let cloud_server_url = format!("{}/et/{}/{}/{}/websocket", cloud, team_hash, uuid, password);
     info!("Connecting to: {cloud_server_url}");
 
+    // Start camera manager — loads cameras from config.json, begins RTSP streams,
+    // serves last-frame JPEG on localhost:4001
+    let cam_dir = local_working_dir.clone();
+    let frame_map = camera_manager::start(&cam_dir).await;
+    let frame_map_http = Arc::clone(&frame_map);
+    let frame_map_webrtc = Arc::clone(&frame_map);
+    tokio::spawn(async move {
+        camera_manager::serve(frame_map_http, &cam_dir, 4001).await;
+    });
+
     write_status(&local_working_dir, "connecting", &cloud);
 
     let (ping_tx, ping_rx) = futures_channel::mpsc::unbounded();
@@ -68,6 +80,7 @@ async fn main() {
     let signaling_tx = ping_tx.clone();
     let cloud_ref = cloud.clone();
     let uuid_ref = uuid.clone();
+    let frame_map_ref = frame_map_webrtc;
 
     let ws_to_edge = {
         read.for_each(move |message| {
@@ -75,6 +88,7 @@ async fn main() {
             let signaling_tx = signaling_tx.clone();
             let cloud = cloud_ref.clone();
             let uuid = uuid_ref.clone();
+            let frame_map = Arc::clone(&frame_map_ref);
             async move {
                 let command_str = message.unwrap().to_string();
 
@@ -113,7 +127,7 @@ async fn main() {
                         sessions.lock().await.insert(session_id.clone(), ice_tx);
                         let tx = signaling_tx.clone();
                         match connection_type.as_str() {
-                            "camera" => tokio::spawn(webrtc_session::handle_camera_offer(json, tx, ice_rx)),
+                            "camera" => tokio::spawn(webrtc_session::handle_camera_offer(json, tx, ice_rx, frame_map)),
                             _        => tokio::spawn(webrtc_session::handle_webrtc_offer(json, tx, ice_rx)),
                         };
                         info!("WebRTC {} offer received for session {}", connection_type, session_id);

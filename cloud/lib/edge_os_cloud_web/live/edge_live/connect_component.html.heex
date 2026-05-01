@@ -43,12 +43,14 @@
         <div class="col-6">
           <label class="text-muted mb-1" style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Username</label>
           <input type="text" class="form-control form-control-sm" id="ssh_username"
-            oninput="update_ssh_username()" placeholder="your edge username" />
+            placeholder="your edge username"
+            oninput="document.querySelectorAll('#connect-component-root .username').forEach(function(el){el.textContent=this.value||'[user]';}.bind(this))" />
         </div>
         <div class="col-6">
           <label class="text-muted mb-1" style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Tunnel port</label>
           <input type="number" class="form-control form-control-sm" id="ssh_tunnel_port"
-            oninput="update_ssh_tunnel_port()" placeholder="port to forward" />
+            placeholder="port to forward"
+            oninput="document.querySelectorAll('#connect-component-root .tunnel_port').forEach(function(el){el.textContent=this.value||'5566';}.bind(this))" />
         </div>
       </div>
 
@@ -128,16 +130,6 @@
       btn.textContent = 'Copied!';
       setTimeout(() => btn.textContent = 'Copy', 2000);
     });
-  }
-
-  function update_ssh_username() {
-    const val = document.getElementById('ssh_username').value || '[user]';
-    document.querySelectorAll('.username').forEach(el => el.textContent = val);
-  }
-
-  function update_ssh_tunnel_port() {
-    const val = document.getElementById('ssh_tunnel_port').value || '5566';
-    document.querySelectorAll('.tunnel_port').forEach(el => el.textContent = val);
   }
 </script>
 </div>

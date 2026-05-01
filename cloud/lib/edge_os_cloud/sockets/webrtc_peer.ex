@@ -134,11 +134,8 @@ defmodule EdgeOsCloud.Sockets.WebRTCPeer do
         {[], %{turn_host: nil, turn_username: nil, turn_credential: nil}}
 
       turn_host ->
-        secret = System.get_env("TURN_SECRET", "")
-        ttl = 86_400
-        timestamp = System.os_time(:second) + ttl
-        username = "#{timestamp}:edgeos"
-        credential = :crypto.mac(:hmac, :sha, secret, username) |> Base.encode64()
+        username   = System.get_env("TURN_USERNAME", "")
+        credential = System.get_env("TURN_PASSWORD", "")
         ice = [%{urls: ["turn:#{turn_host}:3478"], username: username, credential: credential}]
         fields = %{turn_host: turn_host, turn_username: username, turn_credential: credential}
         {ice, fields}

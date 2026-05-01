@@ -16,6 +16,10 @@ pub fn run() {
             open_setup,
             open_main_window,
             quit_app,
+            list_cameras,
+            add_camera,
+            remove_camera,
+            preview_camera,
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -154,9 +158,13 @@ fn save_config(
     team_hash: String,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
+    // Preserve existing cameras array when saving connection config
+    let existing = read_full_config();
+    let cameras = existing.get("cameras").cloned().unwrap_or(serde_json::json!([]));
     let config = serde_json::json!({
         "cloud_url": cloud_url,
         "team_hash": team_hash,
+        "cameras":   cameras,
     });
     std::fs::write(config_file_path(), config.to_string()).map_err(|e| e.to_string())?;
 
@@ -168,6 +176,15 @@ fn save_config(
 
     show_main_window(&app).map_err(|e| e.to_string())?;
 
+    Ok(())
+}
+
+async fn reload_daemon_cameras() -> Result<(), String> {
+    reqwest::Client::new()
+        .post("http://127.0.0.1:4001/reload")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -204,11 +221,97 @@ fn config_exists() -> bool {
 }
 
 fn read_config_fields() -> (String, String) {
-    let content = std::fs::read_to_string(config_file_path()).unwrap_or_default();
-    let v: serde_json::Value = serde_json::from_str(&content).unwrap_or_default();
+    let v = read_full_config();
     let cloud_url = v.get("cloud_url").and_then(|u| u.as_str()).unwrap_or("").to_string();
     let team_hash = v.get("team_hash").and_then(|h| h.as_str()).unwrap_or("").to_string();
     (cloud_url, team_hash)
+}
+
+fn read_full_config() -> serde_json::Value {
+    std::fs::read_to_string(config_file_path())
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or(serde_json::json!({}))
+}
+
+// ── Camera commands ───────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn list_cameras() -> serde_json::Value {
+    let config = read_full_config();
+    config.get("cameras").cloned().unwrap_or(serde_json::json!([]))
+}
+
+#[tauri::command]
+async fn add_camera(name: String, rtsp_url: String, fps: Option<u32>) -> Result<String, String> {
+    let id = uuid_v4();
+    let mut config = read_full_config();
+    let cameras = config
+        .get_mut("cameras")
+        .and_then(|c| c.as_array_mut());
+
+    let entry = serde_json::json!({
+        "id":       id,
+        "name":     name,
+        "rtsp_url": rtsp_url,
+        "fps":      fps.unwrap_or(1),
+    });
+
+    match cameras {
+        Some(arr) => { arr.push(entry); }
+        None => { config["cameras"] = serde_json::json!([entry]); }
+    }
+
+    std::fs::write(config_file_path(), config.to_string()).map_err(|e| e.to_string())?;
+    let _ = reload_daemon_cameras().await;
+    Ok(id.to_string())
+}
+
+#[tauri::command]
+async fn remove_camera(id: String) -> Result<(), String> {
+    let mut config = read_full_config();
+    if let Some(arr) = config.get_mut("cameras").and_then(|c| c.as_array_mut()) {
+        arr.retain(|c| c.get("id").and_then(|v| v.as_str()) != Some(&id));
+    }
+    std::fs::write(config_file_path(), config.to_string()).map_err(|e| e.to_string())?;
+    let _ = reload_daemon_cameras().await;
+    Ok(())
+}
+
+/// Ask the edge daemon to grab one RTSP frame and return it as base64 JPEG.
+/// All codec logic lives in the daemon (localhost:4001/preview).
+#[tauri::command]
+async fn preview_camera(rtsp_url: String) -> Result<String, String> {
+    let client = reqwest::Client::new();
+    let resp = tokio::time::timeout(
+        std::time::Duration::from_secs(35),
+        client
+            .post("http://127.0.0.1:4001/preview")
+            .json(&serde_json::json!({ "rtsp_url": rtsp_url }))
+            .send(),
+    )
+    .await
+    .map_err(|_| "preview timed out — is the edge daemon running?".to_string())?
+    .map_err(|e| format!("failed to reach edge daemon: {e}"))?;
+
+    if !resp.status().is_success() {
+        let msg = resp.text().await.unwrap_or_default();
+        return Err(msg);
+    }
+
+    let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
+    use base64::Engine;
+    Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
+}
+
+fn uuid_v4() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    // Simple unique ID: timestamp + random suffix (no uuid dep needed)
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    format!("cam-{:x}", ts)
 }
 
 // ── Tray ──────────────────────────────────────────────────────────────────────

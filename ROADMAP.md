@@ -195,9 +195,71 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 ## Phase 6 — Camera MVP
 > Built on Phase 4 (browser↔edge P2P already validated).
 >
+> **Privacy principle: the cloud knows about edges, not cameras.**
+> Camera lists, metadata, live frames, events, and thumbnails never touch the cloud server. The browser fetches all of this directly from the edge over the WebRTC data channel. The cloud's role is auth + signaling only — identical to Phase 4.
+>
+> **Two WebRTC connections per camera session:**
+>
+> **Connection 1 — Data channel** (control + metadata, already built)
+> ```
+> Browser opens /edges/:id/camera
+>   → WebRTC data channel opens (cloud = signaling only)
+>
+> Camera list
+>   → Browser sends: {"type": "LIST_CAMERAS"}
+>   → Edge replies:  {"type": "CAMERA_LIST", "cameras": [{id, name, status}]}
+>
+> Camera thumbnail (for /edges dashboard preview and camera grid)
+>   → Browser sends: {"type": "GET_THUMBNAIL", "camera_id": "cam-abc"}
+>   → Edge replies:  {"type": "THUMBNAIL", "camera_id": "cam-abc", "data": <jpeg bytes>}
+>   → Frame is the latest 1fps JPEG already in SharedFrame — no extra work on edge
+>   → No cloud storage. Thumbnail lives on edge, fetched on demand. Offline edge = placeholder.
+>
+> Events
+>   → Browser sends: {"type": "LIST_EVENTS", "camera_id": "cam-abc", "limit": 50}
+>   → Edge replies:  {"type": "EVENT_LIST", "events": [{id, timestamp, class, confidence}]}
+>   → Browser sends: {"type": "GET_THUMBNAIL", "event_id": "..."}
+>   → Edge replies:  {"type": "THUMBNAIL", "event_id": "...", "data": <jpeg bytes>}
+>
+> Fence config
+>   → Browser sends: {"type": "SET_FENCES", "camera_id": "cam-abc", "fences": [...]}
+>   → Edge stores locally in config.json — cloud never sees fence config
+> ```
+>
+> **Connection 2 — WebRTC video track** (live stream only)
+> ```
+> User selects a camera for live view
+>   → Browser initiates a second RTCPeerConnection (media, not data)
+>   → Cloud signals this offer to edge (same signaling path as Connection 1)
+>   → Edge pulls H.264 NAL units from RTSP via retina
+>   → Edge repackages NAL units as RTP — no transcoding needed if camera outputs H.264
+>   → Browser receives native MediaStream → renders in <video> tag
+>   → Hardware-accelerated on edge (V4L2 encoder on Pi, VideoToolbox on Mac)
+>   → Latency ~200ms vs. JPEG-over-data-channel which would be choppy and slow
+> ```
+>
+> **Frame reuse — no redundant work:**
+> ```
+> RTSP → retina → H.264 NAL units
+>   ├── → WebRTC video track RTP packets  (Connection 2, live view)
+>   └── → decode → JPEG → SharedFrame
+>                     ├── localhost:4001/frame/:id  (Tauri local polling)
+>                     └── data channel GET_THUMBNAIL response  (Connection 1, cloud UI preview)
+> ```
+> The 1fps JPEG produced for AI inference and Tauri polling is the same frame served as thumbnail.
+> Zero extra computation. Zero cloud storage. Fully consistent with the privacy principle.
+>
+> **What this means for cloud storage:**
+> - No `camera_device` table — cameras are an edge concern only
+> - No event storage on cloud — events live on the edge, browser fetches them via data channel
+> - No API endpoints for camera lists, frames, events, or thumbnails
+> - Cloud stores only: users, teams, edges, sessions, AI Guard credit balances
+> - For AI Guard: edge calls LLM directly using a short-lived token issued by cloud (text result only sent back to cloud — no image ever)
+> - For push notifications: edge sends text-only event summary to cloud, cloud fires the push. No image, no metadata beyond what the user agreed to share.
+>
 > **Split responsibility:**
-> - **Local cameras** (same LAN as the Tauri machine) → managed and viewed in the **Tauri desktop app**. Live feeds via direct RTSP or edge agent relay. No cloud involvement in the video path.
-> - **Remote cameras** (different site) → viewed in the **Phoenix cloud web UI** via browser↔edge WebRTC P2P. Cloud handles auth + signaling only — no video, events, or thumbnails stored on or routed through the cloud.
+> - **Local cameras** (same LAN as the Tauri machine) → managed and viewed in the **Tauri desktop app**. Live feeds via `localhost:4001` HTTP endpoint from the edge agent. No cloud or WebRTC needed for local access.
+> - **Remote cameras** (different site) → viewed in the **Phoenix cloud web UI** via browser↔edge WebRTC data channel. Cloud handles auth + signaling only.
 
 ### Tauri app — local camera UI
 
@@ -269,8 +331,8 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 - [ ] Preview overlay — show active fences on the live camera grid thumbnail
 
 **Fence UI tasks (Cloud web UI):**
-- [ ] Same polygon drawing UI for remotely managed cameras
-- [ ] Fence config synced to edge device via WebRTC data channel
+- [ ] Polygon drawing UI on camera still frame — frame fetched from edge via data channel
+- [ ] Fence config sent to edge via `SET_FENCES` data channel message — never stored on cloud
 
 **Fence backend tasks (Edge Rust client):**
 - [ ] Store fence polygons in `config.json` per camera
@@ -289,35 +351,41 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 2. **USB cameras via V4L2** — Pi + USB webcam fallback for pure DIY setups with no IP cameras. Both paths converge at the same YOLO inference pipeline. **Implement second.**
 
 **Tasks — RTSP path (Priority 1):**
-- [ ] Pull RTSP stream via FFmpeg
-- [ ] Extract frames at configurable fps (default 1fps, tunable per camera)
-- [ ] Frame differencing as cheap motion pre-filter before AI
+- [x] Pull RTSP stream via `retina` + `openh264` (pure Rust, no FFmpeg dependency)
+- [x] Extract frames at configurable fps (default 1fps, tunable per camera)
+- [x] Frame differencing as cheap motion pre-filter — skip encode if scene is static
+- [x] Serve last-frame JPEG on `localhost:4001/frame/:camera_id` for Tauri app polling
 - [ ] YOLOv8n inference via `ort` crate (CPU first, CoreML on Apple Silicon later)
-- [ ] **Digital fence enforcement** — only pass detections to AI Guard if the bounding box intersects an active fence polygon. Detections fully outside all fences are discarded before any cloud call. This is the primary credit burn control mechanism.
+- [ ] **Digital fence enforcement** — only pass detections to AI Guard if bounding box intersects an active fence polygon. Detections outside all fences discarded locally — zero cloud cost.
 - [ ] Trigger local recording on detection (FFmpeg → .mp4 clip)
-- [ ] Report events + thumbnails to edge-os cloud (fenced events only)
-- [ ] Serve last-frame JPEG endpoint for Tauri app polling
-- [ ] Stream camera feed via WebRTC data channel
+- [ ] Handle data channel messages: `LIST_CAMERAS`, `GET_THUMBNAIL` (camera + event), `LIST_EVENTS`, `SET_FENCES`
+- [ ] Serve camera thumbnail via data channel — read from existing `SharedFrame`, no extra decode needed
+- [ ] WebRTC video track: accept second peer connection offer for live stream, repackage H.264 NAL units from retina directly into RTP track (no transcode)
+- [ ] Send text-only event summary to cloud for push notification dispatch (no image, no thumbnail)
+- [ ] Send AI Guard token request to cloud; call Vertex AI / Bedrock directly with frames; send text result back to cloud
 
 **Tasks — V4L2 path (Priority 2, Pi + USB camera):**
 - [ ] Capture frames from V4L2 device (`/dev/video0`)
 - [ ] Feed into same frame differencing + YOLO pipeline as RTSP path
 - [ ] Camera discovery — list available `/dev/video*` devices for onboarding UI
 
-### Cloud (Elixir/Phoenix) — remote camera access
-- [ ] `camera_device` type in device registry
-- [ ] Event storage schema (timestamp, thumbnail, clip path, camera id)
-- [ ] Notification dispatch — ntfy.sh push + email via SMTP
-- [ ] API endpoints for events and thumbnails
-- [ ] `POST /api/v1/ai_guard/token` — credit check, Google Vertex AI / AWS Bedrock short-lived token generation, credit deduction, token issuance log
-- [ ] Token redemption tracking — mark token used when edge reports result
-- [ ] Rate limiter on token issuance per user
+### Cloud (Elixir/Phoenix) — minimal surface, privacy-first
+> The cloud has no knowledge of cameras, events, frames, or thumbnails. All camera data stays on the edge and travels P2P to the browser. Cloud responsibilities are limited to what cannot be done on the edge.
+
+- [ ] `POST /api/v1/ai_guard/token` — credit check, Vertex AI / Bedrock short-lived token generation, deduct credit, log issuance. No image data involved.
+- [ ] Token redemption tracking — edge reports text result back; cloud marks token used, stores text summary only
+- [ ] Rate limiter on token issuance per user per hour
+- [ ] Push notification dispatch — edge sends `POST /api/v1/events/notify` with text-only summary (class, severity, camera name). Cloud fires ntfy.sh push. No image stored.
 
 ### Cloud Web UI (LiveView) — remote camera access
-- [x] Live feed viewer page — `/edges/:id/camera` with full browser↔edge WebRTC P2P hook (`camera.html.heex`, `camera.ex`)
-- [ ] Camera list in `/edges` dashboard (link to camera page per device)
-- [ ] Events browser with clip playback
-- [ ] Digital fence configuration UI (draw polygons on camera frame — see Digital Fences section in Phase 3)
+> LiveView is the shell only — opens the signaling path and hands control to browser JS. No camera data ever hits the cloud DB.
+
+- [x] Live feed viewer page — `/edges/:id/camera` with WebRTC signaling hook (`camera.html.heex`, `camera.ex`)
+- [ ] `/edges` dashboard — for each online edge, open data channel, send `GET_THUMBNAIL` per camera, show preview. Offline edge shows placeholder. No cloud DB query.
+- [ ] Camera list page — send `LIST_CAMERAS` via data channel, render tiles with thumbnails
+- [ ] Live stream — browser opens second RTCPeerConnection (video track), renders in `<video>` tag. Cloud signals this offer to edge exactly like the data channel offer.
+- [ ] Events browser — send `LIST_EVENTS` + `GET_THUMBNAIL` via data channel, render feed
+- [ ] Digital fence UI — polygon tool in browser, send `SET_FENCES` via data channel. Cloud never stores fence config.
 
 ---
 

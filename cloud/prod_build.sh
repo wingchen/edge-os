@@ -14,3 +14,6 @@ docker rm edgeos-extract
 # zip the payload
 tar -cJf edge_os_cloud.tar.xz edge_os_cloud/
 rm -rf edge_os_cloud
+
+echo 'scp-ing to prod server...'
+scp edge_os_cloud.tar.xz root@edgeos.sailoi.com:/opt/edgeos

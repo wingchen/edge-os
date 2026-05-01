@@ -223,13 +223,25 @@
       align-items: center;
       justify-content: space-between;
     }
-    .cam-name { font-size: 13px; font-weight: 700; color: var(--dark); }
+    .cam-name { font-size: 13px; font-weight: 700; color: var(--dark); flex: 1; min-width: 0; }
     .cam-status {
       font-size: 11px; font-weight: 700;
       padding: 2px 8px; border-radius: 10px;
     }
     .cam-status.live    { background: rgba(28,200,138,0.12); color: #0f9f6b; }
     .cam-status.offline { background: rgba(133,135,150,0.12); color: var(--muted); }
+
+    .cam-delete-btn {
+      display: none;
+      align-items: center; justify-content: center;
+      width: 24px; height: 24px;
+      border: none; border-radius: 5px;
+      background: rgba(231,74,59,0.1); color: var(--error);
+      cursor: pointer; flex-shrink: 0; margin-left: 6px;
+      transition: background 0.15s;
+    }
+    .cam-delete-btn:hover { background: rgba(231,74,59,0.2); }
+    .camera-tile:hover .cam-delete-btn { display: flex; }
 
     .cam-last-event {
       padding: 0 12px 10px;
@@ -275,7 +287,16 @@
       color: var(--blue); cursor: pointer; padding: 0;
     }
     .back-btn:hover { color: var(--blue-dark); }
-    .detail-title { font-size: 17px; font-weight: 800; color: var(--dark); }
+    .detail-title { font-size: 17px; font-weight: 800; color: var(--dark); flex: 1; }
+    .detail-remove-btn {
+      display: flex; align-items: center; gap: 6px;
+      background: none; border: 1.5px solid rgba(231,74,59,0.3);
+      border-radius: 7px; padding: 5px 12px;
+      font-family: inherit; font-size: 12px; font-weight: 700;
+      color: var(--error); cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .detail-remove-btn:hover { background: rgba(231,74,59,0.08); border-color: var(--error); }
 
     .detail-body {
       display: flex;
@@ -600,62 +621,16 @@
     <div class="view active" id="view-cameras">
       <div class="page-header">
         <h1>Cameras</h1>
-        <span class="count-badge">3 cameras</span>
+        <span class="count-badge" id="cam-count">0 cameras</span>
       </div>
-      <div class="camera-grid">
-
-        <div class="camera-tile" data-cam="1">
-          <div class="cam-feed feed-1">
-            <svg class="feed-icon" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
-            </svg>
-            <span class="live-badge">● REC</span>
-            <span class="feed-time">04:26:13</span>
-            <span class="feed-event-pill">Person · 94%</span>
-          </div>
-          <div class="cam-meta">
-            <span class="cam-name">Front Door</span>
-            <span class="cam-status live">Live</span>
-          </div>
-          <div class="cam-last-event">Person detected · 2m ago</div>
-        </div>
-
-        <div class="camera-tile" data-cam="2">
-          <div class="cam-feed feed-2">
-            <svg class="feed-icon" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
-            </svg>
-            <span class="live-badge">● REC</span>
-            <span class="feed-time">04:26:13</span>
-          </div>
-          <div class="cam-meta">
-            <span class="cam-name">Backyard</span>
-            <span class="cam-status live">Live</span>
-          </div>
-          <div class="cam-last-event">Motion detected · 15m ago</div>
-        </div>
-
-        <div class="camera-tile" data-cam="3">
-          <div class="cam-feed feed-3" style="opacity:0.55;">
-            <svg class="feed-icon" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
-            </svg>
-            <span class="offline-badge">OFFLINE</span>
-          </div>
-          <div class="cam-meta">
-            <span class="cam-name">Garage</span>
-            <span class="cam-status offline">Offline</span>
-          </div>
-          <div class="cam-last-event">Last seen · 3h ago</div>
-        </div>
-
+      <div class="camera-grid" id="camera-grid">
+        <!-- populated by JS -->
         <div class="camera-tile add-tile" id="open-add-modal-2">
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/>
           </svg>
           Add Camera
         </div>
-
       </div>
     </div>
 
@@ -669,14 +644,23 @@
           Back
         </button>
         <span class="detail-title" id="detail-title">Front Door</span>
+        <button class="detail-remove-btn" id="detail-remove-btn">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
+          </svg>
+          Remove Camera
+        </button>
       </div>
       <div class="detail-body">
-        <div class="detail-feed feed-1" id="detail-feed">
-          <svg style="position:absolute;top:50%;left:50%;transform:translate(-50%,-55%);opacity:0.1;" width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
-          </svg>
-          <span class="live-badge">● REC</span>
-          <span class="feed-time">04:26:13</span>
+        <div class="detail-feed" id="detail-feed" style="background:#111;">
+          <img id="detail-img" style="width:100%;height:100%;object-fit:contain;display:none;" />
+          <div id="detail-placeholder" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;color:rgba(255,255,255,0.25);font-size:13px;">
+            <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.3">
+              <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+            </svg>
+            Waiting for frame…
+          </div>
+          <span class="live-badge" style="display:none;" id="detail-live-badge">● LIVE</span>
         </div>
         <div class="detail-sidebar">
           <div class="detail-sidebar-header">Recent Events</div>
@@ -874,22 +858,34 @@
       <div class="modal-divider">or add manually</div>
       <div class="manual-field">
         <label>RTSP URL</label>
-        <input type="text" placeholder="rtsp://192.168.1.x:554/stream" spellcheck="false" />
+        <input id="modal-rtsp-url" type="text" placeholder="rtsp://user:pass@192.168.1.x:554/stream" spellcheck="false" />
       </div>
       <div class="manual-field">
         <label>Name</label>
-        <input type="text" placeholder="e.g. Front Door" />
+        <input id="modal-cam-name" type="text" placeholder="e.g. Front Door" />
+      </div>
+
+      <div id="preview-area" style="display:none;margin-top:12px;">
+        <div style="position:relative;background:#111;border-radius:8px;overflow:hidden;height:160px;display:flex;align-items:center;justify-content:center;">
+          <img id="preview-img" style="width:100%;height:100%;object-fit:contain;" />
+          <div id="preview-error" style="display:none;color:var(--error);font-size:0.8rem;padding:12px;text-align:center;"></div>
+        </div>
+        <p id="preview-label" style="font-size:0.75rem;color:var(--success);margin-top:6px;font-weight:700;"></p>
       </div>
     </div>
     <div class="modal-footer">
       <button class="btn-ghost" id="cancel-modal">Cancel</button>
-      <button class="btn-primary">Add Camera</button>
+      <button class="btn-ghost" id="test-camera-btn">Test Connection</button>
+      <button class="btn-primary" id="confirm-add-camera" disabled style="opacity:0.5;">Add Camera</button>
     </div>
   </div>
 </div>
 
 <script>
-  // ── Live status ──
+  const invoke = window.__TAURI__.core.invoke;
+  const FRAME_BASE = 'http://localhost:4001/frame';
+
+  // ── Status ──────────────────────────────────────────────────────────────────
   const STATUS_MAP = {
     connected:    { cls: 'connected',  text: 'Connected',    connColor: 'var(--success)' },
     connecting:   { cls: 'connecting', text: 'Connecting…',  connColor: 'var(--warning)' },
@@ -899,77 +895,214 @@
 
   async function refreshStatus() {
     try {
-      const d = await window.__TAURI__.core.invoke('get_status');
+      const d = await invoke('get_status');
       const s = STATUS_MAP[d.status] || STATUS_MAP.unknown;
-
-      document.getElementById('edge-dot').className   = 'status-dot ' + s.cls;
+      document.getElementById('edge-dot').className    = 'status-dot ' + s.cls;
       document.getElementById('edge-label').textContent = s.text;
-
       const connEl = document.getElementById('setting-conn-status');
       connEl.textContent = '● ' + s.text;
       connEl.style.color = s.connColor;
-
-      const cloudEl = document.getElementById('setting-cloud-url');
-      cloudEl.textContent = d.cloud_url ? d.cloud_url.replace(/^wss?:\/\//, '') : '—';
-
-      const hashEl = document.getElementById('setting-team-hash');
-      hashEl.textContent = d.team_hash && d.team_hash.length > 0
-        ? '···' + d.team_hash.slice(-6) : '—';
+      document.getElementById('setting-cloud-url').textContent =
+        d.cloud_url ? d.cloud_url.replace(/^wss?:\/\//, '') : '—';
+      document.getElementById('setting-team-hash').textContent =
+        d.team_hash ? '···' + d.team_hash.slice(-6) : '—';
     } catch (_) {}
   }
 
   refreshStatus();
   setInterval(refreshStatus, 5000);
 
-  // ── Navigation ──
-  const CAMERA_DATA = {
-    1: { title: 'Front Door', feedClass: 'feed-1' },
-    2: { title: 'Backyard',   feedClass: 'feed-2' },
-    3: { title: 'Garage',     feedClass: 'feed-3' },
-  };
-
-  document.querySelectorAll('.nav-item').forEach(item => {
-    item.addEventListener('click', () => {
-      document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-      item.classList.add('active');
-      showView('view-' + item.dataset.view);
-    });
-  });
-
+  // ── Navigation ──────────────────────────────────────────────────────────────
   function showView(id) {
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
     document.getElementById(id).classList.add('active');
   }
 
-  // ── Camera tiles → detail ──
-  document.querySelectorAll('.camera-tile[data-cam]').forEach(tile => {
-    tile.addEventListener('click', () => {
-      const cam = CAMERA_DATA[tile.dataset.cam];
-      document.getElementById('detail-title').textContent = cam.title;
-      const feed = document.getElementById('detail-feed');
-      feed.className = 'detail-feed ' + cam.feedClass;
+  document.querySelectorAll('.nav-item').forEach(item => {
+    item.addEventListener('click', () => {
       document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-      showView('view-camera-detail');
+      item.classList.add('active');
+      if (item.dataset.view !== 'camera-detail') stopDetailPolling();
+      showView('view-' + item.dataset.view);
     });
   });
 
+  // ── Camera grid ─────────────────────────────────────────────────────────────
+  let cameras = [];
+  let gridTimers = {};
+
+  async function loadCameras() {
+    cameras = await invoke('list_cameras');
+    renderGrid();
+  }
+
+  function renderGrid() {
+    const grid = document.getElementById('camera-grid');
+    const addTile = document.getElementById('open-add-modal-2');
+
+    // Remove existing camera tiles (not the add tile)
+    grid.querySelectorAll('.camera-tile[data-cam-id]').forEach(t => t.remove());
+    Object.values(gridTimers).forEach(clearInterval);
+    gridTimers = {};
+
+    document.getElementById('cam-count').textContent =
+      cameras.length + (cameras.length === 1 ? ' camera' : ' cameras');
+
+    cameras.forEach(cam => {
+      const tile = document.createElement('div');
+      tile.className = 'camera-tile';
+      tile.dataset.camId = cam.id;
+      tile.innerHTML = `
+        <div class="cam-feed" style="background:#111;position:relative;">
+          <img data-frame-img style="width:100%;height:100%;object-fit:cover;display:none;" />
+          <div data-placeholder style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#111;">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1" opacity="0.15" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+            </svg>
+          </div>
+          <span class="live-badge" data-live-badge style="display:none;">● LIVE</span>
+          <span class="feed-time" data-clock></span>
+        </div>
+        <div class="cam-meta">
+          <span class="cam-name">${cam.name}</span>
+          <span class="cam-status offline" data-status-badge>Connecting</span>
+          <button class="cam-delete-btn" data-delete-btn title="Remove camera">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M9 6V4h6v2"/>
+            </svg>
+          </button>
+        </div>
+        <div class="cam-last-event" data-last-event>No events yet</div>
+      `;
+
+      tile.addEventListener('click', () => openDetail(cam));
+
+      tile.querySelector('[data-delete-btn]').addEventListener('click', async e => {
+        e.stopPropagation();
+        if (!confirm(`Remove "${cam.name}"?`)) return;
+        await invoke('remove_camera', { id: cam.id });
+        await loadCameras();
+      });
+
+      grid.insertBefore(tile, addTile);
+
+      // Start polling frames for this tile
+      startTilePolling(tile, cam.id);
+    });
+  }
+
+  function startTilePolling(tile, camId) {
+    const img        = tile.querySelector('[data-frame-img]');
+    const placeholder= tile.querySelector('[data-placeholder]');
+    const liveBadge  = tile.querySelector('[data-live-badge]');
+    const statusBadge= tile.querySelector('[data-status-badge]');
+    const clock      = tile.querySelector('[data-clock]');
+    const lastEvent  = tile.querySelector('[data-last-event]');
+
+    function tick() {
+      const url = `${FRAME_BASE}/${camId}?t=${Date.now()}`;
+      const probe = new Image();
+      probe.onload = () => {
+        img.src = url;
+        img.style.display = 'block';
+        placeholder.style.display = 'none';
+        liveBadge.style.display = 'block';
+        statusBadge.textContent = 'Live';
+        statusBadge.className = 'cam-status live';
+        clock.textContent = new Date().toLocaleTimeString();
+      };
+      probe.onerror = () => {
+        // No frame yet — keep placeholder
+        statusBadge.textContent = 'Connecting';
+        statusBadge.className = 'cam-status offline';
+      };
+      probe.src = url;
+    }
+
+    tick();
+    gridTimers[camId] = setInterval(tick, 2000);
+  }
+
+  // ── Camera detail ────────────────────────────────────────────────────────────
+  let detailTimer = null;
+  let detailCam = null;
+
+  function openDetail(cam) {
+    detailCam = cam;
+    document.getElementById('detail-title').textContent = cam.name;
+    document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+    showView('view-camera-detail');
+    startDetailPolling(cam.id);
+  }
+
+  document.getElementById('detail-remove-btn').addEventListener('click', async () => {
+    if (!detailCam) return;
+    if (!confirm(`Remove "${detailCam.name}"?`)) return;
+    stopDetailPolling();
+    await invoke('remove_camera', { id: detailCam.id });
+    detailCam = null;
+    document.querySelector('.nav-item[data-view="cameras"]').classList.add('active');
+    showView('view-cameras');
+    await loadCameras();
+  });
+
+  function startDetailPolling(camId) {
+    stopDetailPolling();
+    const img         = document.getElementById('detail-img');
+    const placeholder = document.getElementById('detail-placeholder');
+    const liveBadge   = document.getElementById('detail-live-badge');
+
+    function tick() {
+      const url = `${FRAME_BASE}/${camId}?t=${Date.now()}`;
+      const probe = new Image();
+      probe.onload = () => {
+        img.src = url;
+        img.style.display = 'block';
+        placeholder.style.display = 'none';
+        liveBadge.style.display = 'block';
+      };
+      probe.onerror = () => {
+        img.style.display = 'none';
+        placeholder.style.display = 'flex';
+        liveBadge.style.display = 'none';
+      };
+      probe.src = url;
+    }
+
+    tick();
+    detailTimer = setInterval(tick, 1000);
+  }
+
+  function stopDetailPolling() {
+    if (detailTimer) { clearInterval(detailTimer); detailTimer = null; }
+  }
+
   document.getElementById('back-btn').addEventListener('click', () => {
+    stopDetailPolling();
     document.querySelector('.nav-item[data-view="cameras"]').classList.add('active');
     showView('view-cameras');
   });
 
-  // ── Add camera modal ──
+  // ── Add Camera modal ─────────────────────────────────────────────────────────
+  const modalInputs = {};
+
   function openModal() {
     document.getElementById('add-modal').classList.add('open');
-    document.getElementById('scan-state').style.display = 'flex';
-    document.getElementById('device-list').style.display = 'none';
-    setTimeout(() => {
-      document.getElementById('scan-state').style.display = 'none';
-      document.getElementById('device-list').style.display = 'flex';
-    }, 1800);
+    document.getElementById('modal-rtsp-url').value = '';
+    document.getElementById('modal-cam-name').value = '';
+    document.getElementById('preview-area').style.display = 'none';
+    document.getElementById('preview-img').src = '';
+    document.getElementById('preview-error').style.display = 'none';
+    document.getElementById('preview-label').textContent = '';
+    const addBtn = document.getElementById('confirm-add-camera');
+    addBtn.disabled = true;
+    addBtn.style.opacity = '0.5';
   }
 
-  function closeModal() { document.getElementById('add-modal').classList.remove('open'); }
+  function closeModal() {
+    previewActive = false; // discard any in-flight preview result
+    document.getElementById('add-modal').classList.remove('open');
+  }
 
   document.getElementById('open-add-modal').addEventListener('click', openModal);
   document.getElementById('open-add-modal-2').addEventListener('click', openModal);
@@ -979,10 +1112,85 @@
     if (e.target === document.getElementById('add-modal')) closeModal();
   });
 
-  // ── Settings actions ──
-  document.querySelector('.settings-link').addEventListener('click', () => {
-    window.__TAURI__.core.invoke('open_setup');
+  // ── Test Connection ───────────────────────────────────────────────────────────
+  let previewActive = false; // flag so cancelled results are ignored
+
+  document.getElementById('test-camera-btn').addEventListener('click', async () => {
+    const rtspUrl = document.getElementById('modal-rtsp-url').value.trim();
+    if (!rtspUrl) { document.getElementById('modal-rtsp-url').focus(); return; }
+
+    const testBtn = document.getElementById('test-camera-btn');
+    const addBtn  = document.getElementById('confirm-add-camera');
+    const area    = document.getElementById('preview-area');
+    const img     = document.getElementById('preview-img');
+    const errEl   = document.getElementById('preview-error');
+    const label   = document.getElementById('preview-label');
+
+    previewActive = true;
+    testBtn.textContent = 'Connecting…';
+    testBtn.disabled = true;
+    area.style.display = 'block';
+    img.style.display = 'none';
+    errEl.style.display = 'none';
+    label.textContent = '';
+    addBtn.disabled = true;
+    addBtn.style.opacity = '0.5';
+
+    try {
+      const b64 = await invoke('preview_camera', { rtspUrl });
+      if (!previewActive) return; // modal was closed while waiting
+      img.src = 'data:image/jpeg;base64,' + b64;
+      img.style.display = 'block';
+      errEl.style.display = 'none';
+      label.textContent = '✓ Stream connected — looking good!';
+      label.style.color = 'var(--success)';
+      addBtn.disabled = false;
+      addBtn.style.opacity = '1';
+    } catch (e) {
+      if (!previewActive) return;
+      img.style.display = 'none';
+      errEl.textContent = '✗ ' + e;
+      errEl.style.display = 'block';
+      label.textContent = 'Check the URL and credentials and try again.';
+      label.style.color = 'var(--error)';
+    } finally {
+      if (previewActive) {
+        testBtn.textContent = 'Test Connection';
+        testBtn.disabled = false;
+      }
+    }
   });
+
+  document.getElementById('confirm-add-camera').addEventListener('click', async () => {
+    const rtspUrl = document.getElementById('modal-rtsp-url').value.trim();
+    const name    = document.getElementById('modal-cam-name').value.trim();
+
+    if (!rtspUrl) { document.getElementById('modal-rtsp-url').focus(); return; }
+    if (!name)    { document.getElementById('modal-cam-name').focus(); return; }
+
+    const btn = document.getElementById('confirm-add-camera');
+    btn.textContent = 'Adding…';
+    btn.disabled = true;
+
+    try {
+      await invoke('add_camera', { name, rtspUrl, fps: 1 });
+      closeModal();
+      await loadCameras();
+    } catch (e) {
+      alert('Failed to add camera: ' + e);
+      btn.textContent = 'Add Camera';
+      btn.disabled = false;
+      btn.style.opacity = '1';
+    }
+  });
+
+  // ── Settings ─────────────────────────────────────────────────────────────────
+  document.querySelector('.settings-link').addEventListener('click', () => {
+    invoke('open_setup');
+  });
+
+  // ── Init ─────────────────────────────────────────────────────────────────────
+  loadCameras();
 </script>
 </body>
 </html>

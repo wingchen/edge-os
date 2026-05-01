@@ -111,8 +111,10 @@
               <%= live_patch to: Routes.edge_index_path(@socket, :connect, edge), class: "btn btn-sm btn-outline-primary", replace: false do %>
                 <i class="fas fa-terminal mr-1"></i>SSH
               <% end %>
-              <%= link to: "/edges/#{edge.id}/camera", class: "btn btn-sm btn-outline-info" do %>
-                <i class="fas fa-video mr-1"></i>Camera
+              <%= if get_in(edge.edge_info, ["protocol"]) == "webrtc" do %>
+                <%= link to: "/edges/#{edge.id}/dash", class: "btn btn-sm btn-outline-info" do %>
+                  <i class="fas fa-th-large mr-1"></i>Dashboard
+                <% end %>
               <% end %>
             <% end %>
 

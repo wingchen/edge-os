@@ -1,4 +1,4 @@
-defmodule EdgeOsCloudWeb.EdgeLive.Camera do
+defmodule EdgeOsCloudWeb.EdgeLive.Dash do
   use EdgeOsCloudWeb, :live_view
   require Logger
 
@@ -11,9 +11,13 @@ defmodule EdgeOsCloudWeb.EdgeLive.Camera do
       nil -> {:ok, redirect(socket, to: "/login")}
       user ->
         edge = Device.get_edge!(edge_id)
+        protocol = get_in(edge.edge_info, ["protocol"]) || "tcp"
+        {_turn_fields, ice_servers} = build_turn_config()
         {:ok, assign(socket,
           edge: edge,
           current_user: user,
+          protocol: protocol,
+          ice_servers: ice_servers,
           p2p_status: :idle,
           session_hash: nil
         )}
@@ -30,7 +34,7 @@ defmodule EdgeOsCloudWeb.EdgeLive.Camera do
   def handle_event("browser_webrtc_offer", %{"sdp" => sdp}, socket) do
     %{edge: edge} = socket.assigns
 
-    {turn_fields, ice_servers} = build_turn_config()
+    {turn_fields, _} = build_turn_config()
     session_hash = generate_session_hash(edge)
 
     # Subscribe to PubSub so EdgeSocket can route the edge's answer back here
@@ -49,8 +53,7 @@ defmodule EdgeOsCloudWeb.EdgeLive.Camera do
       _ ->
         send(edge_pid, "WEBRTC_OFFER #{offer_payload}")
         Logger.info("browser→edge camera offer forwarded for edge #{edge.id} session #{session_hash}")
-        {:noreply, assign(socket, p2p_status: :negotiating, session_hash: session_hash,
-                                  ice_servers: ice_servers)}
+        {:noreply, assign(socket, p2p_status: :negotiating, session_hash: session_hash)}
     end
   end
 
@@ -87,10 +90,8 @@ defmodule EdgeOsCloudWeb.EdgeLive.Camera do
         {%{turn_host: nil, turn_username: nil, turn_credential: nil},
          [%{urls: ["stun:stun.l.google.com:19302"]}]}
       turn_host ->
-        secret    = System.get_env("TURN_SECRET", "")
-        timestamp = System.os_time(:second) + 86_400
-        username  = "#{timestamp}:edgeos"
-        credential = :crypto.mac(:hmac, :sha, secret, username) |> Base.encode64()
+        username   = System.get_env("TURN_USERNAME", "")
+        credential = System.get_env("TURN_PASSWORD", "")
         fields = %{turn_host: turn_host, turn_username: username, turn_credential: credential}
         servers = [
           %{urls: ["stun:stun.l.google.com:19302"]},
