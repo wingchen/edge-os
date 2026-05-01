@@ -15,6 +15,7 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 - SSH/data tunnels: WebRTC data channels (replaces current TCP bridge)
 - Camera discovery: ONVIF Profile S
 - Platforms: Tauri v2 → Mac, Windows, Linux, iOS, Android from one codebase
+- **RTSP→WebRTC video bridge: GStreamer** — `rtspsrc → rtph264depay → h264parse → tee → rtph264pay → webrtcbin`. Handles RTP packetization, SDP/profile-level-id negotiation, RTCP PLI keyframe requests, and N-viewer fan-out natively. LGPL 2.1 throughout (no gst-plugins-ugly or libav needed). Bundled per-platform — see Distribution section in Phase 3E.
 
 ---
 
@@ -110,8 +111,40 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 - [x] Keychain: `keyring` crate (macOS Keychain / Linux libsecret) under service `com.sailoi.edgeos`
 - [x] Settings menu item re-opens setup window for config changes
 
-### TODO — 3E: Installers
-> Deferred. macOS `.pkg` build script exists (`scripts/build-macos-pkg.sh`); notarization and Linux `.deb`/AppImage packaging not yet set up. CoreML execution provider for ONNX (Apple Neural Engine) also deferred to when Phase 6 camera inference is ready.
+### 3E — Distribution & Packaging
+> GStreamer is a system library (plugin-based, cannot be statically linked). The packaging strategy differs by platform. Both paths are required before Phase 6 live video ships.
+
+**Linux — `.deb` + shell install script**
+- Declare GStreamer as apt dependencies in `tauri.conf.json` → `bundle.deb.depends`:
+  `libgstreamer1.0-0`, `gstreamer1.0-plugins-base`, `gstreamer1.0-plugins-good`, `gstreamer1.0-plugins-bad`, `gstreamer1.0-nice`
+- `.deb` install triggers `apt-get` to pull GStreamer automatically — zero user friction
+- GStreamer lands at `/usr/lib/gstreamer-1.0/` (default scan path) — edge binary finds plugins with no extra config
+- Also ship a `curl -sSL https://get.edgeos.io | bash` shell script that detects the distro (`apt` / `dnf` / `yum` / `pacman`) and installs GStreamer + the edge daemon + systemd unit in one step. Covers distros beyond Debian/Ubuntu (RHEL, Fedora, Arch).
+- `.rpm` via `bundle.rpm.depends` for RHEL/Fedora coverage (same plugin list, different package names: `gstreamer1-plugins-base` etc.)
+
+**macOS — bundled GStreamer inside `.pkg`**
+- Use **Cerbero** (GStreamer's own cross-platform build tool) to build a minimal, relocatable GStreamer bundle containing only the ~12 plugins needed:
+  `coreelements`, `rtspsrc`, `rtpmanager`, `rtp`, `h264parse`, `rtph264`, `webrtc`, `nice`, `app`, `videoconvert`, `openh264`
+  Resulting bundle: ~40–60 MB (vs. 700 MB full framework).
+- Run `dylibbundler` on each plugin `.dylib` to rewrite hardcoded build-prefix paths to `@loader_path/../lib/` (makes the bundle fully relocatable).
+- The `.pkg` installs the bundle to `/Library/Application Support/EdgeOS/gstreamer/` alongside the edge daemon binary.
+- `postinstall` script writes `GST_PLUGIN_PATH` and `DYLD_LIBRARY_PATH` into the LaunchDaemon plist so the edge daemon finds GStreamer at boot without any user action.
+- Test on a clean macOS VM (no Homebrew) to confirm no hidden system dependencies.
+
+**License compliance**
+- GStreamer core + all plugins used: LGPL 2.1. Safe to bundle alongside a proprietary or MIT-licensed product.
+- Include a `LICENSES/gstreamer-lgpl-2.1.txt` file in the distribution and a one-line acknowledgement in the app's About screen.
+- H.264 patents (MPEG LA): royalty-free tier applies for free-to-end-user distributions below 100k units/year. Track deployment numbers; obtain a licence before crossing that threshold.
+- No `gst-plugins-ugly` or `gst-libav` used — avoids GPL and the most patent-sensitive codecs.
+
+**Tasks:**
+- [ ] `tauri.conf.json`: add `bundle.deb.depends` and `bundle.rpm.depends` for GStreamer packages
+- [ ] `scripts/bundle-gstreamer-mac.sh`: Cerbero build → `dylibbundler` relocation → output to `app/gstreamer-bundle/`
+- [ ] `tauri.conf.json`: add `bundle.resources` pointing at `app/gstreamer-bundle/**/*`
+- [ ] `pkg-scripts/postinstall`: copy bundle to `/Library/Application Support/EdgeOS/gstreamer/`, patch LaunchDaemon plist with env vars
+- [ ] `scripts/install.sh`: distro-detecting shell script for headless Linux installs
+- [ ] Verify on clean macOS VM and clean Ubuntu/RHEL VMs before shipping
+- [ ] CoreML execution provider for ONNX (Apple Neural Engine) — deferred to Phase 6 AI inference
 
 ### TODO — 3F: Mobile viewer
 > Deferred. Tauri v2 mobile (iOS + Android) for viewing camera feeds and managing edges. Depends on Phase 6 camera MVP being complete first.
@@ -119,9 +152,10 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 ### Headless Linux (Pi / server)
 > Critical for the Maker and MSP segments. Headless Linux devices (Raspberry Pi, VPS, home server) are the primary deployment target for DIY users and IT consultants. A smooth one-command install here is the difference between community adoption and a GitHub repo nobody uses.
 
-- [ ] One-command install script: `curl -sSL https://get.edgeos.io | bash` — detects OS, installs binary, writes systemd unit, starts service
+- [ ] One-command install script: `curl -sSL https://get.edgeos.io | bash` — detects distro (`apt` / `dnf` / `yum` / `pacman`), installs GStreamer system packages, installs edge binary, writes systemd unit, starts service
 - [ ] Quick-start guide: Pi-specific README (flash SD card → run install → scan QR code in cloud UI → done)
-- [ ] `.deb` package with `postinst` that writes systemd unit and enables it on install
+- [ ] `.deb` package with `postinst` that writes systemd unit and enables it on install (GStreamer pulled via `Depends:`)
+- [ ] `.rpm` package for RHEL/Fedora/Rocky users (same approach, different package names)
 - [ ] Documented uninstall path
 
 ### TODO — Windows
@@ -230,24 +264,37 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 > ```
 > User selects a camera for live view
 >   → Browser initiates a second RTCPeerConnection (media, not data)
->   → Cloud signals this offer to edge (same signaling path as Connection 1)
->   → Edge pulls H.264 NAL units from RTSP via retina
->   → Edge repackages NAL units as RTP — no transcoding needed if camera outputs H.264
+>   → Cloud signals this offer to edge via existing WebSocket (connection_type: "camera")
+>   → Edge spins up a GStreamer pipeline for that camera:
+>        rtspsrc → rtph264depay → h264parse → rtph264pay → webrtcbin
+>   → webrtcbin handles: RTP packetization, SDP profile-level-id negotiation,
+>        RTCP PLI keyframe requests, ICE/DTLS transport
+>   → Multiple viewers → tee element fans out to N webrtcbin instances,
+>        one RTSP connection per camera regardless of viewer count
 >   → Browser receives native MediaStream → renders in <video> tag
->   → Hardware-accelerated on edge (V4L2 encoder on Pi, VideoToolbox on Mac)
->   → Latency ~200ms vs. JPEG-over-data-channel which would be choppy and slow
+>   → No transcoding — H.264 passes through from camera to browser unchanged
+>   → Latency ~200ms vs. JPEG polling which is choppy and slow
 > ```
+>
+> **Separation principle — SSH WebRTC path is untouched:**
+> ```
+> connection_type: "ssh"    → handle_webrtc_offer()   [existing, webrtc crate, data channel → TCP:22]
+> connection_type: "camera" → handle_camera_offer()   [new, GStreamer webrtcbin, video track]
+> ```
+> The routing key (`connection_type`) already exists in `main.rs`. The two paths share the same
+> WebSocket signaling channel but are otherwise completely independent code paths.
 >
 > **Frame reuse — no redundant work:**
 > ```
-> RTSP → retina → H.264 NAL units
->   ├── → WebRTC video track RTP packets  (Connection 2, live view)
->   └── → decode → JPEG → SharedFrame
->                     ├── localhost:4001/frame/:id  (Tauri local polling)
->                     └── data channel GET_THUMBNAIL response  (Connection 1, cloud UI preview)
+> RTSP (one connection per camera)
+>   ├── GStreamer tee → webrtcbin (Connection 2, live view, N viewers)
+>   └── retina + openh264 → JPEG → SharedFrame
+>                             ├── localhost:4001/frame/:id  (Tauri local polling)
+>                             └── data channel GET_THUMBNAIL  (Connection 1, cloud UI preview)
 > ```
-> The 1fps JPEG produced for AI inference and Tauri polling is the same frame served as thumbnail.
-> Zero extra computation. Zero cloud storage. Fully consistent with the privacy principle.
+> The existing retina/openh264 JPEG path stays for thumbnails. GStreamer handles video only.
+> Two RTSP connections per camera (one for each path) is acceptable — cameras handle multiple
+> clients, and the thumbnail path is already working in production.
 >
 > **What this means for cloud storage:**
 > - No `camera_device` table — cameras are an edge concern only
@@ -360,7 +407,7 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 - [ ] Trigger local recording on detection (FFmpeg → .mp4 clip)
 - [ ] Handle data channel messages: `LIST_CAMERAS`, `GET_THUMBNAIL` (camera + event), `LIST_EVENTS`, `SET_FENCES`
 - [ ] Serve camera thumbnail via data channel — read from existing `SharedFrame`, no extra decode needed
-- [ ] WebRTC video track: accept second peer connection offer for live stream, repackage H.264 NAL units from retina directly into RTP track (no transcode)
+- [ ] WebRTC video track: GStreamer pipeline per camera (`rtspsrc → rtph264depay → h264parse → tee → rtph264pay → webrtcbin`). One pipeline per camera, one `webrtcbin` per viewer session added to the `tee`. Signaling via existing WebSocket (`connection_type: "camera"`). Existing SSH WebRTC path (`handle_webrtc_offer`) untouched. Requires GStreamer installed — see Phase 3E distribution plan.
 - [ ] Send text-only event summary to cloud for push notification dispatch (no image, no thumbnail)
 - [ ] Send AI Guard token request to cloud; call Vertex AI / Bedrock directly with frames; send text result back to cloud
 
