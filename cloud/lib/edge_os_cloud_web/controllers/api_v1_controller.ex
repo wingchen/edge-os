@@ -31,13 +31,12 @@ defmodule EdgeOsCloudWeb.APIV1Controller do
     end
   end
 
-  defp generate_turn_credentials(user_id) do
-    secret = System.get_env("TURN_SECRET", "")
-    ttl = 86_400
-    timestamp = System.os_time(:second) + ttl
-    username = "#{timestamp}:#{user_id}"
-    credential = :crypto.mac(:hmac, :sha, secret, username) |> Base.encode64()
-    %{username: username, credential: credential, ttl: ttl}
+  defp generate_turn_credentials(_user_id) do
+    %{
+      username:   System.get_env("TURN_USERNAME", ""),
+      credential: System.get_env("TURN_PASSWORD", ""),
+      ttl:        86_400
+    }
   end
 
   defp wait_for_ssh_connection(session_id, n) when n <= 0 do

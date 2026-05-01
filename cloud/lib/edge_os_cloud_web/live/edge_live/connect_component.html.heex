@@ -43,12 +43,12 @@
         <div class="col-6">
           <label class="text-muted mb-1" style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Username</label>
           <input type="text" class="form-control form-control-sm" id="ssh_username"
-            oninput="update_ssh_username()" placeholder="your edge username" />
+            placeholder="your edge username" />
         </div>
         <div class="col-6">
           <label class="text-muted mb-1" style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Tunnel port</label>
           <input type="number" class="form-control form-control-sm" id="ssh_tunnel_port"
-            oninput="update_ssh_tunnel_port()" placeholder="port to forward" />
+            placeholder="port to forward" />
         </div>
       </div>
 
@@ -130,14 +130,45 @@
     });
   }
 
-  function update_ssh_username() {
-    const val = document.getElementById('ssh_username').value || '[user]';
-    document.querySelectorAll('.username').forEach(el => el.textContent = val);
-  }
+  (function() {
+    if (!window.__ssh) window.__ssh = { username: '', port: '', bound: false, interval: null };
 
-  function update_ssh_tunnel_port() {
-    const val = document.getElementById('ssh_tunnel_port').value || '5566';
-    document.querySelectorAll('.tunnel_port').forEach(el => el.textContent = val);
-  }
+    function applyValues() {
+      var root = document.getElementById('connect-component-root');
+      if (!root) return;
+      var inputUser = document.getElementById('ssh_username');
+      var inputPort = document.getElementById('ssh_tunnel_port');
+
+      // Read latest values from inputs into cache
+      if (inputUser && inputUser.value) window.__ssh.username = inputUser.value;
+      if (inputPort && inputPort.value) window.__ssh.port = inputPort.value;
+
+      // Restore cache back into inputs (covers LiveView replacing the element)
+      if (inputUser && window.__ssh.username) inputUser.value = window.__ssh.username;
+      if (inputPort && window.__ssh.port) inputPort.value = window.__ssh.port;
+
+      var user = window.__ssh.username || '[user]';
+      var port = window.__ssh.port || '5566';
+      root.querySelectorAll('.username').forEach(function(el) { el.textContent = user; });
+      root.querySelectorAll('.tunnel_port').forEach(function(el) { el.textContent = port; });
+    }
+
+    // Document-level input listener — catches user typing regardless of DOM changes
+    if (!window.__ssh.bound) {
+      document.addEventListener('input', function(e) {
+        if (e.target.id === 'ssh_username' || e.target.id === 'ssh_tunnel_port') {
+          applyValues();
+        }
+      });
+      window.__ssh.bound = true;
+    }
+
+    // Interval continuously restores cached values after any LiveView DOM patch
+    if (!window.__ssh.interval) {
+      window.__ssh.interval = setInterval(applyValues, 300);
+    }
+
+    applyValues();
+  })();
 </script>
 </div>

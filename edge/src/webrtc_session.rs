@@ -38,36 +38,109 @@ pub fn extract_connection_type(json: &str) -> String {
         .unwrap_or_else(|| "ssh".to_string())
 }
 
-// Camera data channel handler — responds to ping with pong, keeps channel alive
-async fn handle_camera_channel(dc: Arc<RTCDataChannel>) {
+async fn handle_camera_channel(
+    dc: Arc<RTCDataChannel>,
+    frame_map: crate::camera_manager::FrameMap,
+) {
     info!("camera data channel '{}' open", dc.label());
     let dc_msg = Arc::clone(&dc);
+
     dc.on_message(Box::new(move |msg: DataChannelMessage| {
         let dc = Arc::clone(&dc_msg);
+        let frame_map = Arc::clone(&frame_map);
         Box::pin(async move {
-            if let Ok(text) = std::str::from_utf8(&msg.data) {
-                if let Ok(v) = serde_json::from_str::<serde_json::Value>(text) {
-                    match v.get("type").and_then(|t| t.as_str()) {
-                        Some("ping") => {
-                            let pong = r#"{"type":"pong"}"#.to_string();
-                            if let Err(e) = dc.send_text(pong).await {
-                                error!("failed to send pong: {}", e);
-                            } else {
-                                info!("pong sent to browser");
-                            }
-                        }
-                        other => debug!("camera channel message type: {:?}", other),
-                    }
+            let text = match std::str::from_utf8(&msg.data) {
+                Ok(t) => t,
+                Err(_) => return,
+            };
+            let v: serde_json::Value = match serde_json::from_str(text) {
+                Ok(v) => v,
+                Err(_) => return,
+            };
+            match v.get("type").and_then(|t| t.as_str()) {
+                Some("ping") => {
+                    let _ = dc.send_text(r#"{"type":"pong"}"#.to_string()).await;
                 }
+                Some("LIST_CAMERAS") => {
+                    list_cameras(&dc, &frame_map).await;
+                }
+                Some("GET_THUMBNAIL") => {
+                    let camera_id = v.get("camera_id")
+                        .and_then(|id| id.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    get_thumbnail(&dc, &frame_map, &camera_id).await;
+                }
+                other => debug!("camera channel: unknown message {:?}", other),
             }
         })
     }));
+}
+
+async fn list_cameras(
+    dc: &Arc<RTCDataChannel>,
+    frame_map: &crate::camera_manager::FrameMap,
+) {
+    let map = frame_map.lock().await;
+    let cameras: Vec<serde_json::Value> = map.iter().map(|(id, (name, frame))| {
+        let has_frame = frame.try_lock()
+            .map(|f| f.is_some())
+            .unwrap_or(false);
+        serde_json::json!({"id": id, "name": name, "has_frame": has_frame})
+    }).collect();
+    let resp = serde_json::json!({"type": "CAMERA_LIST", "cameras": cameras});
+    let _ = dc.send_text(resp.to_string()).await;
+    info!("sent CAMERA_LIST ({} cameras)", cameras.len());
+}
+
+async fn get_thumbnail(
+    dc: &Arc<RTCDataChannel>,
+    frame_map: &crate::camera_manager::FrameMap,
+    camera_id: &str,
+) {
+    let map = frame_map.lock().await;
+    let jpeg = match map.get(camera_id) {
+        None => {
+            let _ = dc.send_text(serde_json::json!({
+                "type": "THUMBNAIL_ERROR",
+                "camera_id": camera_id,
+                "reason": "not found"
+            }).to_string()).await;
+            return;
+        }
+        Some((_name, shared)) => {
+            let frame = shared.lock().await;
+            match frame.as_ref() {
+                None => {
+                    let _ = dc.send_text(serde_json::json!({
+                        "type": "THUMBNAIL_ERROR",
+                        "camera_id": camera_id,
+                        "reason": "no frame yet"
+                    }).to_string()).await;
+                    return;
+                }
+                Some(bytes) => bytes.clone(),
+            }
+        }
+    };
+    drop(map);
+
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg);
+    let resp = serde_json::json!({
+        "type": "THUMBNAIL",
+        "camera_id": camera_id,
+        "data": b64,
+    });
+    let _ = dc.send_text(resp.to_string()).await;
+    debug!("sent THUMBNAIL for camera {} ({} bytes)", camera_id, jpeg.len());
 }
 
 pub async fn handle_camera_offer(
     json_payload: String,
     tx: UnboundedSender<Message>,
     mut ice_rx: tokio_mpsc::UnboundedReceiver<String>,
+    frame_map: crate::camera_manager::FrameMap,
 ) {
     let payload: OfferPayload = match serde_json::from_str(&json_payload) {
         Ok(p) => p,
@@ -147,8 +220,9 @@ pub async fn handle_camera_offer(
     }));
 
     pc.on_data_channel(Box::new(move |dc: Arc<RTCDataChannel>| {
+        let frame_map = Arc::clone(&frame_map);
         Box::pin(async move {
-            handle_camera_channel(dc).await;
+            handle_camera_channel(dc, frame_map).await;
         })
     }));
 

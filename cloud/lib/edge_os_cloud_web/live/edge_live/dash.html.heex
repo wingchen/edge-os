@@ -1,0 +1,327 @@
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <div>
+    <h1 class="h3 mb-0 text-gray-800">
+      <a href="/edges" class="text-muted mr-2" style="font-size:0.85rem;font-weight:600;">← Edges</a>
+      <%= @edge.name %>
+    </h1>
+    <p class="mb-0 text-muted" style="font-size:0.82rem;">
+      <%= if @protocol == "webrtc" do %>
+        Cameras on this edge
+        <span id="p2p-badge" class="ml-2 badge badge-secondary" style="font-size:0.7rem;">Connecting…</span>
+      <% else %>
+        Edge dashboard
+      <% end %>
+    </p>
+  </div>
+  <span class={"badge " <> if(@edge.status, do: "badge-success", else: "badge-secondary")}>
+    <%= if @edge.status, do: "Online", else: "Offline" %>
+  </span>
+</div>
+
+<%= if @protocol != "webrtc" do %>
+  <div class="card shadow mb-4">
+    <div class="card-body py-4 text-center">
+      <i class="fas fa-exclamation-circle fa-2x text-warning mb-3 d-block"></i>
+      <h5 class="font-weight-bold text-gray-800 mb-1">Edge agent update required</h5>
+      <p class="text-muted mb-3" style="font-size:0.875rem;">
+        This edge is running an older agent version that does not support the camera dashboard or WebRTC connections.
+        Update the agent to unlock live camera feeds, remote SSH tunneling, and the full dashboard.
+      </p>
+      <a href="https://github.com/wingchen/edge-os" target="_blank" class="btn btn-sm btn-outline-primary">
+        <i class="fas fa-download mr-1"></i>Update instructions
+      </a>
+    </div>
+  </div>
+<% else %>
+
+<%# Camera grid — populated by JS %>
+<div id="camera-grid" class="row">
+  <div class="col-12 text-center text-muted py-5" id="grid-placeholder">
+    <div class="spinner-border spinner-border-sm text-primary mr-2" role="status"></div>
+    Establishing P2P connection to edge…
+  </div>
+</div>
+
+<%# Camera detail overlay — hidden until a camera is selected %>
+<div id="camera-detail" style="display:none;">
+  <div class="d-flex align-items-center mb-3">
+    <button id="back-to-grid" class="btn btn-sm btn-outline-secondary mr-3">← Back</button>
+    <h5 class="mb-0 font-weight-bold" id="detail-camera-name">Camera</h5>
+    <button id="detail-liveview-btn" class="btn btn-sm btn-primary ml-3">
+      <i class="fas fa-play mr-1"></i>Live View
+    </button>
+  </div>
+  <div class="card shadow mb-4">
+    <div class="card-body p-0" style="background:#1a2035;min-height:300px;display:flex;align-items:center;justify-content:center;">
+      <div id="detail-placeholder" class="text-muted" style="font-size:0.85rem;">
+        Press Live View to fetch a snapshot
+      </div>
+      <img id="detail-thumbnail"
+           style="width:100%;max-height:480px;object-fit:contain;display:none;" />
+    </div>
+  </div>
+</div>
+
+<script>
+(function registerWebRTCHook() {
+  if (!window.liveSocket) { setTimeout(registerWebRTCHook, 20); return; }
+
+  window.liveSocket.hooks.BrowserWebRTC = {
+    mounted() {
+      const hook = this;
+      let pc = null;
+      let dc = null;
+      let liveTimers = {}; // camId → intervalId
+      let detailCamId = null;
+
+      function badge(text, cls) {
+        const el = document.getElementById('p2p-badge');
+        if (el) { el.textContent = text; el.className = 'badge badge-' + cls; }
+      }
+
+      function stop() {
+        Object.values(liveTimers).forEach(clearInterval);
+        liveTimers = {};
+        if (dc) { dc.close(); dc = null; }
+        if (pc) { pc.close(); pc = null; }
+        badge('Disconnected', 'secondary');
+      }
+
+      function start() {
+        const iceServers = <%= raw(Jason.encode!(@ice_servers)) %>;
+        pc = new RTCPeerConnection({ iceServers });
+
+        pc.oniceconnectionstatechange = () => {
+          const s = pc.iceConnectionState;
+          if (s === 'connected' || s === 'completed') badge('Connected', 'success');
+          if (s === 'failed')       badge('Failed', 'danger');
+          if (s === 'disconnected') badge('Disconnected', 'secondary');
+        };
+
+        pc.onicecandidate = ({ candidate }) => {
+          if (!candidate) return;
+          hook.pushEvent('browser_ice_candidate', {
+            candidate:     candidate.candidate,
+            sdpMLineIndex: candidate.sdpMLineIndex,
+            sdpMid:        candidate.sdpMid || '',
+          });
+        };
+
+        dc = pc.createDataChannel('camera', { ordered: true });
+
+        dc.onopen = () => {
+          badge('Fetching camera list…', 'warning');
+          dc.send(JSON.stringify({ type: 'LIST_CAMERAS' }));
+        };
+
+        dc.onmessage = ({ data }) => {
+          try { handleMessage(JSON.parse(data)); } catch (_) {}
+        };
+
+        dc.onclose = stop;
+
+        pc.createOffer()
+          .then(offer => pc.setLocalDescription(offer))
+          .then(() => hook.pushEvent('browser_webrtc_offer', { sdp: pc.localDescription.sdp }))
+          .catch(e => badge('Error: ' + e, 'danger'));
+      }
+
+      // ── Message handlers ──────────────────────────────────────────────────
+      function handleMessage(msg) {
+        switch (msg.type) {
+          case 'CAMERA_LIST':     renderCameraList(msg.cameras); break;
+          case 'THUMBNAIL':       applyThumbnail(msg.camera_id, msg.data); break;
+          case 'THUMBNAIL_ERROR': applyThumbnailError(msg.camera_id, msg.reason); break;
+        }
+      }
+
+      function renderCameraList(cameras) {
+        const grid = document.getElementById('camera-grid');
+        document.getElementById('grid-placeholder').style.display = 'none';
+
+        const count = cameras ? cameras.length : 0;
+
+        if (count === 0) {
+          grid.innerHTML = `
+            <div class="col-12 text-center text-muted py-5">
+              <i class="fas fa-video-slash fa-2x mb-3 d-block" style="opacity:0.3;"></i>
+              No cameras configured on this edge yet.
+            </div>`;
+          badge('No cameras', 'secondary');
+          return;
+        }
+
+        badge(`${count} camera${count === 1 ? '' : 's'}`, 'success');
+
+        grid.innerHTML = cameras.map(cam => `
+          <div class="col-lg-4 col-md-6 mb-4">
+            <div class="card shadow">
+              <div style="height:180px;background:#1a2035;position:relative;overflow:hidden;">
+                <div class="d-flex align-items-center justify-content-center h-100 text-muted"
+                     id="thumb-placeholder-${cam.id}" style="font-size:0.8rem;">
+                  <i class="fas fa-video mr-2" style="opacity:0.3;"></i>No snapshot yet
+                </div>
+                <img id="thumb-${cam.id}"
+                     style="width:100%;height:100%;object-fit:cover;display:none;position:absolute;top:0;left:0;" />
+                <span id="live-badge-${cam.id}"
+                      class="badge badge-danger"
+                      style="position:absolute;top:8px;left:8px;font-size:0.65rem;display:none;">● LIVE</span>
+              </div>
+              <div class="card-body py-2 px-3">
+                <div class="d-flex align-items-center justify-content-between">
+                  <span class="font-weight-bold" style="font-size:0.875rem;">${cam.name}</span>
+                  <span class="badge ${cam.has_frame ? 'badge-success' : 'badge-secondary'}"
+                        style="font-size:0.65rem;">
+                    ${cam.has_frame ? 'Streaming' : 'Connecting'}
+                  </span>
+                </div>
+                <div class="mt-2 d-flex gap-2">
+                  <button class="btn btn-sm btn-outline-primary liveview-btn"
+                          data-cam-id="${cam.id}" style="font-size:0.75rem;">
+                    <i class="fas fa-play mr-1"></i>Live View
+                  </button>
+                  <button class="btn btn-sm btn-outline-secondary detail-btn"
+                          data-cam-id="${cam.id}" data-cam-name="${cam.name}" style="font-size:0.75rem;">
+                    <i class="fas fa-expand mr-1"></i>Detail
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        `).join('');
+
+        document.querySelectorAll('.liveview-btn').forEach(btn => {
+          btn.addEventListener('click', () => toggleLiveView(btn.dataset.camId, btn));
+        });
+
+        document.querySelectorAll('.detail-btn').forEach(btn => {
+          btn.addEventListener('click', () => openDetail(btn.dataset.camId, btn.dataset.camName));
+        });
+      }
+
+      // ── Live view per-camera toggle ────────────────────────────────────────
+      function toggleLiveView(camId, btn) {
+        if (liveTimers[camId]) {
+          clearInterval(liveTimers[camId]);
+          delete liveTimers[camId];
+          btn.innerHTML = '<i class="fas fa-play mr-1"></i>Live View';
+          btn.classList.replace('btn-danger', 'btn-outline-primary');
+          const liveBadge = document.getElementById('live-badge-' + camId);
+          if (liveBadge) liveBadge.style.display = 'none';
+        } else {
+          btn.innerHTML = '<i class="fas fa-stop mr-1"></i>Stop';
+          btn.classList.replace('btn-outline-primary', 'btn-danger');
+          fetchThumbnail(camId);
+          liveTimers[camId] = setInterval(() => fetchThumbnail(camId), 3000);
+        }
+      }
+
+      function fetchThumbnail(camId) {
+        if (dc && dc.readyState === 'open') {
+          dc.send(JSON.stringify({ type: 'GET_THUMBNAIL', camera_id: camId }));
+        }
+      }
+
+      function applyThumbnail(cameraId, b64data) {
+        const img = document.getElementById('thumb-' + cameraId);
+        const placeholder = document.getElementById('thumb-placeholder-' + cameraId);
+        const liveBadge = document.getElementById('live-badge-' + cameraId);
+        if (!img) {
+          // May be the detail view
+          if (detailCamId === cameraId) applyDetailThumbnail(b64data);
+          return;
+        }
+        img.src = 'data:image/jpeg;base64,' + b64data;
+        img.style.display = 'block';
+        if (placeholder) placeholder.style.display = 'none';
+        if (liveBadge && liveTimers[cameraId]) liveBadge.style.display = 'block';
+        if (detailCamId === cameraId) applyDetailThumbnail(b64data);
+      }
+
+      function applyThumbnailError(cameraId, reason) {
+        const placeholder = document.getElementById('thumb-placeholder-' + cameraId);
+        if (placeholder) {
+          placeholder.style.display = 'flex';
+          placeholder.innerHTML = `<span class="text-danger" style="font-size:0.75rem;">${reason}</span>`;
+        }
+      }
+
+      // ── Detail view ───────────────────────────────────────────────────────
+      let detailLiveTimer = null;
+
+      function openDetail(camId, camName) {
+        detailCamId = camId;
+        document.getElementById('camera-grid').style.display = 'none';
+        document.getElementById('camera-detail').style.display = 'block';
+        document.getElementById('detail-camera-name').textContent = camName;
+        document.getElementById('detail-thumbnail').style.display = 'none';
+        document.getElementById('detail-placeholder').style.display = 'block';
+        updateDetailLiveBtn(false);
+
+        // Show existing thumbnail if already fetched
+        const thumb = document.getElementById('thumb-' + camId);
+        if (thumb && thumb.src && thumb.style.display !== 'none') {
+          applyDetailThumbnail(null, thumb.src);
+        }
+      }
+
+      function applyDetailThumbnail(b64data, srcOverride) {
+        const img = document.getElementById('detail-thumbnail');
+        const ph  = document.getElementById('detail-placeholder');
+        img.src = srcOverride || ('data:image/jpeg;base64,' + b64data);
+        img.style.display = 'block';
+        ph.style.display = 'none';
+      }
+
+      function updateDetailLiveBtn(running) {
+        const btn = document.getElementById('detail-liveview-btn');
+        if (running) {
+          btn.innerHTML = '<i class="fas fa-stop mr-1"></i>Stop';
+          btn.classList.replace('btn-primary', 'btn-danger');
+        } else {
+          btn.innerHTML = '<i class="fas fa-play mr-1"></i>Live View';
+          btn.classList.replace('btn-danger', 'btn-primary');
+        }
+      }
+
+      document.getElementById('detail-liveview-btn').addEventListener('click', () => {
+        if (detailLiveTimer) {
+          clearInterval(detailLiveTimer);
+          detailLiveTimer = null;
+          updateDetailLiveBtn(false);
+        } else {
+          fetchThumbnail(detailCamId);
+          detailLiveTimer = setInterval(() => fetchThumbnail(detailCamId), 3000);
+          updateDetailLiveBtn(true);
+        }
+      });
+
+      document.getElementById('back-to-grid').addEventListener('click', () => {
+        if (detailLiveTimer) { clearInterval(detailLiveTimer); detailLiveTimer = null; }
+        detailCamId = null;
+        document.getElementById('camera-detail').style.display = 'none';
+        document.getElementById('camera-grid').style.display = 'flex';
+        document.getElementById('camera-grid').style.flexWrap = 'wrap';
+      });
+
+      // ── LiveView events (from LiveView server) ────────────────────────────
+      this.handleEvent('webrtc_answer', ({ sdp }) => {
+        if (!pc) return;
+        pc.setRemoteDescription({ type: 'answer', sdp }).catch(() => {});
+      });
+
+      this.handleEvent('ice_candidate', ({ candidate, sdpMLineIndex, sdpMid }) => {
+        if (!pc) return;
+        pc.addIceCandidate({ candidate, sdpMLineIndex, sdpMid }).catch(() => {});
+      });
+
+      // Auto-connect on mount to get camera metadata immediately
+      start();
+    }
+  };
+})();
+</script>
+
+<%# Mount the WebRTC hook on a hidden element so it auto-fires on page load %>
+<div id="webrtc-autoconnect" phx-hook="BrowserWebRTC" style="display:none;"></div>
+<% end %>
