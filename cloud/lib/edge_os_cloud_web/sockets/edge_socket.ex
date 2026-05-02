@@ -148,7 +148,7 @@ defmodule EdgeOsCloud.Sockets.EdgeSocket do
         case find_webrtc_peer(session_hash, edge) do
           nil ->
             # No SSH peer registered — this is a browser↔edge camera session, route via PubSub
-            Phoenix.PubSub.broadcast(EdgeOsCloud.PubSub, "browser_session:#{session_hash}", {:webrtc_answer, sdp})
+            Phoenix.PubSub.broadcast(EdgeOsCloud.PubSub, "browser_session:#{session_hash}", {:webrtc_answer, session_hash, sdp})
           pid ->
             send(pid, {:webrtc_answer, sdp})
         end
@@ -168,7 +168,7 @@ defmodule EdgeOsCloud.Sockets.EdgeSocket do
         case find_webrtc_peer(session_hash, edge) do
           nil ->
             # Browser↔edge camera session — route via PubSub
-            Phoenix.PubSub.broadcast(EdgeOsCloud.PubSub, "browser_session:#{session_hash}", {:ice_candidate, candidate_str, index, mid})
+            Phoenix.PubSub.broadcast(EdgeOsCloud.PubSub, "browser_session:#{session_hash}", {:ice_candidate, session_hash, candidate_str, index, mid})
           pid ->
             send(pid, {:ice_candidate, candidate_str, index, mid})
         end

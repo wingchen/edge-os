@@ -19,7 +19,9 @@ defmodule EdgeOsCloudWeb.EdgeLive.Dash do
           protocol: protocol,
           ice_servers: ice_servers,
           p2p_status: :idle,
-          session_hash: nil
+          session_hash: nil,
+          video_session_hash: nil,
+          video_camera_id: nil
         )}
     end
   end
@@ -57,7 +59,7 @@ defmodule EdgeOsCloudWeb.EdgeLive.Dash do
     end
   end
 
-  # Browser sends an ICE candidate — forward to edge
+  # Browser sends an ICE candidate for the data channel PC — forward to edge
   def handle_event("browser_ice_candidate", %{"candidate" => candidate, "sdpMLineIndex" => index, "sdpMid" => mid}, socket) do
     %{edge: edge, session_hash: session_hash} = socket.assigns
     if session_hash do
@@ -67,16 +69,76 @@ defmodule EdgeOsCloudWeb.EdgeLive.Dash do
     {:noreply, socket}
   end
 
-  # Edge answer routed back via PubSub
-  @impl true
-  def handle_info({:webrtc_answer, sdp}, socket) do
-    Logger.info("camera WebRTC answer received, forwarding to browser")
-    {:noreply, push_event(socket, "webrtc_answer", %{sdp: sdp})}
+  # Browser sends a video offer (camera live view) — separate PC from the data channel
+  def handle_event("browser_camera_video_offer", %{"sdp" => sdp, "camera_id" => camera_id}, socket) do
+    %{edge: edge} = socket.assigns
+
+    {turn_fields, _} = build_turn_config()
+    video_session_hash = generate_session_hash(edge)
+
+    Phoenix.PubSub.subscribe(EdgeOsCloud.PubSub, "browser_session:#{video_session_hash}")
+
+    offer_payload = Jason.encode!(Map.merge(%{
+      session_id:      video_session_hash,
+      sdp:             sdp,
+      connection_type: "camera_video",
+      camera_id:       camera_id,
+    }, turn_fields))
+
+    edge_pid = EdgeSocket.get_pid(edge.id)
+    case Process.whereis(edge_pid) do
+      nil ->
+        {:noreply, socket}
+      _ ->
+        send(edge_pid, "WEBRTC_OFFER #{offer_payload}")
+        Logger.info("browser→edge camera_video offer forwarded camera=#{camera_id} session=#{video_session_hash}")
+        {:noreply, assign(socket, video_session_hash: video_session_hash, video_camera_id: camera_id)}
+    end
   end
 
-  # Edge ICE candidate routed back via PubSub
-  def handle_info({:ice_candidate, candidate, index, mid}, socket) do
-    {:noreply, push_event(socket, "ice_candidate", %{candidate: candidate, sdpMLineIndex: index, sdpMid: mid})}
+  # Browser sends ICE candidate for the video PC
+  def handle_event("browser_video_ice_candidate", %{"candidate" => candidate, "sdpMLineIndex" => index, "sdpMid" => mid}, socket) do
+    %{edge: edge, video_session_hash: video_session_hash} = socket.assigns
+    if video_session_hash do
+      payload = Jason.encode!(%{session_id: video_session_hash, candidate: candidate, sdpMLineIndex: index, sdpMid: mid})
+      send(Process.whereis(EdgeSocket.get_pid(edge.id)), "ICE_CANDIDATE #{payload}")
+    end
+    {:noreply, socket}
+  end
+
+  # Edge answer — session_hash tells us which PC this belongs to
+  @impl true
+  def handle_info({:webrtc_answer, session_hash, sdp}, socket) do
+    cond do
+      session_hash == socket.assigns.video_session_hash ->
+        camera_id = socket.assigns.video_camera_id
+        Logger.info("video WebRTC answer for camera=#{camera_id}, forwarding to browser")
+        {:noreply, push_event(socket, "video_webrtc_answer", %{sdp: sdp, camera_id: camera_id})}
+
+      session_hash == socket.assigns.session_hash ->
+        Logger.info("data-channel WebRTC answer, forwarding to browser")
+        {:noreply, push_event(socket, "webrtc_answer", %{sdp: sdp})}
+
+      true ->
+        Logger.warning("webrtc_answer for unknown session #{session_hash}, ignoring")
+        {:noreply, socket}
+    end
+  end
+
+  # Edge ICE candidate — same routing by session_hash
+  def handle_info({:ice_candidate, session_hash, candidate, index, mid}, socket) do
+    cond do
+      session_hash == socket.assigns.video_session_hash ->
+        camera_id = socket.assigns.video_camera_id
+        {:noreply, push_event(socket, "video_ice_candidate", %{
+          candidate: candidate, sdpMLineIndex: index, sdpMid: mid, camera_id: camera_id
+        })}
+
+      true ->
+        {:noreply, push_event(socket, "ice_candidate", %{
+          candidate: candidate, sdpMLineIndex: index, sdpMid: mid
+        })}
+    end
   end
 
   defp generate_session_hash(edge) do

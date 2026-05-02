@@ -354,8 +354,8 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 - [x] Camera onboarding wizard — Add Camera modal with scan + manual RTSP entry (UI only, no backend)
 - [x] Events view — mocked event table with confidence bars (UI only, no backend)
 - [x] Open main window from tray
-- [ ] Camera grid — wire up real JPEG snapshots from edge agent (replaces fake feeds)
-- [ ] Single camera full-screen view + event timeline
+- [x] Camera grid — wire up real JPEG snapshots from edge agent (`localhost:4001/frame/:id` polled every 2s, live badge + clock shown on success)
+- [ ] Single camera full-screen view + event timeline (detail feed polls real frames at 1fps ✓; event sidebar is still mocked HTML)
 - [ ] Digital fence configuration UI — draw and label fence polygons on a camera still frame (see Digital Fences section below)
 
 ### Digital Fences
@@ -405,9 +405,13 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 - [ ] YOLOv8n inference via `ort` crate (CPU first, CoreML on Apple Silicon later)
 - [ ] **Digital fence enforcement** — only pass detections to AI Guard if bounding box intersects an active fence polygon. Detections outside all fences discarded locally — zero cloud cost.
 - [ ] Trigger local recording on detection (FFmpeg → .mp4 clip)
-- [ ] Handle data channel messages: `LIST_CAMERAS`, `GET_THUMBNAIL` (camera + event), `LIST_EVENTS`, `SET_FENCES`
-- [ ] Serve camera thumbnail via data channel — read from existing `SharedFrame`, no extra decode needed
-- [ ] WebRTC video track: GStreamer pipeline per camera (`rtspsrc → rtph264depay → h264parse → tee → rtph264pay → webrtcbin`). One pipeline per camera, one `webrtcbin` per viewer session added to the `tee`. Signaling via existing WebSocket (`connection_type: "camera"`). Existing SSH WebRTC path (`handle_webrtc_offer`) untouched. Requires GStreamer installed — see Phase 3E distribution plan.
+- [x] Handle data channel messages: `LIST_CAMERAS` ✓, `GET_THUMBNAIL` ✓ — `LIST_EVENTS` and `SET_FENCES` not yet implemented
+- [x] Serve camera thumbnail via data channel — resize to 320×180 before base64 encode to stay within SCTP message size limit; confirmed working in production
+- [x] WebRTC video track: GStreamer pipeline per camera (`rtspsrc → rtph264depay → h264parse → rtph264pay → webrtcbin`). Signaling via existing WebSocket (`connection_type: "camera_video"`). Existing SSH WebRTC path (`handle_webrtc_offer`) untouched. PT negotiated from answer SDP and set explicitly on `rtph264pay` to avoid caps-race mismatch. Confirmed working in production.
+- [ ] Multi-viewer fan-out: add `tee` element so N browser sessions share one RTSP connection per camera (currently a new RTSP connection is opened per viewer).
+- [ ] RTSP protocol flexibility: remove hardcoded `protocols=tcp` — use GStreamer default (`protocols=4`, try UDP first, fall back to TCP) so cameras that only support UDP RTSP work out of the box.
+- [ ] H265/HEVC camera support: transcode pipeline `rtph265depay ! h265parse ! avdec_h265 ! videoconvert ! x264enc ! rtph264pay` since WebRTC has no native H265 support. Deferred until there is demand.
+- [ ] MJPEG camera support: encode pipeline `rtpjpegdepay ! jpegdec ! videoconvert ! x264enc ! rtph264pay`. Common on cheap/older cameras.
 - [ ] Send text-only event summary to cloud for push notification dispatch (no image, no thumbnail)
 - [ ] Send AI Guard token request to cloud; call Vertex AI / Bedrock directly with frames; send text result back to cloud
 
@@ -428,9 +432,9 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 > LiveView is the shell only — opens the signaling path and hands control to browser JS. No camera data ever hits the cloud DB.
 
 - [x] Live feed viewer page — `/edges/:id/camera` with WebRTC signaling hook (`camera.html.heex`, `camera.ex`)
-- [ ] `/edges` dashboard — for each online edge, open data channel, send `GET_THUMBNAIL` per camera, show preview. Offline edge shows placeholder. No cloud DB query.
-- [ ] Camera list page — send `LIST_CAMERAS` via data channel, render tiles with thumbnails
-- [ ] Live stream — browser opens second RTCPeerConnection (video track), renders in `<video>` tag. Cloud signals this offer to edge exactly like the data channel offer.
+- [x] `/edges/:id/dash` — WebRTC data channel opens on page load, `LIST_CAMERAS` fetches camera list, `GET_THUMBNAIL` auto-fetched for cameras with frames, thumbnails shown in grid. Confirmed working in production.
+- [x] Camera list page — `LIST_CAMERAS` via data channel renders camera grid with thumbnails and Active/No signal badges
+- [x] Live stream — browser opens second RTCPeerConnection (video track), renders in `<video>` tag. Cloud signals this offer to edge exactly like the data channel offer. Confirmed working in production.
 - [ ] Events browser — send `LIST_EVENTS` + `GET_THUMBNAIL` via data channel, render feed
 - [ ] Digital fence UI — polygon tool in browser, send `SET_FENCES` via data channel. Cloud never stores fence config.
 
@@ -517,4 +521,4 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 
 ## Immediate Next Step
 
-**Phase 4C** — test TURN relay path from browser to confirm relay fallback works. Then **Phase 6 Camera MVP** — local camera feed in Tauri app, followed by remote camera access in the cloud web UI.
+**Phase 6 Camera MVP** — live WebRTC video stream from edge to browser is working in production (H264, single viewer). Next priorities: multi-viewer `tee` fan-out, RTSP protocol flexibility, and the Tauri local camera UI.

@@ -32,6 +32,9 @@ tower = "0.4"
 anyhow = "1"
 futures = "0.3"
 base64 = "0.22"
+gstreamer = "0.23"
+gstreamer-webrtc = "0.23"
+gstreamer-sdp = "0.23"
 
 [dependencies.uuid]
 version = "1.2.1"

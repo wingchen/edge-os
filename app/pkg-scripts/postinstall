@@ -1,21 +1,22 @@
 #!/bin/bash
 # Runs after the .app is placed in /Applications.
-# Copies the edge binary to a stable path and registers the LaunchDaemon.
+# 1. Copies the edge binary to a stable system path
+# 2. Installs the bundled GStreamer to /Library/Application Support/EdgeOS/gstreamer/
+# 3. Writes and loads the LaunchDaemon plist
 
 set -e
 
 EDGE_DIR="/Library/Application Support/EdgeOS"
 EDGE_BINARY="$EDGE_DIR/edge-os-edge"
+GST_BUNDLE_DIR="$EDGE_DIR/gstreamer"
 PLIST="/Library/LaunchDaemons/com.sailoi.edgeos.plist"
 
-# Create config/data directory.
-# chown root:admin + chmod 775 lets the logged-in admin user (the Tauri app)
-# write config.json without a sudo prompt.
+# ── Directory setup ────────────────────────────────────────────────────────────
 mkdir -p "$EDGE_DIR"
 chown root:admin "$EDGE_DIR"
 chmod 775 "$EDGE_DIR"
 
-# Copy edge binary from the app bundle (Tauri appends target triple to sidecar name)
+# ── Edge binary ────────────────────────────────────────────────────────────────
 SIDECAR=$(find /Applications/EdgeOS.app/Contents/MacOS -name "edge-os-edge-*" | head -1)
 if [ -z "$SIDECAR" ]; then
     echo "ERROR: edge-os-edge sidecar not found in app bundle" >&2
@@ -24,7 +25,22 @@ fi
 cp "$SIDECAR" "$EDGE_BINARY"
 chmod 755 "$EDGE_BINARY"
 
-# Write LaunchDaemon plist
+# ── GStreamer bundle ───────────────────────────────────────────────────────────
+# The Tauri app bundles a minimal GStreamer into Resources/gstreamer/.
+# If present, copy it to the system location so the daemon can find it at boot.
+APP_GST_BUNDLE="/Applications/EdgeOS.app/Contents/Resources/gstreamer"
+if [ -d "$APP_GST_BUNDLE" ]; then
+    echo "Installing bundled GStreamer to $GST_BUNDLE_DIR"
+    rm -rf "$GST_BUNDLE_DIR"
+    cp -R "$APP_GST_BUNDLE" "$GST_BUNDLE_DIR"
+    chmod -R 755 "$GST_BUNDLE_DIR"
+else
+    echo "WARNING: GStreamer bundle not found in app Resources."
+    echo "         Video streaming will not work until GStreamer is installed."
+    echo "         Run: brew install gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad"
+fi
+
+# ── LaunchDaemon plist ─────────────────────────────────────────────────────────
 cat > "$PLIST" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -42,6 +58,12 @@ cat > "$PLIST" << EOF
     <dict>
         <key>EDGE_OS_EDGE_DIR</key>
         <string>$EDGE_DIR</string>
+        <key>GST_PLUGIN_PATH</key>
+        <string>$GST_BUNDLE_DIR/plugins</string>
+        <key>DYLD_LIBRARY_PATH</key>
+        <string>$GST_BUNDLE_DIR/lib</string>
+        <key>GST_PLUGIN_SYSTEM_PATH_1_0</key>
+        <string>$GST_BUNDLE_DIR/plugins</string>
     </dict>
 
     <key>RunAtLoad</key>
