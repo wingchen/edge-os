@@ -36,6 +36,26 @@
     ],
     "macOS": {
       "infoPlist": "./Info.plist"
+    },
+    "linux": {
+      "deb": {
+        "depends": [
+          "libgstreamer1.0-0",
+          "gstreamer1.0-plugins-base",
+          "gstreamer1.0-plugins-good",
+          "gstreamer1.0-plugins-bad",
+          "gstreamer1.0-nice"
+        ]
+      },
+      "rpm": {
+        "depends": [
+          "gstreamer1",
+          "gstreamer1-plugins-base",
+          "gstreamer1-plugins-good",
+          "gstreamer1-plugins-bad-free",
+          "libnice"
+        ]
+      }
     }
   }
 }

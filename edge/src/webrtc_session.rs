@@ -19,9 +19,10 @@ use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 
 #[derive(Deserialize)]
 pub struct OfferPayload {
-    pub session_id: String,
-    pub sdp: String,
-    pub turn_host: Option<String>,
+    pub session_id:    String,
+    pub sdp:           String,
+    pub camera_id:     Option<String>,
+    pub turn_host:     Option<String>,
     pub turn_username: Option<String>,
     pub turn_credential: Option<String>,
 }
@@ -85,12 +86,12 @@ async fn list_cameras(
     frame_map: &crate::camera_manager::FrameMap,
 ) {
     let map = frame_map.lock().await;
-    let cameras: Vec<serde_json::Value> = map.iter().map(|(id, (name, frame))| {
-        let has_frame = frame.try_lock()
+    let cameras: Vec<serde_json::Value> = map.iter().map(|(id, cam)| {
+        let has_frame = cam.frame.try_lock()
             .map(|f| f.is_some())
             .unwrap_or(false);
-        info!("  camera '{}' (id={}) has_frame={}", name, id, has_frame);
-        serde_json::json!({"id": id, "name": name, "has_frame": has_frame})
+        info!("  camera '{}' (id={}) has_frame={}", cam.name, id, has_frame);
+        serde_json::json!({"id": id, "name": cam.name, "has_frame": has_frame})
     }).collect();
     let resp = serde_json::json!({"type": "CAMERA_LIST", "cameras": cameras});
     let payload = resp.to_string();
@@ -117,8 +118,8 @@ async fn get_thumbnail(
             }).to_string()).await;
             return;
         }
-        Some((_name, shared)) => {
-            let frame = shared.lock().await;
+        Some(cam) => {
+            let frame = cam.frame.lock().await;
             match frame.as_ref() {
                 None => {
                     warn!("get_thumbnail: camera '{}' found but SharedFrame is empty", camera_id);

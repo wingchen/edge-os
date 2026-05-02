@@ -14,8 +14,13 @@ use serde::Deserialize;
 
 use crate::rtsp_camera::{CameraConfig, SharedFrame, start as start_camera};
 
-/// (camera_name, latest_frame)
-pub type FrameMap = Arc<Mutex<HashMap<String, (String, SharedFrame)>>>;
+pub struct CameraState {
+    pub name:     String,
+    pub rtsp_url: String,
+    pub frame:    SharedFrame,
+}
+
+pub type FrameMap = Arc<Mutex<HashMap<String, CameraState>>>;
 
 #[derive(Clone)]
 struct AppState {
@@ -48,8 +53,9 @@ pub async fn start(working_dir: &str) -> FrameMap {
     info!("[camera_manager] starting {} camera(s)", cameras.len());
 
     for cam in cameras {
-        let id = cam.id.clone();
-        let name = cam.name.clone();
+        let id       = cam.id.clone();
+        let name     = cam.name.clone();
+        let rtsp_url = cam.rtsp_url.clone();
         let cfg = CameraConfig {
             id: cam.id,
             name: cam.name,
@@ -57,7 +63,7 @@ pub async fn start(working_dir: &str) -> FrameMap {
             fps: cam.fps,
         };
         let frame = start_camera(cfg).await;
-        frame_map.lock().await.insert(id, (name, frame));
+        frame_map.lock().await.insert(id, CameraState { name, rtsp_url, frame });
     }
 
     frame_map
@@ -87,8 +93,8 @@ async fn frame_handler(
     let map = state.frame_map.lock().await;
     match map.get(&camera_id) {
         None => (StatusCode::NOT_FOUND, "camera not found").into_response(),
-        Some((_name, shared)) => {
-            let frame = shared.lock().await;
+        Some(cam) => {
+            let frame = cam.frame.lock().await;
             match frame.as_ref() {
                 None => (StatusCode::SERVICE_UNAVAILABLE, "no frame yet").into_response(),
                 Some(jpeg) => Response::builder()
@@ -105,8 +111,8 @@ async fn frame_handler(
 
 async fn list_handler(State(state): State<AppState>) -> impl IntoResponse {
     let map = state.frame_map.lock().await;
-    let cameras: Vec<serde_json::Value> = map.iter().map(|(id, (name, _))| {
-        serde_json::json!({"id": id, "name": name})
+    let cameras: Vec<serde_json::Value> = map.iter().map(|(id, cam)| {
+        serde_json::json!({"id": id, "name": cam.name})
     }).collect();
     axum::Json(cameras).into_response()
 }
@@ -126,7 +132,11 @@ async fn reload_handler(State(state): State<AppState>) -> impl IntoResponse {
                 fps: cam.fps,
             };
             let frame = start_camera(cfg).await;
-            map.insert(cam.id.clone(), (cam.name.clone(), frame));
+            map.insert(cam.id.clone(), CameraState {
+                name: cam.name.clone(),
+                rtsp_url: cam.rtsp_url.clone(),
+                frame,
+            });
             info!("[camera_manager] reload: started camera {}", cam.id);
             started += 1;
         }

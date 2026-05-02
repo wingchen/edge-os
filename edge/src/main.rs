@@ -16,12 +16,13 @@ use tokio::time::{sleep};
 use std::os::unix::fs::PermissionsExt;
 use systemd_journal_logger::JournalLog;
 
+mod camera_webrtc;
+mod camera_manager;
 mod config;
 mod edge_system;
+mod rtsp_camera;
 mod tcp_to_websocket;
 mod webrtc_session;
-mod rtsp_camera;
-mod camera_manager;
 
 #[tokio::main]
 async fn main() {
@@ -33,6 +34,8 @@ async fn main() {
         env_logger::init();
     }
     log::set_max_level(LevelFilter::Debug);
+
+    gstreamer::init().expect("GStreamer init failed");
 
     let local_working_dir = match env::var("EDGE_OS_EDGE_DIR") {
         Ok(val) => val,
@@ -127,8 +130,9 @@ async fn main() {
                         sessions.lock().await.insert(session_id.clone(), ice_tx);
                         let tx = signaling_tx.clone();
                         match connection_type.as_str() {
-                            "camera" => tokio::spawn(webrtc_session::handle_camera_offer(json, tx, ice_rx, frame_map)),
-                            _        => tokio::spawn(webrtc_session::handle_webrtc_offer(json, tx, ice_rx)),
+                            "camera"       => tokio::spawn(webrtc_session::handle_camera_offer(json, tx, ice_rx, frame_map)),
+                            "camera_video" => tokio::spawn(camera_webrtc::handle_camera_video_offer(json, tx, ice_rx, frame_map)),
+                            _              => tokio::spawn(webrtc_session::handle_webrtc_offer(json, tx, ice_rx)),
                         };
                         info!("WebRTC {} offer received for session {}", connection_type, session_id);
                     }
