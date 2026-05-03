@@ -20,6 +20,8 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
           peer_data -> peer_data.address
         end
 
+        if connected?(socket), do: :timer.send_interval(10_000, self(), :refresh)
+
         edges = list_edges(user.id)
         edge_alerts_map = Device.recent_edge_alerts_from_edges(edges)
 
@@ -78,6 +80,14 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
   @impl true
   def handle_event("info", %{"id" => id}, socket) do
     {:noreply, redirect(socket, to: "/dash/edge/#{id}")}
+  end
+
+  @impl true
+  def handle_info(:refresh, socket) do
+    %{current_user: user} = socket.assigns
+    edges = list_edges(user.id)
+    edge_alerts_map = Device.recent_edge_alerts_from_edges(edges)
+    {:noreply, socket |> assign(:edges, edges) |> assign(:edge_alerts_map, edge_alerts_map)}
   end
 
   @impl true

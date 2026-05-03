@@ -16,13 +16,16 @@ use tokio::time::{sleep};
 use std::os::unix::fs::PermissionsExt;
 use systemd_journal_logger::JournalLog;
 
-mod camera_webrtc;
+mod camera_pipeline;
 mod camera_manager;
+mod clip_stream;
 mod config;
 mod edge_system;
+mod event_store;
 mod rtsp_camera;
 mod tcp_to_websocket;
 mod webrtc_session;
+mod yolo;
 
 #[tokio::main]
 async fn main() {
@@ -54,11 +57,13 @@ async fn main() {
     // Start camera manager — loads cameras from config.json, begins RTSP streams,
     // serves last-frame JPEG on localhost:4001
     let cam_dir = local_working_dir.clone();
-    let frame_map = camera_manager::start(&cam_dir).await;
-    let frame_map_http = Arc::clone(&frame_map);
-    let frame_map_webrtc = Arc::clone(&frame_map);
+    let (frame_map, event_store) = camera_manager::start(&cam_dir).await;
+    let frame_map_http    = Arc::clone(&frame_map);
+    let frame_map_webrtc  = Arc::clone(&frame_map);
+    let event_store_http  = Arc::clone(&event_store);
+    let event_store_webrtc = Arc::clone(&event_store);
     tokio::spawn(async move {
-        camera_manager::serve(frame_map_http, &cam_dir, 4001).await;
+        camera_manager::serve(frame_map_http, &cam_dir, event_store_http, 4001).await;
     });
 
     write_status(&local_working_dir, "connecting", &cloud);
@@ -83,20 +88,22 @@ async fn main() {
     let signaling_tx = ping_tx.clone();
     let cloud_ref = cloud.clone();
     let uuid_ref = uuid.clone();
-    let frame_map_ref = frame_map_webrtc;
+    let frame_map_ref      = frame_map_webrtc;
+    let event_store_ref    = event_store_webrtc;
 
     let ws_to_edge = {
         read.for_each(move |message| {
-            let sessions = Arc::clone(&webrtc_sessions);
+            let sessions     = Arc::clone(&webrtc_sessions);
             let signaling_tx = signaling_tx.clone();
-            let cloud = cloud_ref.clone();
-            let uuid = uuid_ref.clone();
-            let frame_map = Arc::clone(&frame_map_ref);
+            let cloud        = cloud_ref.clone();
+            let uuid         = uuid_ref.clone();
+            let frame_map    = Arc::clone(&frame_map_ref);
+            let event_store  = Arc::clone(&event_store_ref);
             async move {
                 let command_str = message.unwrap().to_string();
 
                 if command_str.is_empty() {
-                    debug!("ignoring the empty message");
+                    // debug!("ignoring the empty message");
                     return;
                 }
 
@@ -130,9 +137,38 @@ async fn main() {
                         sessions.lock().await.insert(session_id.clone(), ice_tx);
                         let tx = signaling_tx.clone();
                         match connection_type.as_str() {
-                            "camera"       => tokio::spawn(webrtc_session::handle_camera_offer(json, tx, ice_rx, frame_map)),
-                            "camera_video" => tokio::spawn(camera_webrtc::handle_camera_video_offer(json, tx, ice_rx, frame_map)),
-                            _              => tokio::spawn(webrtc_session::handle_webrtc_offer(json, tx, ice_rx)),
+                            "camera" => {
+                                tokio::spawn(webrtc_session::handle_camera_offer(json, tx, ice_rx, frame_map, event_store));
+                            }
+                            "camera_video" => {
+                                // Route to the always-on GStreamer pipeline for this camera
+                                let offer: webrtc_session::OfferPayload =
+                                    match serde_json::from_str(&json) {
+                                        Ok(p) => p,
+                                        Err(e) => { warn!("bad camera_video offer: {e}"); return; }
+                                    };
+                                let camera_id = offer.camera_id.clone().unwrap_or_default();
+                                let cmd_tx = frame_map.lock().await
+                                    .get(&camera_id)
+                                    .and_then(|s| s.pipeline.as_ref())
+                                    .map(|p| p.cmd_tx.clone());
+                                match cmd_tx {
+                                    Some(tx_pipe) => {
+                                        let _ = tx_pipe.send(
+                                            camera_pipeline::PipelineCmd::AddViewer {
+                                                session_id: session_id.clone(),
+                                                offer,
+                                                signaling_tx: tx,
+                                                ice_rx,
+                                            }
+                                        ).await;
+                                    }
+                                    None => warn!("no pipeline for camera {camera_id}"),
+                                }
+                            }
+                            _ => {
+                                tokio::spawn(webrtc_session::handle_webrtc_offer(json, tx, ice_rx));
+                            }
                         };
                         info!("WebRTC {} offer received for session {}", connection_type, session_id);
                     }
