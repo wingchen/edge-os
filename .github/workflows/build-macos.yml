@@ -1,0 +1,90 @@
+name: Build macOS DMG
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+      - macos-installer
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest   # Apple Silicon (arm64) runner
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Rust ────────────────────────────────────────────────────────────────
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            edge -> target
+            app/src-tauri -> target
+
+      # ── Node / Tauri CLI ────────────────────────────────────────────────────
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install Tauri CLI
+        run: npm ci
+        working-directory: app
+
+      # ── GStreamer (Homebrew) ────────────────────────────────────────────────
+      - name: Cache Homebrew bottles
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/Homebrew
+          key: homebrew-gstreamer-${{ runner.arch }}-${{ hashFiles('.github/workflows/build-macos.yml') }}
+          restore-keys: homebrew-gstreamer-${{ runner.arch }}-
+
+      - name: Install GStreamer via Homebrew
+        run: |
+          brew install --quiet \
+            gstreamer \
+            gst-plugins-base \
+            gst-plugins-good \
+            gst-plugins-bad \
+            gst-plugins-ugly \
+            gst-plugin-openh264 \
+            libnice
+
+      - name: Export GStreamer pkg-config paths
+        run: |
+          BREW=$(brew --prefix)
+          echo "PKG_CONFIG_PATH=${BREW}/lib/pkgconfig" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=${BREW}/lib"              >> $GITHUB_ENV
+          echo "GST_PLUGIN_PATH=${BREW}/lib/gstreamer-1.0" >> $GITHUB_ENV
+
+      # ── Build edge binary ───────────────────────────────────────────────────
+      - name: Build edge binary (arm64)
+        run: cargo build --release --target aarch64-apple-darwin
+        working-directory: edge
+
+      # ── Build Tauri app → .dmg ─────────────────────────────────────────────
+      - name: Build Tauri app
+        run: npm run build -- --target aarch64-apple-darwin
+        working-directory: app
+        env:
+          # Disable code signing for CI builds (no certificate available)
+          APPLE_SIGNING_IDENTITY: '-'
+
+      # ── Upload artifact ─────────────────────────────────────────────────────
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: EdgeOS-macOS-arm64
+          path: app/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+          if-no-files-found: error
