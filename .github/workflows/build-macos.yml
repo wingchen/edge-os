@@ -52,13 +52,12 @@ jobs:
 
       - name: Install GStreamer via Homebrew
         run: |
-          brew install --quiet \
+          brew install \
             gstreamer \
             gst-plugins-base \
             gst-plugins-good \
             gst-plugins-bad \
             gst-plugins-ugly \
-            gst-plugin-openh264 \
             libnice
 
       - name: Export GStreamer pkg-config paths
