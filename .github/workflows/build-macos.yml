@@ -72,6 +72,12 @@ jobs:
         run: cargo build --release --target aarch64-apple-darwin
         working-directory: edge
 
+      - name: Stage sidecar for Tauri
+        run: |
+          mkdir -p edge/target/release
+          cp edge/target/aarch64-apple-darwin/release/edge-os-edge \
+             edge/target/release/edge-os-edge-aarch64-apple-darwin
+
       # ── Build Tauri app → .dmg ─────────────────────────────────────────────
       - name: Build Tauri app
         run: npm run build -- --target aarch64-apple-darwin
