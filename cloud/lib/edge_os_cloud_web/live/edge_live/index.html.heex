@@ -30,14 +30,12 @@
   online_count = Enum.count(@edges, fn e -> EdgeOsCloud.Device.edge_online?(e.id) end)
 %>
 
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <div>
-    <h1 class="h3 mb-0 text-gray-800">Devices</h1>
-    <p class="mb-0 text-muted" style="font-size:0.85rem;">
-      <span class="text-success font-weight-bold"><%= online_count %> online</span>
-      · <span id="edge-count"><%= length(@edges) %></span> total
-    </p>
-  </div>
+<div class="mb-3">
+  <span style="font-size:1.05rem;font-weight:800;color:#3a3b45;">Devices</span>
+  <p class="mb-0 text-muted" style="font-size:0.8rem;margin-top:3px;">
+    <span class="text-success font-weight-bold"><%= online_count %> online</span>
+    · <span id="edge-count"><%= length(@edges) %></span> total
+  </p>
 </div>
 
 <div class="mb-4" style="position:relative;max-width:360px;">
@@ -104,16 +102,16 @@
           </div>
           <div class="card-footer bg-transparent border-top pt-2 pb-2 d-flex" style="gap:6px;">
             <%= live_patch to: Routes.edge_index_path(@socket, :edit, edge), class: "btn btn-sm btn-outline-secondary", replace: false do %>
-              <i class="fas fa-edit mr-1"></i>Rename
+              <i class="fas fa-edit"></i><span class="d-none d-sm-inline ml-1">Rename</span>
             <% end %>
 
             <%= if online do %>
               <%= live_patch to: Routes.edge_index_path(@socket, :connect, edge), class: "btn btn-sm btn-outline-primary", replace: false do %>
-                <i class="fas fa-terminal mr-1"></i>SSH
+                <i class="fas fa-terminal"></i><span class="d-none d-sm-inline ml-1">SSH</span>
               <% end %>
               <%= if get_in(edge.edge_info, ["protocol"]) == "webrtc" do %>
                 <%= link to: "/edges/#{edge.id}/dash", class: "btn btn-sm btn-outline-info" do %>
-                  <i class="fas fa-th-large mr-1"></i>Dashboard
+                  <i class="fas fa-th-large"></i><span class="d-none d-sm-inline ml-1">Dashboard</span>
                 <% end %>
               <% end %>
             <% end %>

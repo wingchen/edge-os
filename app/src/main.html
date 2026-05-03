@@ -243,10 +243,21 @@
     .cam-delete-btn:hover { background: rgba(231,74,59,0.2); }
     .camera-tile:hover .cam-delete-btn { display: flex; }
 
-    .cam-last-event {
-      padding: 0 12px 10px;
-      font-size: 11px; color: var(--muted); font-weight: 600;
+    .cam-last-event { padding-bottom: 4px; }
+    .tile-event {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 12px;
+      border-bottom: 1px solid var(--border);
     }
+    .tile-event:last-child { border-bottom: none; }
+    .tile-event-thumb {
+      width: 76px; height: 48px; object-fit: cover; border-radius: 4px; flex-shrink: 0;
+      background: #e8eaf0;
+    }
+    .tile-event-meta { flex: 1; min-width: 0; }
+    .tile-event-name { font-size: 12px; font-weight: 700; color: var(--dark); }
+    .tile-event-time { font-size: 11px; color: var(--muted); font-weight: 600; margin-top: 2px; }
+    .tile-no-events { padding: 10px 12px; font-size: 11px; color: var(--muted); font-weight: 600; }
 
     /* Add camera tile */
     .add-tile {
@@ -336,12 +347,15 @@
       flex: 1;
     }
     .event-row {
-      padding: 10px 16px;
+      padding: 8px 16px;
       border-bottom: 1px solid var(--border);
       display: flex;
-      flex-direction: column;
-      gap: 3px;
+      flex-direction: row;
+      align-items: center;
+      gap: 10px;
     }
+    .event-meta { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+    .event-thumb { width: 64px; height: 40px; object-fit: cover; border-radius: 4px; flex-shrink: 0; background: #1a1a2e; }
     .event-row:last-child { border-bottom: none; }
     .event-type {
       font-size: 12px; font-weight: 700; color: var(--dark);
@@ -572,6 +586,69 @@
       cursor: pointer; transition: background 0.15s;
     }
     .btn-primary:hover { background: var(--blue-dark); }
+
+    /* ── Event detail modal ── */
+    .event-modal {
+      width: 680px;
+      max-width: calc(100vw - 48px);
+    }
+    .event-modal-body {
+      display: flex;
+      gap: 0;
+      min-height: 320px;
+    }
+    .event-modal-media {
+      flex: 1;
+      background: #0a0a0f;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 280px;
+      position: relative;
+    }
+    .event-modal-media video,
+    .event-modal-media img {
+      width: 100%; height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+    .event-modal-no-clip {
+      color: rgba(255,255,255,0.3);
+      font-size: 12px;
+      font-weight: 600;
+      text-align: center;
+      padding: 20px;
+    }
+    .event-modal-meta {
+      width: 210px;
+      flex-shrink: 0;
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+    }
+    .event-meta-row {
+      padding: 11px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .event-meta-row:last-child { border-bottom: none; }
+    .event-meta-label {
+      font-size: 10px; font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+    }
+    .event-meta-value {
+      font-size: 13px; font-weight: 700;
+      color: var(--dark);
+    }
+    .event-meta-value.muted { color: var(--muted); font-weight: 600; }
+    .event-meta-value.ok    { color: var(--success); }
+    .event-row { cursor: pointer; transition: background 0.12s; }
+    .event-row:hover { background: #f5f6fa; }
+    .events-table tbody tr { cursor: pointer; }
   </style>
 </head>
 <body>
@@ -658,38 +735,14 @@
             <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.3">
               <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
             </svg>
-            Waiting for frame…
+            Connecting…
           </div>
           <span class="live-badge" style="display:none;" id="detail-live-badge">● LIVE</span>
         </div>
         <div class="detail-sidebar">
           <div class="detail-sidebar-header">Recent Events</div>
-          <div class="event-list">
-            <div class="event-row">
-              <div class="event-type"><span class="event-dot person"></span>Person detected</div>
-              <div class="event-time">2 minutes ago</div>
-              <div class="event-conf">Confidence: 94%</div>
-            </div>
-            <div class="event-row">
-              <div class="event-type"><span class="event-dot motion"></span>Motion detected</div>
-              <div class="event-time">18 minutes ago</div>
-              <div class="event-conf">Confidence: 81%</div>
-            </div>
-            <div class="event-row">
-              <div class="event-type"><span class="event-dot person"></span>Person detected</div>
-              <div class="event-time">1 hour ago</div>
-              <div class="event-conf">Confidence: 97%</div>
-            </div>
-            <div class="event-row">
-              <div class="event-type"><span class="event-dot motion"></span>Motion detected</div>
-              <div class="event-time">2 hours ago</div>
-              <div class="event-conf">Confidence: 73%</div>
-            </div>
-            <div class="event-row">
-              <div class="event-type"><span class="event-dot person"></span>Person detected</div>
-              <div class="event-time">3 hours ago</div>
-              <div class="event-conf">Confidence: 88%</div>
-            </div>
+          <div class="event-list" id="detail-event-list">
+            <div style="color:rgba(255,255,255,0.3);font-size:12px;padding:12px 0;">Loading…</div>
           </div>
         </div>
       </div>
@@ -699,64 +752,21 @@
     <div class="view" id="view-events">
       <div class="page-header">
         <h1>Events</h1>
-        <span class="count-badge">12 today</span>
+        <span class="count-badge" id="events-count-badge">—</span>
       </div>
       <div class="events-body">
         <table class="events-table">
           <thead>
             <tr>
+              <th></th>
               <th>Camera</th>
               <th>Event</th>
               <th>Confidence</th>
               <th>Time</th>
             </tr>
           </thead>
-          <tbody>
-            <tr>
-              <td><span class="cam-badge badge-1">Front Door</span></td>
-              <td><span class="event-tag person">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                Person detected
-              </span></td>
-              <td><div class="conf-bar"><div class="conf-track"><div class="conf-fill" style="width:94%"></div></div><span class="conf-label">94%</span></div></td>
-              <td style="color:var(--muted);font-size:12px;font-weight:600;">2m ago</td>
-            </tr>
-            <tr>
-              <td><span class="cam-badge badge-2">Backyard</span></td>
-              <td><span class="event-tag motion">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-                Motion detected
-              </span></td>
-              <td><div class="conf-bar"><div class="conf-track"><div class="conf-fill" style="width:81%;background:#f6c23e"></div></div><span class="conf-label">81%</span></div></td>
-              <td style="color:var(--muted);font-size:12px;font-weight:600;">15m ago</td>
-            </tr>
-            <tr>
-              <td><span class="cam-badge badge-1">Front Door</span></td>
-              <td><span class="event-tag person">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                Person detected
-              </span></td>
-              <td><div class="conf-bar"><div class="conf-track"><div class="conf-fill" style="width:97%"></div></div><span class="conf-label">97%</span></div></td>
-              <td style="color:var(--muted);font-size:12px;font-weight:600;">1h ago</td>
-            </tr>
-            <tr>
-              <td><span class="cam-badge badge-3">Garage</span></td>
-              <td><span class="event-tag motion">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-                Motion detected
-              </span></td>
-              <td><div class="conf-bar"><div class="conf-track"><div class="conf-fill" style="width:73%;background:#f6c23e"></div></div><span class="conf-label">73%</span></div></td>
-              <td style="color:var(--muted);font-size:12px;font-weight:600;">3h ago</td>
-            </tr>
-            <tr>
-              <td><span class="cam-badge badge-2">Backyard</span></td>
-              <td><span class="event-tag person">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                Person detected
-              </span></td>
-              <td><div class="conf-bar"><div class="conf-track"><div class="conf-fill" style="width:88%"></div></div><span class="conf-label">88%</span></div></td>
-              <td style="color:var(--muted);font-size:12px;font-weight:600;">5h ago</td>
-            </tr>
+          <tbody id="events-tbody">
+            <tr><td colspan="4" style="color:var(--muted);font-size:12px;padding:12px;">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -881,6 +891,20 @@
   </div>
 </div>
 
+<!-- ── Event detail modal ── -->
+<div class="modal-overlay" id="event-modal">
+  <div class="modal event-modal">
+    <div class="modal-header">
+      <span class="modal-title" id="event-modal-title">Event</span>
+      <button class="modal-close" id="close-event-modal">×</button>
+    </div>
+    <div class="event-modal-body">
+      <div class="event-modal-media" id="event-modal-media"></div>
+      <div class="event-modal-meta" id="event-modal-meta"></div>
+    </div>
+  </div>
+</div>
+
 <script>
   const invoke = window.__TAURI__.core.invoke;
   const FRAME_BASE = 'http://localhost:4001/frame';
@@ -924,6 +948,7 @@
       item.classList.add('active');
       if (item.dataset.view !== 'camera-detail') stopDetailPolling();
       showView('view-' + item.dataset.view);
+      if (item.dataset.view === 'events') loadEventsView();
     });
   });
 
@@ -1012,7 +1037,6 @@
         clock.textContent = new Date().toLocaleTimeString();
       };
       probe.onerror = () => {
-        // No frame yet — keep placeholder
         statusBadge.textContent = 'Connecting';
         statusBadge.className = 'cam-status offline';
       };
@@ -1021,11 +1045,12 @@
 
     tick();
     gridTimers[camId] = setInterval(tick, 2000);
+    fetchLastEvent(camId, lastEvent);
   }
 
-  // ── Camera detail ────────────────────────────────────────────────────────────
+  // ── Camera detail (MJPEG liveview) ───────────────────────────────────────────
   let detailTimer = null;
-  let detailCam = null;
+  let detailCam   = null;
 
   function openDetail(cam) {
     detailCam = cam;
@@ -1033,6 +1058,7 @@
     document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
     showView('view-camera-detail');
     startDetailPolling(cam.id);
+    loadDetailEvents(cam.id);
   }
 
   document.getElementById('detail-remove-btn').addEventListener('click', async () => {
@@ -1052,28 +1078,26 @@
     const placeholder = document.getElementById('detail-placeholder');
     const liveBadge   = document.getElementById('detail-live-badge');
 
-    function tick() {
-      const url = `${FRAME_BASE}/${camId}?t=${Date.now()}`;
-      const probe = new Image();
-      probe.onload = () => {
-        img.src = url;
-        img.style.display = 'block';
-        placeholder.style.display = 'none';
-        liveBadge.style.display = 'block';
-      };
-      probe.onerror = () => {
-        img.style.display = 'none';
-        placeholder.style.display = 'flex';
-        liveBadge.style.display = 'none';
-      };
-      probe.src = url;
-    }
-
-    tick();
-    detailTimer = setInterval(tick, 1000);
+    img.onload = () => {
+      img.style.display = 'block';
+      placeholder.style.display = 'none';
+      liveBadge.style.display = 'block';
+    };
+    img.onerror = () => {
+      img.style.display = 'none';
+      placeholder.style.display = 'flex';
+      liveBadge.style.display = 'none';
+    };
+    img.src = `http://localhost:4001/stream/${camId}`;
   }
 
   function stopDetailPolling() {
+    const img = document.getElementById('detail-img');
+    if (img) { img.src = ''; img.style.display = 'none'; }
+    const placeholder = document.getElementById('detail-placeholder');
+    if (placeholder) placeholder.style.display = 'flex';
+    const liveBadge = document.getElementById('detail-live-badge');
+    if (liveBadge) liveBadge.style.display = 'none';
     if (detailTimer) { clearInterval(detailTimer); detailTimer = null; }
   }
 
@@ -1182,6 +1206,169 @@
       btn.disabled = false;
       btn.style.opacity = '1';
     }
+  });
+
+  // ── Events ───────────────────────────────────────────────────────────────────
+
+  function timeAgo(unixSecs) {
+    const s = Math.floor(Date.now() / 1000) - unixSecs;
+    if (s < 60)    return 'just now';
+    if (s < 3600)  return `${Math.floor(s / 60)}m ago`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+    return `${Math.floor(s / 86400)}d ago`;
+  }
+
+  function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+  async function fetchEvents(cameraId, limit = 20) {
+    const qs = cameraId ? `camera_id=${cameraId}&limit=${limit}` : `limit=${limit}`;
+    const r = await fetch(`http://localhost:4001/events?${qs}`);
+    const data = await r.json();
+    data.forEach(ev => { eventsById[ev.id] = ev; });
+    return data;
+  }
+
+  async function fetchLastEvent(camId, el) {
+    try {
+      const events = await fetchEvents(camId, 4);
+      if (!events.length) {
+        el.innerHTML = '<span class="tile-no-events">No events yet</span>';
+        return;
+      }
+      el.innerHTML = events.map(e => `
+        <div class="tile-event">
+          <img class="tile-event-thumb" src="http://localhost:4001/events/${e.id}/frame" onerror="this.style.display='none'" />
+          <div class="tile-event-meta">
+            <div class="tile-event-name">${cap(e.class_name)}</div>
+            <div class="tile-event-time">${timeAgo(e.started_at)}</div>
+          </div>
+        </div>`).join('');
+    } catch (_) {}
+  }
+
+  async function loadDetailEvents(camId) {
+    const list = document.getElementById('detail-event-list');
+    try {
+      const events = await fetchEvents(camId, 20);
+      if (!events.length) {
+        list.innerHTML = '<div style="color:rgba(255,255,255,0.3);font-size:12px;padding:12px 0;">No events yet</div>';
+        return;
+      }
+      list.innerHTML = events.map(e => {
+        const pct  = Math.round(e.best_confidence * 100);
+        const dot  = e.class_name === 'liveview' ? 'motion' : 'person';
+        return `<div class="event-row" data-event-id="${e.id}">
+          <img class="event-thumb" src="http://localhost:4001/events/${e.id}/frame" onerror="this.style.display='none'" />
+          <div class="event-meta">
+            <div class="event-type"><span class="event-dot ${dot}"></span>${cap(e.class_name)}</div>
+            <div class="event-time">${timeAgo(e.started_at)}</div>
+            <div class="event-conf">Confidence: ${pct}%</div>
+          </div>
+        </div>`;
+      }).join('');
+      list.onclick = e => {
+        const row = e.target.closest('[data-event-id]');
+        if (row) openEventModal(row.dataset.eventId);
+      };
+    } catch (_) {
+      list.innerHTML = '<div style="color:rgba(255,255,255,0.3);font-size:12px;padding:12px 0;">No events yet</div>';
+    }
+  }
+
+  async function loadEventsView() {
+    const tbody = document.getElementById('events-tbody');
+    const badge = document.getElementById('events-count-badge');
+    tbody.innerHTML = '<tr><td colspan="4" style="color:var(--muted);font-size:12px;padding:12px;">Loading…</td></tr>';
+    try {
+      const events = await fetchEvents(null, 50);
+      badge.textContent = `${events.length} recent`;
+      if (!events.length) {
+        tbody.innerHTML = '<tr><td colspan="4" style="color:var(--muted);font-size:12px;padding:12px;">No events yet</td></tr>';
+        return;
+      }
+      const camName = id => { const c = cameras.find(c => c.id === id); return c ? c.name : id.slice(-6); };
+      tbody.innerHTML = events.map(e => {
+        const pct   = Math.round(e.best_confidence * 100);
+        const color = pct >= 80 ? 'var(--primary)' : '#f6c23e';
+        const tag   = e.class_name === 'liveview' ? 'motion' : 'person';
+        return `<tr data-event-id="${e.id}">
+          <td style="padding:6px;"><img src="http://localhost:4001/events/${e.id}/frame" style="width:80px;height:50px;object-fit:cover;border-radius:4px;display:block;background:#eee;" onerror="this.style.display='none'" /></td>
+          <td><span class="cam-badge badge-1">${camName(e.camera_id)}</span></td>
+          <td><span class="event-tag ${tag}">${cap(e.class_name)}</span></td>
+          <td><div class="conf-bar"><div class="conf-track"><div class="conf-fill" style="width:${pct}%;background:${color}"></div></div><span class="conf-label">${pct}%</span></div></td>
+          <td style="color:var(--muted);font-size:12px;font-weight:600;">${timeAgo(e.started_at)}</td>
+        </tr>`;
+      }).join('');
+      tbody.onclick = e => {
+        const row = e.target.closest('[data-event-id]');
+        if (row) openEventModal(row.dataset.eventId);
+      };
+    } catch (_) {
+      tbody.innerHTML = '<tr><td colspan="4" style="color:var(--muted);font-size:12px;padding:12px;">Failed to load events</td></tr>';
+    }
+  }
+
+  // ── Event detail modal ───────────────────────────────────────────────────────
+  let eventsById = {};
+
+  function fmtDate(unixSecs) {
+    if (!unixSecs) return '—';
+    return new Date(unixSecs * 1000).toLocaleString(undefined, {
+      month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    });
+  }
+
+  function fmtDuration(startSecs, endSecs) {
+    if (!startSecs || !endSecs) return '—';
+    const s = endSecs - startSecs;
+    if (s < 60) return `${s}s`;
+    return `${Math.floor(s / 60)}m ${s % 60}s`;
+  }
+
+  function openEventModal(eventId) {
+    const ev = eventsById[eventId];
+    if (!ev) return;
+    const camName = (() => { const c = cameras.find(c => c.id === ev.camera_id); return c ? c.name : ev.camera_id.slice(-6); })();
+    const pct = Math.round((ev.best_confidence || 0) * 100);
+
+    const mediaEl = document.getElementById('event-modal-media');
+    if (ev.clip_path) {
+      mediaEl.innerHTML = `<video controls autoplay style="width:100%;height:100%;object-fit:contain;" src="http://localhost:4001/events/${ev.id}/clip" onerror="this.outerHTML='<div class=\\'event-modal-no-clip\\'>Recording unavailable</div>'"></video>`;
+    } else {
+      const frameUrl = `http://localhost:4001/events/${ev.id}/frame`;
+      mediaEl.innerHTML = `<img src="${frameUrl}" alt="Best frame" onerror="this.outerHTML='<div class=\\'event-modal-no-clip\\'>No frame available</div>'" />`;
+    }
+
+    const metaEl = document.getElementById('event-modal-meta');
+    metaEl.innerHTML = [
+      ['Camera',      camName,                                          ''],
+      ['Detected',    cap(ev.class_name || '—'),                        ''],
+      ['Started',     fmtDate(ev.started_at),                           'muted'],
+      ['Ended',       fmtDate(ev.ended_at),                             'muted'],
+      ['Duration',    fmtDuration(ev.started_at, ev.ended_at),          ''],
+      ['Confidence',  pct ? pct + '%' : '—',                           ''],
+      ['Frames',      ev.frame_count != null ? ev.frame_count : '—',    ''],
+      ['Recording',   ev.clip_path ? 'Saved' : 'None',                 ev.clip_path ? 'ok' : 'muted'],
+    ].map(([label, value, cls]) => `
+      <div class="event-meta-row">
+        <span class="event-meta-label">${label}</span>
+        <span class="event-meta-value ${cls}">${value}</span>
+      </div>`).join('');
+
+    document.getElementById('event-modal-title').textContent = cap(ev.class_name || 'Event');
+    document.getElementById('event-modal').classList.add('open');
+  }
+
+  function closeEventModal() {
+    const mediaEl = document.getElementById('event-modal-media');
+    mediaEl.innerHTML = '';
+    document.getElementById('event-modal').classList.remove('open');
+  }
+
+  document.getElementById('close-event-modal').addEventListener('click', closeEventModal);
+  document.getElementById('event-modal').addEventListener('click', e => {
+    if (e.target === document.getElementById('event-modal')) closeEventModal();
   });
 
   // ── Settings ─────────────────────────────────────────────────────────────────

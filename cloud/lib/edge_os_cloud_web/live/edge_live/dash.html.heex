@@ -1,21 +1,18 @@
-<div class="d-flex align-items-center justify-content-between mb-4">
-  <div>
-    <h1 class="h3 mb-0 text-gray-800">
-      <a href="/edges" class="text-muted mr-2" style="font-size:0.85rem;font-weight:600;">← Edges</a>
-      <%= @edge.name %>
-    </h1>
-    <p class="mb-0 text-muted" style="font-size:0.82rem;">
-      <%= if @protocol == "webrtc" do %>
-        Cameras on this edge
-        <span id="p2p-badge" class="ml-2 badge badge-secondary" style="font-size:0.7rem;">Connecting…</span>
-      <% else %>
-        Edge dashboard
-      <% end %>
-    </p>
+<div class="mb-4">
+  <div class="d-flex align-items-center flex-wrap" style="gap:6px 8px;margin-bottom:3px;">
+    <a href="/edges" style="font-size:0.8rem;font-weight:700;color:#858796;text-decoration:none;">← Devices</a>
+    <span style="color:#d1d3e2;font-size:0.8rem;">›</span>
+    <span style="font-size:1.05rem;font-weight:800;color:#3a3b45;"><%= @edge.name %></span>
+    <span class={"badge " <> if(@edge.status, do: "badge-success", else: "badge-secondary")} style="font-size:0.68rem;">
+      <%= if @edge.status, do: "Online", else: "Offline" %>
+    </span>
+    <%= if @protocol == "webrtc" do %>
+      <span id="p2p-badge" class="badge badge-secondary" style="font-size:0.68rem;">Connecting…</span>
+    <% end %>
   </div>
-  <span class={"badge " <> if(@edge.status, do: "badge-success", else: "badge-secondary")}>
-    <%= if @edge.status, do: "Online", else: "Offline" %>
-  </span>
+  <p class="mb-0 text-muted" style="font-size:0.8rem;">
+    <%= if @protocol == "webrtc", do: "Cameras on this edge", else: "Edge dashboard" %>
+  </p>
 </div>
 
 <%= if @protocol != "webrtc" do %>
@@ -164,6 +161,7 @@
 
         badge(`${count} camera${count === 1 ? '' : 's'}`, 'success');
 
+        const edgeId = '<%= @edge.id %>';
         grid.innerHTML = cameras.map(cam => `
           <div class="col-lg-4 col-md-6 mb-4">
             <div class="card shadow">
@@ -182,11 +180,16 @@
                     ${cam.has_frame ? 'Active' : 'No signal'}
                   </span>
                 </div>
-                <div class="mt-2">
-                  <button class="btn btn-sm btn-outline-primary liveview-btn w-100"
+                <div class="mt-2 d-flex gap-2">
+                  <button class="btn btn-sm btn-outline-primary liveview-btn flex-fill"
                           data-cam-id="${cam.id}" data-cam-name="${cam.name}" style="font-size:0.75rem;">
                     <i class="fas fa-play mr-1"></i>Live View
                   </button>
+                  <a class="btn btn-sm btn-outline-secondary flex-fill"
+                     href="/edges/${edgeId}/cameras/${encodeURIComponent(cam.id)}/events?camera_name=${encodeURIComponent(cam.name)}"
+                     style="font-size:0.75rem;">
+                    <i class="fas fa-history mr-1"></i>Events
+                  </a>
                 </div>
               </div>
             </div>

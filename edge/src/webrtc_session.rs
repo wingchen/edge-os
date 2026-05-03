@@ -39,16 +39,25 @@ pub fn extract_connection_type(json: &str) -> String {
         .unwrap_or_else(|| "ssh".to_string())
 }
 
+type EventStore = Arc<std::sync::Mutex<crate::event_store::EventStore>>;
+type ClipIceTx  = Arc<tokio::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<String>>>>;
+
 async fn handle_camera_channel(
-    dc: Arc<RTCDataChannel>,
-    frame_map: crate::camera_manager::FrameMap,
+    dc:          Arc<RTCDataChannel>,
+    frame_map:   crate::camera_manager::FrameMap,
+    event_store: EventStore,
 ) {
     info!("camera data channel '{}' open", dc.label());
-    let dc_msg = Arc::clone(&dc);
+    let dc_msg   = Arc::clone(&dc);
+    let rt       = tokio::runtime::Handle::current();
+    let clip_ice: ClipIceTx = Arc::new(tokio::sync::Mutex::new(None));
 
     dc.on_message(Box::new(move |msg: DataChannelMessage| {
-        let dc = Arc::clone(&dc_msg);
-        let frame_map = Arc::clone(&frame_map);
+        let dc          = Arc::clone(&dc_msg);
+        let frame_map   = Arc::clone(&frame_map);
+        let event_store = Arc::clone(&event_store);
+        let clip_ice    = Arc::clone(&clip_ice);
+        let rt          = rt.clone();
         Box::pin(async move {
             let text = match std::str::from_utf8(&msg.data) {
                 Ok(t) => t,
@@ -74,6 +83,48 @@ async fn handle_camera_channel(
                         .to_string();
                     info!("camera channel: GET_THUMBNAIL for '{}'", camera_id);
                     get_thumbnail(&dc, &frame_map, &camera_id).await;
+                }
+                Some("LIST_EVENTS") => {
+                    let camera_id = v.get("camera_id").and_then(|id| id.as_str()).unwrap_or("").to_string();
+                    let page      = v.get("page").and_then(|p| p.as_u64()).unwrap_or(0) as usize;
+                    let per_page  = v.get("per_page").and_then(|p| p.as_u64()).unwrap_or(10).min(50) as usize;
+                    info!("camera channel: LIST_EVENTS camera='{}' page={} per_page={}", camera_id, page, per_page);
+                    list_events(&dc, &event_store, &camera_id, page, per_page).await;
+                }
+                Some("GET_EVENT_FRAME") => {
+                    let event_id = v.get("event_id").and_then(|id| id.as_i64()).unwrap_or(0);
+                    get_event_frame(&dc, &event_store, event_id).await;
+                }
+                Some("GET_EVENT_CLIP") => {
+                    let event_id = v.get("event_id").and_then(|id| id.as_i64()).unwrap_or(0);
+                    info!("camera channel: GET_EVENT_CLIP event_id={}", event_id);
+                    send_clip(&dc, &event_store, event_id).await;
+                }
+                Some("STREAM_CLIP_OFFER") => {
+                    let event_id = v.get("event_id").and_then(|id| id.as_i64()).unwrap_or(0);
+                    let sdp      = v.get("sdp").and_then(|s| s.as_str()).unwrap_or("").to_string();
+                    let clip_path: Option<String> = event_store.lock().ok()
+                        .and_then(|store| store.get_clip_path(event_id).ok().flatten());
+                    match clip_path {
+                        None => {
+                            let _ = dc.send_text(serde_json::json!({
+                                "type": "STREAM_CLIP_ERROR", "event_id": event_id,
+                                "reason": "no recording saved for this event",
+                            }).to_string()).await;
+                        }
+                        Some(path) => {
+                            info!("camera channel: STREAM_CLIP_OFFER event_id={event_id}");
+                            let ice_tx = crate::clip_stream::start_clip_stream(
+                                path, sdp, event_id, Arc::clone(&dc), rt,
+                            );
+                            *clip_ice.lock().await = Some(ice_tx);
+                        }
+                    }
+                }
+                Some("STREAM_CLIP_ICE_BROWSER") => {
+                    if let Some(ref tx) = *clip_ice.lock().await {
+                        let _ = tx.send(text.to_string());
+                    }
                 }
                 other => warn!("camera channel: unknown message type {:?} — raw: {text}", other),
             }
@@ -165,6 +216,120 @@ async fn get_thumbnail(
     }
 }
 
+async fn list_events(
+    dc:          &Arc<RTCDataChannel>,
+    event_store: &EventStore,
+    camera_id:   &str,
+    page:        usize,
+    per_page:    usize,
+) {
+    let offset = page * per_page;
+    // Acquire lock, do all DB work, drop lock — MutexGuard never crosses an await.
+    let payload: String = event_store.lock().ok()
+        .map(|store| {
+            let total  = store.count(camera_id).unwrap_or(0);
+            let events = store.list_page(camera_id, offset, per_page).unwrap_or_default();
+            let total_pages = ((total as f64) / (per_page as f64)).ceil() as i64;
+            let events_json: Vec<serde_json::Value> = events.iter().map(|e| serde_json::json!({
+                "id":              e.id,
+                "class_name":      e.class_name,
+                "started_at":      e.started_at,
+                "ended_at":        e.ended_at,
+                "best_confidence": e.best_confidence,
+                "frame_count":     e.frame_count,
+                "has_clip":        e.clip_path.is_some(),
+            })).collect();
+            serde_json::json!({
+                "type":        "EVENT_LIST",
+                "events":      events_json,
+                "page":        page,
+                "per_page":    per_page,
+                "total":       total,
+                "total_pages": total_pages.max(1),
+            }).to_string()
+        })
+        .unwrap_or_else(|| r#"{"type":"EVENT_LIST","events":[],"page":0,"total_pages":1,"total":0}"#.to_string());
+
+    let _ = dc.send_text(payload).await;
+}
+
+async fn get_event_frame(
+    dc:          &Arc<RTCDataChannel>,
+    event_store: &EventStore,
+    event_id:    i64,
+) {
+    // Lock, read, drop — no MutexGuard across await.
+    let jpeg: Option<Vec<u8>> = event_store.lock().ok()
+        .and_then(|store| store.get_frame(event_id).ok());
+
+    let payload = match jpeg {
+        None => serde_json::json!({
+            "type": "EVENT_FRAME_ERROR", "event_id": event_id, "reason": "not found"
+        }).to_string(),
+        Some(raw) => {
+            let thumb = make_thumbnail(&raw, 320, 180).unwrap_or(raw);
+            use base64::Engine;
+            let b64 = base64::engine::general_purpose::STANDARD.encode(&thumb);
+            serde_json::json!({
+                "type": "EVENT_FRAME", "event_id": event_id, "data": b64,
+            }).to_string()
+        }
+    };
+    let _ = dc.send_text(payload).await;
+}
+
+async fn send_clip(
+    dc:          &Arc<RTCDataChannel>,
+    event_store: &EventStore,
+    event_id:    i64,
+) {
+    // Lock, read clip_path, drop lock immediately before any await.
+    let clip_path: Option<String> = event_store.lock().ok()
+        .and_then(|store| store.get_clip_path(event_id).ok().flatten());
+
+    let path = match clip_path {
+        Some(p) => p,
+        None => {
+            let _ = dc.send_text(serde_json::json!({
+                "type": "CLIP_ERROR", "event_id": event_id, "reason": "no recording saved"
+            }).to_string()).await;
+            return;
+        }
+    };
+
+    let data = match tokio::fs::read(&path).await {
+        Ok(d) if !d.is_empty() => d,
+        _ => {
+            let _ = dc.send_text(serde_json::json!({
+                "type": "CLIP_ERROR", "event_id": event_id, "reason": "clip file not found or empty"
+            }).to_string()).await;
+            return;
+        }
+    };
+
+    const CHUNK: usize = 65_536; // 64 KB per message
+    let total_chunks = (data.len() + CHUNK - 1) / CHUNK;
+
+    let _ = dc.send_text(serde_json::json!({
+        "type": "CLIP_META", "event_id": event_id,
+        "size": data.len(), "total_chunks": total_chunks,
+    }).to_string()).await;
+
+    for i in 0..total_chunks {
+        let start = i * CHUNK;
+        let end   = (start + CHUNK).min(data.len());
+        if dc.send(&Bytes::copy_from_slice(&data[start..end])).await.is_err() {
+            break;
+        }
+    }
+
+    let _ = dc.send_text(serde_json::json!({
+        "type": "CLIP_DONE", "event_id": event_id,
+    }).to_string()).await;
+
+    info!("camera channel: clip sent event_id={} size={}", event_id, data.len());
+}
+
 fn make_thumbnail(jpeg: &[u8], max_w: u32, max_h: u32) -> anyhow::Result<Vec<u8>> {
     let img = image::load_from_memory(jpeg)?.into_rgb8();
     let (w, h) = image::GenericImageView::dimensions(&img);
@@ -180,9 +345,10 @@ fn make_thumbnail(jpeg: &[u8], max_w: u32, max_h: u32) -> anyhow::Result<Vec<u8>
 
 pub async fn handle_camera_offer(
     json_payload: String,
-    tx: UnboundedSender<Message>,
-    mut ice_rx: tokio_mpsc::UnboundedReceiver<String>,
-    frame_map: crate::camera_manager::FrameMap,
+    tx:           UnboundedSender<Message>,
+    mut ice_rx:   tokio_mpsc::UnboundedReceiver<String>,
+    frame_map:    crate::camera_manager::FrameMap,
+    event_store:  EventStore,
 ) {
     let payload: OfferPayload = match serde_json::from_str(&json_payload) {
         Ok(p) => p,
@@ -262,9 +428,10 @@ pub async fn handle_camera_offer(
     }));
 
     pc.on_data_channel(Box::new(move |dc: Arc<RTCDataChannel>| {
-        let frame_map = Arc::clone(&frame_map);
+        let frame_map   = Arc::clone(&frame_map);
+        let event_store = Arc::clone(&event_store);
         Box::pin(async move {
-            handle_camera_channel(dc, frame_map).await;
+            handle_camera_channel(dc, frame_map, event_store).await;
         })
     }));
 

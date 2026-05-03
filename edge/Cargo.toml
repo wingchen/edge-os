@@ -7,12 +7,12 @@ edition = "2021"
 
 [dependencies]
 log = "0.4"
-futures-util = "0.3.25"
-futures-channel = "0.3.25"
+futures-util = "0.3"
+futures-channel = "0.3"
 url = "2.3.1"
 tokio = { version = "1.21.2", features = ["full"] }
 tokio-tungstenite = { version = "0.17.2", features = ["native-tls"] }
-reqwest = "0.11.12"
+reqwest = { version = "0.11.12", features = ["blocking"] }
 sysinfo = "0.27.0"
 syn = "1.0.104"
 serde = { version = "1.0.152", features = ["derive"] }
@@ -27,7 +27,7 @@ bytes = "1"
 retina = "0.4.19"
 openh264 = "0.9"
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
-axum = "0.7"
+axum = { version = "0.7", features = ["ws"] }
 tower = "0.4"
 anyhow = "1"
 futures = "0.3"
@@ -35,6 +35,9 @@ base64 = "0.22"
 gstreamer = "0.23"
 gstreamer-webrtc = "0.23"
 gstreamer-sdp = "0.23"
+gstreamer-app = "0.23"
+rusqlite = { version = "0.31", features = ["bundled"] }
+ort       = { version = "2.0.0-rc.12", features = ["download-binaries"] }
 
 [dependencies.uuid]
 version = "1.2.1"
