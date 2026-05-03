@@ -40,7 +40,6 @@ pub fn extract_connection_type(json: &str) -> String {
 }
 
 type EventStore = Arc<std::sync::Mutex<crate::event_store::EventStore>>;
-type ClipIceTx  = Arc<tokio::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<String>>>>;
 
 async fn handle_camera_channel(
     dc:          Arc<RTCDataChannel>,
@@ -48,16 +47,12 @@ async fn handle_camera_channel(
     event_store: EventStore,
 ) {
     info!("camera data channel '{}' open", dc.label());
-    let dc_msg   = Arc::clone(&dc);
-    let rt       = tokio::runtime::Handle::current();
-    let clip_ice: ClipIceTx = Arc::new(tokio::sync::Mutex::new(None));
+    let dc_msg = Arc::clone(&dc);
 
     dc.on_message(Box::new(move |msg: DataChannelMessage| {
         let dc          = Arc::clone(&dc_msg);
         let frame_map   = Arc::clone(&frame_map);
         let event_store = Arc::clone(&event_store);
-        let clip_ice    = Arc::clone(&clip_ice);
-        let rt          = rt.clone();
         Box::pin(async move {
             let text = match std::str::from_utf8(&msg.data) {
                 Ok(t) => t,
@@ -100,30 +95,21 @@ async fn handle_camera_channel(
                     info!("camera channel: GET_EVENT_CLIP event_id={}", event_id);
                     send_clip(&dc, &event_store, event_id).await;
                 }
-                Some("STREAM_CLIP_OFFER") => {
+                Some("STREAM_CLIP") => {
                     let event_id = v.get("event_id").and_then(|id| id.as_i64()).unwrap_or(0);
-                    let sdp      = v.get("sdp").and_then(|s| s.as_str()).unwrap_or("").to_string();
                     let clip_path: Option<String> = event_store.lock().ok()
                         .and_then(|store| store.get_clip_path(event_id).ok().flatten());
                     match clip_path {
                         None => {
                             let _ = dc.send_text(serde_json::json!({
-                                "type": "STREAM_CLIP_ERROR", "event_id": event_id,
+                                "type": "CLIP_STREAM_ERROR", "event_id": event_id,
                                 "reason": "no recording saved for this event",
                             }).to_string()).await;
                         }
                         Some(path) => {
-                            info!("camera channel: STREAM_CLIP_OFFER event_id={event_id}");
-                            let ice_tx = crate::clip_stream::start_clip_stream(
-                                path, sdp, event_id, Arc::clone(&dc), rt,
-                            );
-                            *clip_ice.lock().await = Some(ice_tx);
+                            info!("camera channel: STREAM_CLIP event_id={event_id}");
+                            crate::clip_stream::start_clip_stream(path, event_id, Arc::clone(&dc));
                         }
-                    }
-                }
-                Some("STREAM_CLIP_ICE_BROWSER") => {
-                    if let Some(ref tx) = *clip_ice.lock().await {
-                        let _ = tx.send(text.to_string());
                     }
                 }
                 other => warn!("camera channel: unknown message type {:?} — raw: {text}", other),

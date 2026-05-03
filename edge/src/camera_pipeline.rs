@@ -16,8 +16,6 @@ use crate::event_store::EventStore;
 use crate::rtsp_camera::SharedFrame;
 use crate::webrtc_session::OfferPayload;
 
-use image::RgbImage;
-
 // ── Public command API ────────────────────────────────────────────────────────
 
 pub enum PipelineCmd {
@@ -79,8 +77,6 @@ struct ViewerBranch {
 }
 
 struct RecordingBranch {
-    event_id:         i64,
-    clip_path:        String,
     /// YOLO event ids that fired while this recording was active and should
     /// share the same clip_path when the recording finalises.
     shared_event_ids: Vec<i64>,
@@ -545,7 +541,9 @@ fn start_recording(
     let queue    = gst::ElementFactory::make("queue").build()?;
     // h264parse converts Annex-B → AVCC format required by mp4mux
     let parse    = gst::ElementFactory::make("h264parse").build()?;
-    let mux      = gst::ElementFactory::make("mp4mux").build()?;
+    let mux      = gst::ElementFactory::make("mp4mux")
+                       .property("fragment-duration", 500u32)
+                       .build()?;
     let filesink = gst::ElementFactory::make("filesink")
                        .property("location", &clip_path)
                        .property("sync", false)
@@ -587,7 +585,7 @@ fn start_recording(
     }
 
     info!("[pipeline:{camera_id}] recording started → {clip_path}");
-    Ok(RecordingBranch { event_id, clip_path, shared_event_ids: vec![], tee_src, queue, parse, mux, filesink })
+    Ok(RecordingBranch { shared_event_ids: vec![], tee_src, queue, parse, mux, filesink })
 }
 
 // ── stop_recording ────────────────────────────────────────────────────────────

@@ -5,7 +5,6 @@ use url::Url;
 use retina::client::{Credentials, PlayOptions, Session, SessionOptions, SetupOptions};
 use retina::codec::CodecItem;
 use openh264::decoder::Decoder;
-use openh264::formats::YUVSource;
 
 /// Latest JPEG frame shared between the GStreamer appsink and HTTP server.
 pub type SharedFrame = Arc<Mutex<Option<Vec<u8>>>>;

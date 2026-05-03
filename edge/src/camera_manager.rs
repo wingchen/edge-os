@@ -5,12 +5,11 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use axum::{
     Router,
     routing::{get, post},
-    extract::{Path, Query, State, ws::{WebSocket, WebSocketUpgrade, Message as WsMessage}},
+    extract::{Path, Query, State},
     response::{Response, IntoResponse},
     http::{StatusCode, header, HeaderMap},
     Json,
 };
-use futures_util::{SinkExt, StreamExt};
 use tokio::sync::Mutex;
 use serde::Deserialize;
 
@@ -21,7 +20,6 @@ use crate::yolo::Yolo;
 
 pub struct CameraState {
     pub name:     String,
-    pub rtsp_url: String,
     pub frame:    SharedFrame,
     pub pipeline: Option<CameraGstPipeline>,
 }
@@ -41,6 +39,7 @@ struct CameraEntry {
     name: String,
     rtsp_url: String,
     #[serde(default = "default_fps")]
+    #[allow(dead_code)]
     fps: u32,
     #[serde(default = "default_detect_classes")]
     detect_classes: Vec<usize>,
@@ -93,9 +92,8 @@ pub async fn start(working_dir: &str) -> (FrameMap, Arc<std::sync::Mutex<EventSt
     info!("[camera_manager] starting {} camera(s)", cameras.len());
 
     for cam in cameras {
-        let id       = cam.id.clone();
-        let name     = cam.name.clone();
-        let rtsp_url = cam.rtsp_url.clone();
+        let id   = cam.id.clone();
+        let name = cam.name.clone();
 
         // Always-on GStreamer pipeline — WebRTC viewers + recording
         let frame: SharedFrame = Arc::new(Mutex::new(None));
@@ -136,7 +134,7 @@ pub async fn start(working_dir: &str) -> (FrameMap, Arc<std::sync::Mutex<EventSt
             infer_rx,
         );
 
-        frame_map.lock().await.insert(id, CameraState { name, rtsp_url, frame, pipeline });
+        frame_map.lock().await.insert(id, CameraState { name, frame, pipeline });
     }
 
     (frame_map, event_store)
@@ -364,7 +362,6 @@ async fn reload_handler(State(state): State<AppState>) -> impl IntoResponse {
             let frame: SharedFrame = Arc::new(Mutex::new(None));
             map.insert(cam.id.clone(), CameraState {
                 name: cam.name.clone(),
-                rtsp_url: cam.rtsp_url.clone(),
                 frame,
                 pipeline: None,   // TODO: spin up GStreamer pipeline on reload too
             });
@@ -452,145 +449,6 @@ async fn mjpeg_handler(
         .into_response()
 }
 
-async fn ws_camera_handler(
-    Path(camera_id): Path<String>,
-    ws: WebSocketUpgrade,
-    State(state): State<AppState>,
-) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| ws_camera_session(socket, camera_id, state))
-}
-
-async fn ws_camera_session(socket: WebSocket, camera_id: String, state: AppState) {
-    info!("[ws:{camera_id}] client connected");
-    let (mut ws_tx, mut ws_rx) = socket.split();
-
-    // Get the pipeline cmd_tx for this camera
-    let cmd_tx = {
-        let map = state.frame_map.lock().await;
-        map.get(&camera_id)
-            .and_then(|s| s.pipeline.as_ref())
-            .map(|p| p.cmd_tx.clone())
-    };
-    let cmd_tx = match cmd_tx {
-        Some(t) => t,
-        None => {
-            warn!("[ws:{camera_id}] no pipeline found");
-            let _ = ws_tx.send(WsMessage::Text(r#"{"type":"error","msg":"no pipeline"}"#.into())).await;
-            return;
-        }
-    };
-    info!("[ws:{camera_id}] pipeline found, waiting for offer");
-
-    // Wait for the initial offer message from the browser
-    let offer_text = loop {
-        match ws_rx.next().await {
-            Some(Ok(WsMessage::Text(t))) => break t,
-            Some(Ok(m)) => { info!("[ws:{camera_id}] skipping non-text message: {m:?}"); continue; }
-            Some(Err(e)) => { warn!("[ws:{camera_id}] ws error waiting for offer: {e}"); return; }
-            None => { warn!("[ws:{camera_id}] ws closed before offer"); return; }
-        }
-    };
-    info!("[ws:{camera_id}] got offer ({} bytes)", offer_text.len());
-
-    let session_id = uuid::Uuid::new_v4().to_string();
-
-    // Build an OfferPayload from the local offer
-    let offer_val: serde_json::Value = match serde_json::from_str(&offer_text) {
-        Ok(v) => v,
-        Err(_) => return,
-    };
-    let sdp = match offer_val.get("sdp").and_then(|v| v.as_str()) {
-        Some(s) => s.to_string(),
-        None => return,
-    };
-
-    let offer = crate::webrtc_session::OfferPayload {
-        session_id:     session_id.clone(),
-        sdp,
-        camera_id:      Some(camera_id.clone()),
-        turn_host:      None,
-        turn_username:  None,
-        turn_credential: None,
-    };
-
-    // Channel: pipeline sends WEBRTC_ANSWER / ICE_CANDIDATE text → ws
-    let (sig_tx, mut sig_rx) = futures_channel::mpsc::unbounded::<tokio_tungstenite::tungstenite::Message>();
-
-    // Channel: ws receives ICE from browser → pipeline
-    let (ice_tx, ice_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-
-    // Send AddViewer to the GStreamer pipeline
-    if cmd_tx.send(crate::camera_pipeline::PipelineCmd::AddViewer {
-        session_id: session_id.clone(),
-        offer,
-        signaling_tx: sig_tx,
-        ice_rx,
-    }).await.is_err() {
-        return;
-    }
-
-    // Forward pipeline → ws (answers and ICE candidates)
-    let mut ws_tx_fwd = ws_tx;
-    let fwd = tokio::spawn(async move {
-        while let Some(msg) = sig_rx.next().await {
-            // msg is "WEBRTC_ANSWER {...}" or "ICE_CANDIDATE {...}"
-            let text = match msg {
-                tokio_tungstenite::tungstenite::Message::Text(t) => t,
-                _ => continue,
-            };
-            let (kind, payload) = match text.splitn(2, ' ').collect::<Vec<_>>().as_slice() {
-                [k, p] => (k.to_string(), p.to_string()),
-                _ => continue,
-            };
-            let out = match kind.as_str() {
-                "WEBRTC_ANSWER" => {
-                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&payload) {
-                        serde_json::json!({"type":"answer","sdp":v["sdp"]}).to_string()
-                    } else { continue }
-                }
-                "ICE_CANDIDATE" => {
-                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&payload) {
-                        serde_json::json!({
-                            "type":          "ice",
-                            "candidate":     v["candidate"],
-                            "sdpMLineIndex": v["sdpMLineIndex"],
-                            "sdpMid":        v["sdpMid"],
-                        }).to_string()
-                    } else { continue }
-                }
-                _ => continue,
-            };
-            if ws_tx_fwd.send(WsMessage::Text(out)).await.is_err() { break; }
-        }
-    });
-
-    // Forward browser ICE → pipeline
-    while let Some(msg) = ws_rx.next().await {
-        let text = match msg {
-            Ok(WsMessage::Text(t)) => t,
-            Ok(WsMessage::Close(_)) | Err(_) => break,
-            _ => continue,
-        };
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
-            if v.get("type").and_then(|t| t.as_str()) == Some("ice") {
-                let ice_json = serde_json::json!({
-                    "session_id":    session_id,
-                    "candidate":     v["candidate"],
-                    "sdpMLineIndex": v["sdpMLineIndex"],
-                    "sdpMid":        "",
-                }).to_string();
-                let _ = ice_tx.send(ice_json);
-            }
-        }
-    }
-
-    // Browser disconnected — remove viewer
-    let _ = cmd_tx.send(crate::camera_pipeline::PipelineCmd::RemoveViewer {
-        session_id: session_id.clone(),
-    }).await;
-
-    fwd.abort();
-}
 
 #[derive(Deserialize)]
 struct EventsQuery {

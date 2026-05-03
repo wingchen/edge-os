@@ -9,6 +9,7 @@ pub struct EventStore {
 pub struct Event {
     pub id:             i64,
     pub camera_id:      String,
+    #[allow(dead_code)]
     pub class_id:       usize,
     pub class_name:     String,
     pub started_at:     i64,

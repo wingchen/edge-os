@@ -75,9 +75,10 @@
       let totalPages    = 1;
       let pendingFrames = new Set();
 
-      // Clip streaming state (WebRTC video track)
-      let clipVideoPC   = null;   // RTCPeerConnection for the active clip stream
-      let activeClipId  = null;   // event_id of the clip being streamed
+      // Clip streaming state (raw bytes over data channel → Blob URL)
+      let activeClipId      = null;  // event_id of the clip being streamed
+      let streamChunks      = [];    // ArrayBuffer chunks accumulated so far
+      let streamBlobUrl     = null;  // current video Blob URL (revoke on close)
 
       // Save state (full chunk download for browser save)
       let saveState     = null;   // { eventId, chunks, receivedSize, totalSize }
@@ -159,17 +160,16 @@
       }
 
       function handleMessage(msg) {
-        if (msg.type === 'EVENT_LIST')           renderEvents(msg);
-        if (msg.type === 'EVENT_FRAME')          applyFrame(msg.event_id, msg.data);
-        // Clip streaming (WebRTC video track)
-        if (msg.type === 'STREAM_CLIP_ANSWER')   onStreamAnswer(msg);
-        if (msg.type === 'STREAM_CLIP_ICE_EDGE') onStreamIce(msg);
-        if (msg.type === 'STREAM_CLIP_DONE')     onStreamDone(msg);
-        if (msg.type === 'STREAM_CLIP_ERROR')    onStreamError(msg);
+        if (msg.type === 'EVENT_LIST')        renderEvents(msg);
+        if (msg.type === 'EVENT_FRAME')       applyFrame(msg.event_id, msg.data);
+        // Clip streaming (fMP4 over data channel)
+        if (msg.type === 'CLIP_STREAM_META')  onStreamMeta(msg);
+        if (msg.type === 'CLIP_STREAM_DONE')  onStreamDone(msg);
+        if (msg.type === 'CLIP_STREAM_ERROR') onStreamError(msg);
         // Save / download (full chunk transfer)
-        if (msg.type === 'CLIP_META')            onSaveMeta(msg);
-        if (msg.type === 'CLIP_DONE')            onSaveDone(msg);
-        if (msg.type === 'CLIP_ERROR')           onSaveError(msg);
+        if (msg.type === 'CLIP_META')         onSaveMeta(msg);
+        if (msg.type === 'CLIP_DONE')         onSaveDone(msg);
+        if (msg.type === 'CLIP_ERROR')        onSaveError(msg);
       }
 
       function renderEvents(msg) {
@@ -264,23 +264,25 @@
         pendingFrames.delete(eventId);
       }
 
-      // ── Clip streaming (WebRTC video track) ────────────────────────────────
+      // ── Clip streaming (raw bytes → Blob URL) ──────────────────────────────────
+
       function openClipModal(eventId) {
-        if (activeClipId !== null) return; // already streaming
+        if (activeClipId !== null) return;
         const ev = (window._eventsCache || {})[eventId];
 
-        // Reset modal
         const video   = document.getElementById('modal-video');
         const loading = document.getElementById('clip-loading');
         const errEl   = document.getElementById('clip-error');
         const saveBtn = document.getElementById('save-btn');
         video.pause();
-        video.srcObject = null;
+        if (streamBlobUrl) { URL.revokeObjectURL(streamBlobUrl); streamBlobUrl = null; }
+        video.removeAttribute('src');
+        video.load();
         video.style.display   = 'none';
         loading.style.display = 'flex';
         errEl.style.display   = 'none';
         saveBtn.style.display = 'none';
-        document.getElementById('clip-loading-label').textContent = 'Connecting…';
+        document.getElementById('clip-loading-label').textContent = 'Downloading…';
         document.getElementById('modal-title').textContent =
           ev ? cap(ev.class_name) + ' Recording' : 'Event Recording';
 
@@ -302,71 +304,45 @@
 
         document.getElementById('clip-modal-overlay').style.display = 'flex';
         activeClipId = eventId;
+        streamChunks = [];
 
-        // Create a new RTCPeerConnection for the clip video track
-        const iceServers = <%= raw(Jason.encode!(@ice_servers)) %>;
-        clipVideoPC = new RTCPeerConnection({ iceServers });
-        clipVideoPC.addTransceiver('video', { direction: 'recvonly' });
-
-        clipVideoPC.ontrack = ({ track }) => {
-          if (track.kind !== 'video') return;
-          video.srcObject = new MediaStream([track]);
-          video.style.display = 'block';
-          loading.style.display = 'none';
-          saveBtn.style.display = 'inline-block';
-        };
-
-        clipVideoPC.onicecandidate = ({ candidate }) => {
-          if (!candidate || !dc || dc.readyState !== 'open') return;
-          dc.send(JSON.stringify({
-            type:          'STREAM_CLIP_ICE_BROWSER',
-            event_id:      eventId,
-            candidate:     candidate.candidate,
-            sdpMLineIndex: candidate.sdpMLineIndex,
-            sdpMid:        candidate.sdpMid || '',
-          }));
-        };
-
-        clipVideoPC.createOffer()
-          .then(o => clipVideoPC.setLocalDescription(o))
-          .then(() => {
-            dc.send(JSON.stringify({
-              type:     'STREAM_CLIP_OFFER',
-              event_id: eventId,
-              sdp:      clipVideoPC.localDescription.sdp,
-            }));
-            document.getElementById('clip-loading-label').textContent = 'Buffering…';
-          })
-          .catch(e => showStreamError('WebRTC offer failed: ' + e));
+        if (dc && dc.readyState === 'open')
+          dc.send(JSON.stringify({ type: 'STREAM_CLIP', event_id: eventId }));
       }
 
       function closeClipModal() {
         document.getElementById('clip-modal-overlay').style.display = 'none';
         const video = document.getElementById('modal-video');
         video.pause();
-        video.srcObject = null;
+        if (streamBlobUrl) { URL.revokeObjectURL(streamBlobUrl); streamBlobUrl = null; }
+        video.removeAttribute('src');
+        video.load();
         video.style.display = 'none';
-        if (clipVideoPC) { clipVideoPC.close(); clipVideoPC = null; }
         activeClipId = null;
+        streamChunks = [];
         saveState    = null;
         document.getElementById('save-progress').style.display = 'none';
       }
 
-      function onStreamAnswer(msg) {
-        if (!clipVideoPC || msg.event_id !== activeClipId) return;
-        clipVideoPC.setRemoteDescription({ type: 'answer', sdp: msg.sdp }).catch(() => {});
-      }
-
-      function onStreamIce(msg) {
-        if (!clipVideoPC || msg.event_id !== activeClipId) return;
-        const init = { candidate: msg.candidate, sdpMLineIndex: msg.sdpMLineIndex };
-        if (msg.sdpMid) init.sdpMid = msg.sdpMid;
-        clipVideoPC.addIceCandidate(init).catch(() => {});
+      function onStreamMeta(msg) {
+        if (msg.event_id !== activeClipId) return;
+        streamChunks = [];
+        document.getElementById('clip-loading-label').textContent = 'Downloading…';
       }
 
       function onStreamDone(msg) {
         if (msg.event_id !== activeClipId) return;
-        // File ended — video element keeps playing what's buffered
+        const blob = new Blob(streamChunks, { type: 'video/mp4' });
+        streamBlobUrl = URL.createObjectURL(blob);
+        streamChunks  = []; // free the raw chunk memory
+        const video   = document.getElementById('modal-video');
+        const loading = document.getElementById('clip-loading');
+        const saveBtn = document.getElementById('save-btn');
+        video.src = streamBlobUrl;
+        video.style.display   = 'block';
+        loading.style.display = 'none';
+        saveBtn.style.display = 'inline-block';
+        video.play().catch(() => {});
       }
 
       function onStreamError(msg) {
@@ -383,13 +359,13 @@
 
       // ── Save / download (full chunk transfer) ───────────────────────────────
       document.getElementById('save-btn').addEventListener('click', () => {
-        if (saveState || !activeClipId || !dc || dc.readyState !== 'open') return;
-        saveState = { eventId: activeClipId, chunks: [], receivedSize: 0, totalSize: 0 };
-        document.getElementById('save-btn').textContent = '⏳ Downloading…';
-        document.getElementById('save-btn').disabled = true;
-        document.getElementById('save-progress').style.display = 'block';
-        document.getElementById('save-progress').textContent = 'Starting…';
-        dc.send(JSON.stringify({ type: 'GET_EVENT_CLIP', event_id: activeClipId }));
+        if (!streamBlobUrl || !activeClipId) return;
+        const a = document.createElement('a');
+        a.href     = streamBlobUrl;
+        a.download = `event_${activeClipId}.mp4`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
       });
 
       function onSaveMeta(msg) {
@@ -400,6 +376,18 @@
       }
 
       function handleBinaryChunk(buf) {
+        // Stream chunks are prefixed with 'S' (0x53) 'T' (0x54)
+        const u8 = new Uint8Array(buf);
+        if (u8.length >= 2 && u8[0] === 0x53 && u8[1] === 0x54) {
+          if (activeClipId !== null) {
+            streamChunks.push(buf.slice(2));
+            const received = streamChunks.reduce((s, c) => s + c.byteLength, 0);
+            document.getElementById('clip-loading-label').textContent =
+              'Downloading… ' + fmtBytes(received);
+          }
+          return;
+        }
+        // Bare binary = save-download chunk
         if (!saveState) return;
         saveState.chunks.push(buf);
         saveState.receivedSize += buf.byteLength;
