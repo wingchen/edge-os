@@ -158,24 +158,37 @@ fn save_config(
     team_hash: String,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    // Preserve existing cameras array when saving connection config
-    let existing = read_full_config();
-    let cameras = existing.get("cameras").cloned().unwrap_or(serde_json::json!([]));
-    let config = serde_json::json!({
-        "cloud_url": cloud_url,
-        "team_hash": team_hash,
-        "cameras":   cameras,
-    });
-    std::fs::write(config_file_path(), config.to_string()).map_err(|e| e.to_string())?;
-
-    let _ = restart_daemon(); // best-effort: silently skip if daemon not installed yet
+    #[cfg(target_os = "macos")]
+    {
+        match daemon_process_state() {
+            ProcessState::NotInstalled => {
+                // First install: daemon not present yet.
+                // install_daemon writes config.json + plist and loads the daemon.
+                install_daemon(&cloud_url, &team_hash)?;
+            }
+            _ => {
+                // Already installed: update config then restart.
+                let existing = read_full_config();
+                let cameras  = existing.get("cameras").cloned().unwrap_or(serde_json::json!([]));
+                let cfg      = serde_json::json!({ "cloud_url": cloud_url, "team_hash": team_hash, "cameras": cameras });
+                std::fs::write(config_file_path(), cfg.to_string()).map_err(|e| e.to_string())?;
+                let _ = restart_daemon();
+            }
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let existing = read_full_config();
+        let cameras  = existing.get("cameras").cloned().unwrap_or(serde_json::json!([]));
+        let cfg      = serde_json::json!({ "cloud_url": cloud_url, "team_hash": team_hash, "cameras": cameras });
+        std::fs::write(config_file_path(), cfg.to_string()).map_err(|e| e.to_string())?;
+        let _ = restart_daemon();
+    }
 
     if let Some(win) = app.get_webview_window("setup") {
         let _ = win.close();
     }
-
     show_main_window(&app).map_err(|e| e.to_string())?;
-
     Ok(())
 }
 
@@ -191,7 +204,7 @@ async fn reload_daemon_cameras() -> Result<(), String> {
 fn restart_daemon() -> std::io::Result<()> {
     #[cfg(target_os = "macos")]
     {
-        let script = r#"do shell script "launchctl unload /Library/LaunchDaemons/com.sailoi.edgeos.plist && launchctl load /Library/LaunchDaemons/com.sailoi.edgeos.plist" with administrator privileges"#;
+        let script = r#"do shell script "launchctl unload /Library/LaunchDaemons/com.sailoi.edgeos.plist && launchctl load -w /Library/LaunchDaemons/com.sailoi.edgeos.plist" with administrator privileges"#;
         std::process::Command::new("osascript")
             .args(["-e", script])
             .status()?;
@@ -203,6 +216,102 @@ fn restart_daemon() -> std::io::Result<()> {
             .status()?;
     }
     Ok(())
+}
+
+/// First-time installation on macOS: copies the bundled sidecar binary into
+/// /Library/Application Support/EdgeOS/, writes the launchd plist, and loads
+/// the daemon — all in a single osascript call that prompts for admin once.
+#[cfg(target_os = "macos")]
+fn install_daemon(cloud_url: &str, team_hash: &str) -> Result<(), String> {
+    let sidecar = find_sidecar_path()
+        .ok_or_else(|| "EdgeOS sidecar binary not found in app bundle. Make sure the app is installed in /Applications.".to_string())?;
+
+    let edge_dir  = "/Library/Application Support/EdgeOS";
+    let edge_bin  = format!("{edge_dir}/edge-os-edge");
+    let plist_dst = "/Library/LaunchDaemons/com.sailoi.edgeos.plist";
+    let wss_url   = cloud_url.replace("https://", "wss://").replace("http://", "ws://");
+
+    // Build config + plist as strings and stage them in /tmp (no admin needed)
+    let config_json = serde_json::json!({
+        "cloud_url": cloud_url,
+        "team_hash": team_hash,
+        "cameras":   [],
+    }).to_string();
+    let plist_xml = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.sailoi.edgeos</string>
+    <key>ProgramArguments</key>
+    <array><string>{edge_bin}</string></array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>EDGE_OS_EDGE_DIR</key><string>{edge_dir}</string>
+        <key>EDGE_OS_CLOUD_TEAM_HASH</key><string>{team_hash}</string>
+        <key>EDGE_OS_CLOUD_URL</key><string>{wss_url}</string>
+        <key>RUST_LOG</key><string>info</string>
+    </dict>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>StandardOutPath</key><string>/var/log/edgeos.log</string>
+    <key>StandardErrorPath</key><string>/var/log/edgeos-error.log</string>
+</dict>
+</plist>"#
+    );
+
+    let tmp_config = "/tmp/edgeos-config.json";
+    let tmp_plist  = "/tmp/com.sailoi.edgeos.plist";
+    std::fs::write(tmp_config, &config_json).map_err(|e| format!("write tmp config: {e}"))?;
+    std::fs::write(tmp_plist,  &plist_xml).map_err(|e| format!("write tmp plist: {e}"))?;
+
+    // One admin prompt does everything
+    let script = format!(
+        "do shell script \
+         \"mkdir -p '{edge_dir}' && chmod 775 '{edge_dir}' && \
+         cp '{sidecar}' '{edge_bin}' && chmod 755 '{edge_bin}' && \
+         cp '{tmp_config}' '{edge_dir}/config.json' && chmod 644 '{edge_dir}/config.json' && \
+         mv '{tmp_plist}' '{plist_dst}' && chown root:wheel '{plist_dst}' && chmod 644 '{plist_dst}' && \
+         launchctl unload '{plist_dst}' 2>/dev/null; launchctl load -w '{plist_dst}'\" \
+         with administrator privileges",
+        edge_dir  = edge_dir,
+        sidecar   = sidecar.display(),
+        edge_bin  = edge_bin,
+        tmp_config = tmp_config,
+        tmp_plist  = tmp_plist,
+        plist_dst  = plist_dst,
+    );
+
+    let out = std::process::Command::new("osascript")
+        .args(["-e", &script])
+        .output()
+        .map_err(|e| format!("osascript: {e}"))?;
+
+    let _ = std::fs::remove_file(tmp_config);
+    let _ = std::fs::remove_file(tmp_plist);
+
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        return Err(format!("Daemon installation failed: {err}"));
+    }
+    Ok(())
+}
+
+/// Locate the bundled sidecar binary inside the running .app bundle.
+/// Tauri names it  edge-os-edge-{target_triple}  next to the main executable.
+#[cfg(target_os = "macos")]
+fn find_sidecar_path() -> Option<std::path::PathBuf> {
+    let exe     = std::env::current_exe().ok()?;
+    let macos   = exe.parent()?;
+    let entries = std::fs::read_dir(macos).ok()?;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let s    = name.to_string_lossy();
+        if s.starts_with("edge-os-edge-") {
+            return Some(entry.path());
+        }
+    }
+    None
 }
 
 // ── Config helpers ────────────────────────────────────────────────────────────
