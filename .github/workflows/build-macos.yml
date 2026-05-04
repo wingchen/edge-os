@@ -123,6 +123,16 @@ jobs:
           echo "=== Bundled libs: $(ls $LIB_DIR | wc -l) files ==="
           echo "=== Bundled plugins: $(ls $PLUGIN_DIR | wc -l) files ==="
 
+      # Strip Homebrew Team ID from bundled dylibs so they match the
+      # ad-hoc signed edge binary (no Team ID). Without this macOS refuses
+      # to load them: "different Team IDs".
+      - name: Ad-hoc re-sign bundled dylibs
+        run: |
+          for f in app/src-tauri/gstreamer/lib/*.dylib \
+                   app/src-tauri/gstreamer/plugins/*.dylib; do
+            codesign -f -s - "$f" 2>/dev/null || true
+          done
+
       - name: Stage sidecar for Tauri
         run: |
           mkdir -p edge/target/release
