@@ -146,7 +146,22 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 - [ ] Verify on clean macOS VM and clean Ubuntu/RHEL VMs before shipping
 - [ ] CoreML execution provider for ONNX (Apple Neural Engine) — deferred to Phase 6 AI inference
 
-### TODO — 3F: Mobile viewer
+### TODO — 3F: Proper Apple signing + switch macOS daemon back to LaunchDaemon
+> Currently the macOS edge daemon runs as a **LaunchAgent** (user session only) because macOS kernel Library Validation blocks root processes from loading dylibs with a different Team ID. Homebrew-built GStreamer dylibs cannot pass this check for a LaunchDaemon even after ad-hoc re-signing.
+>
+> **When to do this:** once an Apple Developer Program membership ($99/year) is in place.
+>
+> **What changes:**
+> - Sign the edge binary AND all bundled GStreamer dylibs with the same Developer ID Team ID in CI
+> - Library Validation passes → LaunchDaemon (root) can load the dylibs without the "different Team IDs" error
+> - Move plist back to `/Library/LaunchDaemons/com.sailoi.edgeos.plist`
+> - Move edge dir back to `/Library/Application Support/EdgeOS/` (root-owned)
+> - Add back `osascript with administrator privileges` (or use a proper `.pkg` installer) for install/restart
+> - Notarize the `.dmg` to eliminate Gatekeeper warnings on first launch
+>
+> **Benefit:** daemon survives user logout and starts at boot — important for always-on NVR deployments.
+
+### TODO — 3G: Mobile viewer
 > Deferred. Tauri v2 mobile (iOS + Android) for viewing camera feeds and managing edges. Depends on Phase 6 camera MVP being complete first.
 
 ### Headless Linux (Pi / server)
