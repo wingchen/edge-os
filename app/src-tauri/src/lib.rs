@@ -343,14 +343,14 @@ fn check_and_update_daemon(app: &tauri::AppHandle) {
 
     let current_version = env!("CARGO_PKG_VERSION");
     let version_file    = "/Library/Application Support/EdgeOS/version";
-    let installed_ver   = std::fs::read_to_string(version_file)
-        .unwrap_or_default();
+    let installed_ver   = std::fs::read_to_string(version_file).unwrap_or_default();
+    let gst_present     = std::path::Path::new("/Library/Application Support/EdgeOS/gstreamer").exists();
 
-    if installed_ver.trim() == current_version {
-        return; // already up to date
+    if installed_ver.trim() == current_version && gst_present {
+        return; // binary and gstreamer both up to date
     }
 
-    // New version detected — copy the sidecar and restart
+    // New version or missing gstreamer — copy the sidecar and/or gstreamer and restart
     let Ok(sidecar) = find_sidecar_path(app) else { return };
     let dest = "/Library/Application Support/EdgeOS/edge-os-edge";
 
