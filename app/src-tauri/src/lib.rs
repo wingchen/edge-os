@@ -26,6 +26,8 @@ pub fn run() {
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
             build_tray(app)?;
+            #[cfg(target_os = "macos")]
+            check_and_update_daemon(app.handle());
             start_daemon_monitor(app.handle().clone());
 
             if config_exists() {
@@ -163,7 +165,7 @@ fn save_config(
             ProcessState::NotInstalled => {
                 // First install: daemon not present yet.
                 // install_daemon writes config.json + plist and loads the daemon.
-                install_daemon(&cloud_url, &team_hash)?;
+                install_daemon(&cloud_url, &team_hash, &app)?;
             }
             _ => {
                 // Already installed: update config then restart.
@@ -221,9 +223,8 @@ fn restart_daemon() -> std::io::Result<()> {
 /// /Library/Application Support/EdgeOS/, writes the launchd plist, and loads
 /// the daemon — all in a single osascript call that prompts for admin once.
 #[cfg(target_os = "macos")]
-fn install_daemon(cloud_url: &str, team_hash: &str) -> Result<(), String> {
-    let sidecar = find_sidecar_path()
-        .ok_or_else(|| "EdgeOS sidecar binary not found in app bundle. Make sure the app is installed in /Applications.".to_string())?;
+fn install_daemon(cloud_url: &str, team_hash: &str, app: &tauri::AppHandle) -> Result<(), String> {
+    let sidecar = find_sidecar_path(app)?;
 
     let edge_dir  = "/Library/Application Support/EdgeOS";
     let edge_bin  = format!("{edge_dir}/edge-os-edge");
@@ -296,21 +297,77 @@ fn install_daemon(cloud_url: &str, team_hash: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Locate the bundled sidecar binary inside the running .app bundle.
-/// Tauri names it  edge-os-edge-{target_triple}  next to the main executable.
+/// On every launch, check whether the installed daemon binary matches the app
+/// version.  If not (user reinstalled a new DMG), copy the new sidecar over
+/// the old one and restart the daemon.  The data directory is chmod 775
+/// root:admin, so the copy succeeds without sudo; only the launchctl restart
+/// needs the admin prompt.
 #[cfg(target_os = "macos")]
-fn find_sidecar_path() -> Option<std::path::PathBuf> {
-    let exe     = std::env::current_exe().ok()?;
-    let macos   = exe.parent()?;
-    let entries = std::fs::read_dir(macos).ok()?;
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let s    = name.to_string_lossy();
-        if s.starts_with("edge-os-edge") {
-            return Some(entry.path());
+fn check_and_update_daemon(app: &tauri::AppHandle) {
+    if !matches!(daemon_process_state(), ProcessState::Running | ProcessState::Stopped) {
+        return; // not installed yet — nothing to update
+    }
+
+    let current_version = env!("CARGO_PKG_VERSION");
+    let version_file    = "/Library/Application Support/EdgeOS/version";
+    let installed_ver   = std::fs::read_to_string(version_file)
+        .unwrap_or_default();
+
+    if installed_ver.trim() == current_version {
+        return; // already up to date
+    }
+
+    // New version detected — copy the sidecar and restart
+    let Ok(sidecar) = find_sidecar_path(app) else { return };
+    let dest = "/Library/Application Support/EdgeOS/edge-os-edge";
+
+    // The directory is chmod 775 root:admin so an admin-group user can
+    // delete+recreate files without sudo.
+    let _ = std::fs::remove_file(dest);
+    if std::fs::copy(&sidecar, dest).is_err() { return }
+    let _ = std::process::Command::new("chmod").args(["755", dest]).status();
+
+    // Write the version file (also in the 775 dir — no sudo needed)
+    let _ = std::fs::write(version_file, current_version);
+
+    // Restart the daemon so it picks up the new binary
+    let _ = restart_daemon();
+}
+
+/// Locate the bundled sidecar binary inside the running .app bundle.
+/// Tauri strips the target triple when bundling, so the file is just
+/// `edge-os-edge` in `Contents/MacOS/` alongside the main executable.
+#[cfg(target_os = "macos")]
+fn find_sidecar_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    // resource_dir = Contents/Resources/ → parent = Contents/ → MacOS/
+    let macos = app.path().resource_dir()
+        .map_err(|e| format!("resource_dir: {e}"))?
+        .parent()
+        .map(|p| p.join("MacOS"))
+        .ok_or_else(|| "could not determine Contents/MacOS path".to_string())?;
+
+    // Exact name (what Tauri actually bundles)
+    let exact = macos.join("edge-os-edge");
+    if exact.exists() { return Ok(exact); }
+
+    // Fallback scan in case a future Tauri version keeps the triple
+    let entries: Vec<_> = std::fs::read_dir(&macos)
+        .map(|rd| rd.flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect())
+        .unwrap_or_default();
+
+    for name in &entries {
+        if name.starts_with("edge-os-edge") {
+            return Ok(macos.join(name));
         }
     }
-    None
+
+    Err(format!(
+        "sidecar not found in {} — contents: [{}]",
+        macos.display(),
+        entries.join(", "),
+    ))
 }
 
 // ── Config helpers ────────────────────────────────────────────────────────────
