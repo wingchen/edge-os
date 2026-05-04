@@ -146,6 +146,37 @@ jobs:
         env:
           APPLE_SIGNING_IDENTITY: '-'
 
+      # ── Strip Hardened Runtime + rebuild DMG ───────────────────────────────
+      # Tauri signs the sidecar with --options runtime (Hardened Runtime), which
+      # enables Library Validation and prevents loading ad-hoc-signed GStreamer
+      # dylibs. Re-sign without that flag, then rebuild the DMG.
+      - name: Strip Hardened Runtime from sidecar and rebuild DMG
+        run: |
+          set -e
+          BUNDLE="app/src-tauri/target/aarch64-apple-darwin/release/bundle"
+          APP="$BUNDLE/macos/EdgeOS.app"
+
+          # Re-sign sidecar ad-hoc WITHOUT --options runtime
+          codesign --force --sign - "$APP/Contents/MacOS/edge-os-edge"
+
+          # Re-sign GStreamer dylibs (belt-and-suspenders)
+          find "$APP/Contents/Resources/gstreamer" -name "*.dylib" \
+            -exec codesign --force --sign - {} \;
+
+          # Re-sign the outer app bundle to reflect nested changes
+          codesign --force --sign - "$APP"
+
+          # Rebuild DMG (original is now stale)
+          STAGING=$(mktemp -d)
+          cp -R "$APP" "$STAGING/"
+          ln -s /Applications "$STAGING/Applications"
+          DMG=$(find "$BUNDLE/dmg" -name "*.dmg" | head -1)
+          rm -f "$DMG"
+          hdiutil create -volname "EdgeOS" -srcfolder "$STAGING" -ov -format UDZO "$DMG"
+          rm -rf "$STAGING"
+          echo "=== Rebuilt DMG: $DMG ==="
+          codesign -dvvv "$APP/Contents/MacOS/edge-os-edge" 2>&1 | grep "flags="
+
       # ── Upload artifact ─────────────────────────────────────────────────────
       - name: Upload DMG
         uses: actions/upload-artifact@v4
