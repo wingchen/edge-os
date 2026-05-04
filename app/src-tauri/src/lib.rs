@@ -306,7 +306,7 @@ fn find_sidecar_path() -> Option<std::path::PathBuf> {
     for entry in entries.flatten() {
         let name = entry.file_name();
         let s    = name.to_string_lossy();
-        if s.starts_with("edge-os-edge-") {
+        if s.starts_with("edge-os-edge") {
             return Some(entry.path());
         }
     }
