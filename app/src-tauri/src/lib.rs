@@ -226,17 +226,36 @@ fn restart_daemon() -> std::io::Result<()> {
 fn install_daemon(cloud_url: &str, team_hash: &str, app: &tauri::AppHandle) -> Result<(), String> {
     let sidecar = find_sidecar_path(app)?;
 
-    let edge_dir  = "/Library/Application Support/EdgeOS";
-    let edge_bin  = format!("{edge_dir}/edge-os-edge");
-    let plist_dst = "/Library/LaunchDaemons/com.sailoi.edgeos.plist";
-    let wss_url   = cloud_url.replace("https://", "wss://").replace("http://", "ws://");
+    // GStreamer bundle lives in Contents/Resources/gstreamer/ inside the .app
+    let resource_dir = app.path().resource_dir()
+        .map_err(|e| format!("resource_dir: {e}"))?;
+    let gst_lib_src    = resource_dir.join("gstreamer/lib");
+    let gst_plugin_src = resource_dir.join("gstreamer/plugins");
+    let has_gst_bundle = gst_lib_src.exists() && gst_plugin_src.exists();
 
-    // Build config + plist as strings and stage them in /tmp (no admin needed)
+    let edge_dir       = "/Library/Application Support/EdgeOS";
+    let edge_bin       = format!("{edge_dir}/edge-os-edge");
+    let gst_lib_dst    = format!("{edge_dir}/gstreamer/lib");
+    let gst_plugin_dst = format!("{edge_dir}/gstreamer/plugins");
+    let plist_dst      = "/Library/LaunchDaemons/com.sailoi.edgeos.plist";
+    let wss_url        = cloud_url.replace("https://", "wss://").replace("http://", "ws://");
+
     let config_json = serde_json::json!({
         "cloud_url": cloud_url,
         "team_hash": team_hash,
         "cameras":   [],
     }).to_string();
+
+    // GST env vars are only needed when using the bundled GStreamer
+    let gst_env = if has_gst_bundle {
+        format!(
+            "        <key>GST_PLUGIN_PATH</key><string>{gst_plugin_dst}</string>\n\
+             \x20       <key>GST_REGISTRY_1_0</key><string>{edge_dir}/gst-registry.bin</string>"
+        )
+    } else {
+        String::new()
+    };
+
     let plist_xml = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -251,6 +270,7 @@ fn install_daemon(cloud_url: &str, team_hash: &str, app: &tauri::AppHandle) -> R
         <key>EDGE_OS_CLOUD_TEAM_HASH</key><string>{team_hash}</string>
         <key>EDGE_OS_CLOUD_URL</key><string>{wss_url}</string>
         <key>RUST_LOG</key><string>info</string>
+{gst_env}
     </dict>
     <key>RunAtLoad</key><true/>
     <key>KeepAlive</key><true/>
@@ -265,18 +285,31 @@ fn install_daemon(cloud_url: &str, team_hash: &str, app: &tauri::AppHandle) -> R
     std::fs::write(tmp_config, &config_json).map_err(|e| format!("write tmp config: {e}"))?;
     std::fs::write(tmp_plist,  &plist_xml).map_err(|e| format!("write tmp plist: {e}"))?;
 
-    // One admin prompt does everything
+    // Build the GStreamer copy commands (only if bundle is present)
+    let gst_copy_cmds = if has_gst_bundle {
+        format!(
+            "mkdir -p '{gst_lib_dst}' '{gst_plugin_dst}' && \
+             cp -R '{gst_lib_src}/.' '{gst_lib_dst}/' && \
+             cp -R '{gst_plugin_src}/.' '{gst_plugin_dst}/' && ",
+            gst_lib_src    = gst_lib_src.display(),
+            gst_plugin_src = gst_plugin_src.display(),
+        )
+    } else {
+        String::new()
+    };
+
     let script = format!(
         "do shell script \
          \"mkdir -p '{edge_dir}' && chmod 775 '{edge_dir}' && \
+         {gst_copy_cmds}\
          cp '{sidecar}' '{edge_bin}' && chmod 755 '{edge_bin}' && \
          cp '{tmp_config}' '{edge_dir}/config.json' && chmod 644 '{edge_dir}/config.json' && \
          mv '{tmp_plist}' '{plist_dst}' && chown root:wheel '{plist_dst}' && chmod 644 '{plist_dst}' && \
          launchctl unload '{plist_dst}' 2>/dev/null; launchctl load -w '{plist_dst}'\" \
          with administrator privileges",
-        edge_dir  = edge_dir,
-        sidecar   = sidecar.display(),
-        edge_bin  = edge_bin,
+        edge_dir   = edge_dir,
+        sidecar    = sidecar.display(),
+        edge_bin   = edge_bin,
         tmp_config = tmp_config,
         tmp_plist  = tmp_plist,
         plist_dst  = plist_dst,
@@ -326,6 +359,23 @@ fn check_and_update_daemon(app: &tauri::AppHandle) {
     let _ = std::fs::remove_file(dest);
     if std::fs::copy(&sidecar, dest).is_err() { return }
     let _ = std::process::Command::new("chmod").args(["755", dest]).status();
+
+    // Also update the bundled GStreamer (no sudo needed — same 775 dir)
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let gst_lib_src    = resource_dir.join("gstreamer/lib");
+        let gst_plugin_src = resource_dir.join("gstreamer/plugins");
+        if gst_lib_src.exists() {
+            let edge_dir = "/Library/Application Support/EdgeOS";
+            let _ = std::process::Command::new("cp")
+                .args(["-R", &gst_lib_src.to_string_lossy(),
+                       &format!("{edge_dir}/gstreamer/lib")])
+                .status();
+            let _ = std::process::Command::new("cp")
+                .args(["-R", &gst_plugin_src.to_string_lossy(),
+                       &format!("{edge_dir}/gstreamer/plugins")])
+                .status();
+        }
+    }
 
     // Write the version file (also in the 775 dir — no sudo needed)
     let _ = std::fs::write(version_file, current_version);

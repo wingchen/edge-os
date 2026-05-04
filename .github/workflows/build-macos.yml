@@ -50,7 +50,7 @@ jobs:
           key: homebrew-gstreamer-${{ runner.arch }}-${{ hashFiles('.github/workflows/build-macos.yml') }}
           restore-keys: homebrew-gstreamer-${{ runner.arch }}-
 
-      - name: Install GStreamer via Homebrew
+      - name: Install GStreamer and dylibbundler
         run: |
           brew install \
             gstreamer \
@@ -58,7 +58,8 @@ jobs:
             gst-plugins-good \
             gst-plugins-bad \
             gst-plugins-ugly \
-            libnice
+            libnice \
+            dylibbundler
 
       - name: Export GStreamer pkg-config paths
         run: |
@@ -72,6 +73,56 @@ jobs:
         run: cargo build --release --target aarch64-apple-darwin
         working-directory: edge
 
+      # ── Bundle GStreamer dylibs + plugins ───────────────────────────────────
+      # Rewrites the binary's load paths to @executable_path/gstreamer/lib so
+      # the daemon finds its dylibs without Homebrew being present on end-user
+      # machines. Plugins are copied separately and found via GST_PLUGIN_PATH.
+      - name: Bundle GStreamer into app resources
+        run: |
+          set -e
+          BREW=$(brew --prefix)
+          EDGE_BIN="edge/target/aarch64-apple-darwin/release/edge-os-edge"
+          LIB_DIR="app/src-tauri/gstreamer/lib"
+          PLUGIN_DIR="app/src-tauri/gstreamer/plugins"
+
+          mkdir -p "$LIB_DIR" "$PLUGIN_DIR"
+
+          # Collect all dylib deps of the binary and rewrite load paths
+          dylibbundler \
+            --fix-file "$EDGE_BIN" \
+            --bundle-deps \
+            --dest-dir "$LIB_DIR" \
+            --install-path "@executable_path/gstreamer/lib" \
+            --overwrite-dir \
+            --search-path "$BREW/lib"
+
+          # Copy the GStreamer plugins we actually use
+          GST_SRC="$BREW/lib/gstreamer-1.0"
+          for plugin in \
+            libgstcoreelements libgstapp \
+            libgstrtspsrc libgstrtp libgstrtpmanager \
+            libgstvideoconvert libgstvideorate \
+            libgstisomp4 libgstjpeg \
+            libgstwebrtc libgstnice \
+            libgstvideoparsersbad libgstapplemedia; do
+            [ -f "$GST_SRC/${plugin}.dylib" ] && \
+              cp "$GST_SRC/${plugin}.dylib" "$PLUGIN_DIR/" || true
+          done
+
+          # Rewrite each plugin's own dylib deps to use the bundled libs
+          for f in "$PLUGIN_DIR"/*.dylib; do
+            dylibbundler \
+              --fix-file "$f" \
+              --bundle-deps \
+              --dest-dir "$LIB_DIR" \
+              --install-path "@loader_path/../lib" \
+              --overwrite-dir \
+              --search-path "$BREW/lib" 2>/dev/null || true
+          done
+
+          echo "=== Bundled libs: $(ls $LIB_DIR | wc -l) files ==="
+          echo "=== Bundled plugins: $(ls $PLUGIN_DIR | wc -l) files ==="
+
       - name: Stage sidecar for Tauri
         run: |
           mkdir -p edge/target/release
@@ -83,7 +134,6 @@ jobs:
         run: npm run build -- --target aarch64-apple-darwin
         working-directory: app
         env:
-          # Disable code signing for CI builds (no certificate available)
           APPLE_SIGNING_IDENTITY: '-'
 
       # ── Upload artifact ─────────────────────────────────────────────────────
