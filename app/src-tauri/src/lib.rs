@@ -360,19 +360,16 @@ fn check_and_update_daemon(app: &tauri::AppHandle) {
     if std::fs::copy(&sidecar, dest).is_err() { return }
     let _ = std::process::Command::new("chmod").args(["755", dest]).status();
 
-    // Also update the bundled GStreamer (no sudo needed — same 775 dir)
+    // Also update the bundled GStreamer. The EdgeOS dir is chmod 775 root:admin
+    // so an admin-group user can create subdirectories without sudo.
     if let Ok(resource_dir) = app.path().resource_dir() {
-        let gst_lib_src    = resource_dir.join("gstreamer/lib");
-        let gst_plugin_src = resource_dir.join("gstreamer/plugins");
-        if gst_lib_src.exists() {
+        let gst_src = resource_dir.join("gstreamer");
+        if gst_src.exists() {
             let edge_dir = "/Library/Application Support/EdgeOS";
+            let gst_dst  = format!("{edge_dir}/gstreamer");
+            let _ = std::process::Command::new("mkdir").args(["-p", &gst_dst]).status();
             let _ = std::process::Command::new("cp")
-                .args(["-R", &gst_lib_src.to_string_lossy(),
-                       &format!("{edge_dir}/gstreamer/lib")])
-                .status();
-            let _ = std::process::Command::new("cp")
-                .args(["-R", &gst_plugin_src.to_string_lossy(),
-                       &format!("{edge_dir}/gstreamer/plugins")])
+                .args(["-R", &format!("{}/.", gst_src.display()), &format!("{gst_dst}/")])
                 .status();
         }
     }
