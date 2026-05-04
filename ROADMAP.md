@@ -146,20 +146,16 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 - [ ] Verify on clean macOS VM and clean Ubuntu/RHEL VMs before shipping
 - [ ] CoreML execution provider for ONNX (Apple Neural Engine) — deferred to Phase 6 AI inference
 
-### TODO — 3F: Proper Apple signing + switch macOS daemon back to LaunchDaemon
-> Currently the macOS edge daemon runs as a **LaunchAgent** (user session only) because macOS kernel Library Validation blocks root processes from loading dylibs with a different Team ID. Homebrew-built GStreamer dylibs cannot pass this check for a LaunchDaemon even after ad-hoc re-signing.
+### TODO — 3F: Proper Apple signing + notarization
+> The daemon currently runs as a **LaunchDaemon** (root, starts at boot, survives logout). GStreamer dylibs load correctly because the sidecar binary is ad-hoc re-signed in CI WITHOUT Hardened Runtime — Library Validation is therefore not enforced.
 >
 > **When to do this:** once an Apple Developer Program membership ($99/year) is in place.
 >
 > **What changes:**
-> - Sign the edge binary AND all bundled GStreamer dylibs with the same Developer ID Team ID in CI
-> - Library Validation passes → LaunchDaemon (root) can load the dylibs without the "different Team IDs" error
-> - Move plist back to `/Library/LaunchDaemons/com.sailoi.edgeos.plist`
-> - Move edge dir back to `/Library/Application Support/EdgeOS/` (root-owned)
-> - Add back `osascript with administrator privileges` (or use a proper `.pkg` installer) for install/restart
-> - Notarize the `.dmg` to eliminate Gatekeeper warnings on first launch
->
-> **Benefit:** daemon survives user logout and starts at boot — important for always-on NVR deployments.
+> - Sign the edge binary and all bundled GStreamer dylibs with the same Developer ID Team ID in CI
+> - Remove the post-build "strip Hardened Runtime" step from `build-macos.yml` — proper signing with matching Team IDs makes Library Validation pass naturally
+> - Notarize the `.dmg` so Gatekeeper does not warn on first launch
+> - Use a proper `.pkg` installer (with pre/postinstall scripts) instead of the `osascript with administrator privileges` prompt for a more polished install experience
 
 ### TODO — 3G: Mobile viewer
 > Deferred. Tauri v2 mobile (iOS + Android) for viewing camera feeds and managing edges. Depends on Phase 6 camera MVP being complete first.

@@ -27,7 +27,7 @@ pub fn run() {
 
             build_tray(app)?;
             #[cfg(target_os = "macos")]
-            cleanup_old_launch_daemon();
+            cleanup_old_launch_agent();
             #[cfg(target_os = "macos")]
             check_and_update_daemon(app.handle());
             start_daemon_monitor(app.handle().clone());
@@ -207,13 +207,9 @@ async fn reload_daemon_cameras() -> Result<(), String> {
 fn restart_daemon() -> std::io::Result<()> {
     #[cfg(target_os = "macos")]
     {
-        let home  = std::env::var("HOME").unwrap_or_default();
-        let plist = format!("{home}/Library/LaunchAgents/com.sailoi.edgeos.plist");
-        let _ = std::process::Command::new("launchctl")
-            .args(["unload", &plist])
-            .status();
-        std::process::Command::new("launchctl")
-            .args(["load", "-w", &plist])
+        let script = r#"do shell script "launchctl unload /Library/LaunchDaemons/com.sailoi.edgeos.plist && launchctl load -w /Library/LaunchDaemons/com.sailoi.edgeos.plist" with administrator privileges"#;
+        std::process::Command::new("osascript")
+            .args(["-e", script])
             .status()?;
     }
     #[cfg(target_os = "linux")]
@@ -225,29 +221,31 @@ fn restart_daemon() -> std::io::Result<()> {
     Ok(())
 }
 
-/// First-time installation on macOS: copies the bundled sidecar binary and
-/// GStreamer bundle into ~/Library/Application Support/EdgeOS/, writes the
-/// LaunchAgent plist, and loads it — all as the current user, no admin needed.
+/// First-time installation on macOS: copies the bundled sidecar binary into
+/// /Library/Application Support/EdgeOS/, writes the launchd plist, and loads
+/// the daemon — all in a single osascript call that prompts for admin once.
 #[cfg(target_os = "macos")]
 fn install_daemon(cloud_url: &str, team_hash: &str, app: &tauri::AppHandle) -> Result<(), String> {
-    let home = std::env::var("HOME").map_err(|_| "HOME env var not set".to_string())?;
-    let edge_dir       = format!("{home}/Library/Application Support/EdgeOS");
-    let edge_bin       = format!("{edge_dir}/edge-os-edge");
-    let gst_plugin_dst = format!("{edge_dir}/gstreamer/plugins");
-    let gst_lib_dst    = format!("{edge_dir}/gstreamer/lib");
-    let log_dir        = format!("{home}/Library/Logs");
-    let agents_dir     = format!("{home}/Library/LaunchAgents");
-    let plist_path     = format!("{agents_dir}/com.sailoi.edgeos.plist");
-    let wss_url        = cloud_url.replace("https://", "wss://").replace("http://", "ws://");
-
     let sidecar = find_sidecar_path(app)?;
 
-    // GStreamer bundle lives in Contents/Resources/gstreamer/ inside the .app
     let resource_dir = app.path().resource_dir()
         .map_err(|e| format!("resource_dir: {e}"))?;
     let gst_lib_src    = resource_dir.join("gstreamer/lib");
     let gst_plugin_src = resource_dir.join("gstreamer/plugins");
     let has_gst_bundle = gst_lib_src.exists() && gst_plugin_src.exists();
+
+    let edge_dir       = "/Library/Application Support/EdgeOS";
+    let edge_bin       = format!("{edge_dir}/edge-os-edge");
+    let gst_lib_dst    = format!("{edge_dir}/gstreamer/lib");
+    let gst_plugin_dst = format!("{edge_dir}/gstreamer/plugins");
+    let plist_dst      = "/Library/LaunchDaemons/com.sailoi.edgeos.plist";
+    let wss_url        = cloud_url.replace("https://", "wss://").replace("http://", "ws://");
+
+    let config_json = serde_json::json!({
+        "cloud_url": cloud_url,
+        "team_hash": team_hash,
+        "cameras":   [],
+    }).to_string();
 
     let gst_env = if has_gst_bundle {
         format!(
@@ -276,69 +274,75 @@ fn install_daemon(cloud_url: &str, team_hash: &str, app: &tauri::AppHandle) -> R
     </dict>
     <key>RunAtLoad</key><true/>
     <key>KeepAlive</key><true/>
-    <key>StandardOutPath</key><string>{log_dir}/edgeos.log</string>
-    <key>StandardErrorPath</key><string>{log_dir}/edgeos-error.log</string>
+    <key>StandardOutPath</key><string>/var/log/edgeos.log</string>
+    <key>StandardErrorPath</key><string>/var/log/edgeos-error.log</string>
 </dict>
 </plist>"#
     );
 
-    // Create directories (all user-owned, no sudo needed)
-    std::fs::create_dir_all(&edge_dir).map_err(|e| format!("create edge dir: {e}"))?;
-    std::fs::create_dir_all(&log_dir).map_err(|e| format!("create log dir: {e}"))?;
-    std::fs::create_dir_all(&agents_dir).map_err(|e| format!("create LaunchAgents dir: {e}"))?;
+    let tmp_config = "/tmp/edgeos-config.json";
+    let tmp_plist  = "/tmp/com.sailoi.edgeos.plist";
+    std::fs::write(tmp_config, &config_json).map_err(|e| format!("write tmp config: {e}"))?;
+    std::fs::write(tmp_plist,  &plist_xml).map_err(|e| format!("write tmp plist: {e}"))?;
 
-    // Copy sidecar binary
-    std::fs::copy(&sidecar, &edge_bin).map_err(|e| format!("copy edge binary: {e}"))?;
-    let _ = std::process::Command::new("chmod").args(["755", &edge_bin]).status();
+    let gst_copy_cmds = if has_gst_bundle {
+        format!(
+            "mkdir -p '{gst_lib_dst}' '{gst_plugin_dst}' && \
+             cp -R '{gst_lib_src}/.' '{gst_lib_dst}/' && \
+             cp -R '{gst_plugin_src}/.' '{gst_plugin_dst}/' && ",
+            gst_lib_src    = gst_lib_src.display(),
+            gst_plugin_src = gst_plugin_src.display(),
+        )
+    } else {
+        String::new()
+    };
 
-    // Copy GStreamer bundle if present
-    if has_gst_bundle {
-        std::fs::create_dir_all(&gst_lib_dst).map_err(|e| format!("create gst lib dir: {e}"))?;
-        std::fs::create_dir_all(&gst_plugin_dst).map_err(|e| format!("create gst plugin dir: {e}"))?;
-        std::process::Command::new("cp")
-            .args(["-R", &format!("{}/.", gst_lib_src.display()), &format!("{gst_lib_dst}/")])
-            .status().map_err(|e| format!("copy gst lib: {e}"))?;
-        std::process::Command::new("cp")
-            .args(["-R", &format!("{}/.", gst_plugin_src.display()), &format!("{gst_plugin_dst}/")])
-            .status().map_err(|e| format!("copy gst plugins: {e}"))?;
+    let script = format!(
+        "do shell script \
+         \"mkdir -p '{edge_dir}' && chmod 775 '{edge_dir}' && \
+         {gst_copy_cmds}\
+         cp '{sidecar}' '{edge_bin}' && chmod 755 '{edge_bin}' && \
+         cp '{tmp_config}' '{edge_dir}/config.json' && chmod 644 '{edge_dir}/config.json' && \
+         mv '{tmp_plist}' '{plist_dst}' && chown root:wheel '{plist_dst}' && chmod 644 '{plist_dst}' && \
+         launchctl unload '{plist_dst}' 2>/dev/null; launchctl load -w '{plist_dst}'\" \
+         with administrator privileges",
+        edge_dir   = edge_dir,
+        sidecar    = sidecar.display(),
+        edge_bin   = edge_bin,
+        tmp_config = tmp_config,
+        tmp_plist  = tmp_plist,
+        plist_dst  = plist_dst,
+    );
+
+    let out = std::process::Command::new("osascript")
+        .args(["-e", &script])
+        .output()
+        .map_err(|e| format!("osascript: {e}"))?;
+
+    let _ = std::fs::remove_file(tmp_config);
+    let _ = std::fs::remove_file(tmp_plist);
+
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        return Err(format!("Daemon installation failed: {err}"));
     }
-
-    // Write config.json
-    let config_json = serde_json::json!({
-        "cloud_url": cloud_url,
-        "team_hash": team_hash,
-        "cameras":   [],
-    }).to_string();
-    std::fs::write(format!("{edge_dir}/config.json"), &config_json)
-        .map_err(|e| format!("write config: {e}"))?;
-
-    // Write and load the LaunchAgent plist
-    std::fs::write(&plist_path, &plist_xml).map_err(|e| format!("write plist: {e}"))?;
-    let _ = std::process::Command::new("launchctl").args(["unload", &plist_path]).status();
-    std::process::Command::new("launchctl")
-        .args(["load", "-w", &plist_path])
-        .status()
-        .map_err(|e| format!("launchctl load: {e}"))?;
-
     Ok(())
 }
 
-/// One-time migration: if the old root LaunchDaemon plist is present (from a
-/// pre-LaunchAgent build), unload and remove it so it doesn't conflict.
-/// Requires admin once; silently skips if the user cancels or it's already gone.
+/// One-time migration: if the old LaunchAgent plist is present (from the brief
+/// period when we ran as a user agent), unload and remove it so it doesn't
+/// conflict with the LaunchDaemon. No admin needed — user owns ~/Library/.
 #[cfg(target_os = "macos")]
-fn cleanup_old_launch_daemon() {
-    let old_plist = "/Library/LaunchDaemons/com.sailoi.edgeos.plist";
-    if !std::path::Path::new(old_plist).exists() {
+fn cleanup_old_launch_agent() {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let old_plist = format!("{home}/Library/LaunchAgents/com.sailoi.edgeos.plist");
+    if !std::path::Path::new(&old_plist).exists() {
         return;
     }
-    let script = format!(
-        "do shell script \"launchctl unload '{old_plist}' 2>/dev/null; \
-         rm -f '{old_plist}'\" with administrator privileges"
-    );
-    let _ = std::process::Command::new("osascript")
-        .args(["-e", &script])
+    let _ = std::process::Command::new("launchctl")
+        .args(["unload", &old_plist])
         .status();
+    let _ = std::fs::remove_file(&old_plist);
 }
 
 /// On every launch, check whether the installed daemon binary matches the app
@@ -352,9 +356,8 @@ fn check_and_update_daemon(app: &tauri::AppHandle) {
         return; // not installed yet — nothing to update
     }
 
-    let home         = std::env::var("HOME").unwrap_or_default();
-    let edge_dir     = format!("{home}/Library/Application Support/EdgeOS");
     let current_version = env!("CARGO_PKG_VERSION");
+    let edge_dir     = "/Library/Application Support/EdgeOS";
     let version_file = format!("{edge_dir}/version");
     let installed_ver = std::fs::read_to_string(&version_file).unwrap_or_default();
     let gst_present  = std::path::Path::new(&format!("{edge_dir}/gstreamer")).exists();
@@ -363,7 +366,8 @@ fn check_and_update_daemon(app: &tauri::AppHandle) {
         return; // binary and gstreamer both up to date
     }
 
-    // New version or missing gstreamer — update binary and/or gstreamer then restart
+    // New version or missing gstreamer — copy the sidecar and/or gstreamer and restart.
+    // The EdgeOS dir is chmod 775 root:admin so an admin-group user can write without sudo.
     let Ok(sidecar) = find_sidecar_path(app) else { return };
     let dest = format!("{edge_dir}/edge-os-edge");
 
@@ -424,20 +428,17 @@ fn find_sidecar_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, Strin
 
 // ── Config helpers ────────────────────────────────────────────────────────────
 
-fn config_file_path() -> String {
+fn config_file_path() -> &'static str {
     #[cfg(target_os = "macos")]
-    {
-        let home = std::env::var("HOME").unwrap_or_default();
-        return format!("{home}/Library/Application Support/EdgeOS/config.json");
-    }
+    { "/Library/Application Support/EdgeOS/config.json" }
     #[cfg(target_os = "linux")]
-    { return "/opt/edge-os-edge/config.json".to_string(); }
+    { "/opt/edge-os-edge/config.json" }
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    { String::new() }
+    { "" }
 }
 
 fn config_exists() -> bool {
-    std::path::Path::new(&config_file_path()).exists()
+    std::path::Path::new(config_file_path()).exists()
 }
 
 fn read_config_fields() -> (String, String) {
@@ -606,9 +607,7 @@ enum ProcessState { NotInstalled, Stopped, Running }
 fn daemon_process_state() -> ProcessState {
     #[cfg(target_os = "macos")]
     {
-        let home  = std::env::var("HOME").unwrap_or_default();
-        let plist = format!("{home}/Library/LaunchAgents/com.sailoi.edgeos.plist");
-        if !std::path::Path::new(&plist).exists() {
+        if !std::path::Path::new("/Library/LaunchDaemons/com.sailoi.edgeos.plist").exists() {
             return ProcessState::NotInstalled;
         }
         let running = std::process::Command::new("launchctl")
@@ -636,16 +635,13 @@ fn daemon_process_state() -> ProcessState {
 
 // ── Status file IPC ───────────────────────────────────────────────────────────
 
-fn status_file_path() -> String {
+fn status_file_path() -> &'static str {
     #[cfg(target_os = "macos")]
-    {
-        let home = std::env::var("HOME").unwrap_or_default();
-        return format!("{home}/Library/Application Support/EdgeOS/status.json");
-    }
+    { "/Library/Application Support/EdgeOS/status.json" }
     #[cfg(target_os = "linux")]
-    { return "/opt/edge-os-edge/status.json".to_string(); }
+    { "/opt/edge-os-edge/status.json" }
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    { String::new() }
+    { "" }
 }
 
 fn read_connection_status() -> Option<String> {

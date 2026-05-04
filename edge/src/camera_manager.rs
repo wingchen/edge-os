@@ -33,7 +33,7 @@ struct AppState {
     event_store: Arc<std::sync::Mutex<EventStore>>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 struct CameraEntry {
     id: String,
     name: String,
@@ -353,24 +353,60 @@ async fn list_handler(State(state): State<AppState>) -> impl IntoResponse {
 
 async fn reload_handler(State(state): State<AppState>) -> impl IntoResponse {
     let new_cameras = load_cameras(&state.working_dir);
-    let mut map = state.frame_map.lock().await;
+    let clips_dir   = format!("{}/clips", state.working_dir);
+    let _ = std::fs::create_dir_all(&clips_dir);
 
-    // Start streams for cameras not yet in the map
+    // Identify cameras not yet running (brief lock, no heavy work inside)
+    let to_start: Vec<CameraEntry> = {
+        let map = state.frame_map.lock().await;
+        new_cameras.iter().filter(|c| !map.contains_key(&c.id)).cloned().collect()
+    };
+
+    // Start pipelines outside the map lock
     let mut started = 0u32;
-    for cam in &new_cameras {
-        if !map.contains_key(&cam.id) {
-            let frame: SharedFrame = Arc::new(Mutex::new(None));
-            map.insert(cam.id.clone(), CameraState {
-                name: cam.name.clone(),
-                frame,
-                pipeline: None,   // TODO: spin up GStreamer pipeline on reload too
-            });
-            info!("[camera_manager] reload: started camera {}", cam.id);
-            started += 1;
-        }
+    for cam in &to_start {
+        let id    = cam.id.clone();
+        let frame: SharedFrame = Arc::new(Mutex::new(None));
+        let (infer_tx, infer_rx) = tokio::sync::mpsc::channel::<image::RgbImage>(2);
+
+        let pipeline = match CameraGstPipeline::new(
+            cam.id.clone(),
+            cam.rtsp_url.clone(),
+            Arc::clone(&state.event_store),
+            clips_dir.clone(),
+            Arc::clone(&frame),
+            Some(infer_tx),
+        ) {
+            Ok(p)  => { info!("[camera_manager] reload: GStreamer pipeline started for {id}"); Some(p) }
+            Err(e) => { warn!("[camera_manager] reload: GStreamer pipeline failed for {id}: {e}"); None }
+        };
+
+        let pipeline_cmd_tx = pipeline.as_ref().map(|p| p.cmd_tx.clone());
+        spawn_inference_thread(
+            cam.id.clone(),
+            state.working_dir.clone(),
+            clips_dir.clone(),
+            cam.detect_classes.clone(),
+            cam.detect_confidence,
+            cam.min_detections,
+            Duration::from_secs(cam.grace_period_secs),
+            Duration::from_secs(cam.cooldown_secs),
+            Arc::clone(&state.event_store),
+            pipeline_cmd_tx,
+            infer_rx,
+        );
+
+        state.frame_map.lock().await.insert(id.clone(), CameraState {
+            name: cam.name.clone(),
+            frame,
+            pipeline,
+        });
+        info!("[camera_manager] reload: started camera {}", id);
+        started += 1;
     }
 
-    // Remove streams for cameras no longer in config
+    // Remove cameras no longer in config
+    let mut map = state.frame_map.lock().await;
     let current_ids: std::collections::HashSet<&str> =
         new_cameras.iter().map(|c| c.id.as_str()).collect();
     let removed: Vec<String> = map.keys()
