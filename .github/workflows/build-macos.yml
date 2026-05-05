@@ -87,15 +87,19 @@ jobs:
 
           mkdir -p "$LIB_DIR" "$PLUGIN_DIR"
 
-          # ── Step 1: pre-copy ALL GStreamer support libs ─────────────────────
-          # dylibbundler skips deps already referenced via @loader_path, so
-          # transitive support libs (libgstriff, libgstnet, libgstcodecparsers,
-          # etc.) never get copied unless we do it explicitly first.
-          cp "$BREW/lib"/libgst*.dylib      "$LIB_DIR/" 2>/dev/null || true
-          cp "$BREW/lib/libjpeg"*.dylib     "$LIB_DIR/" 2>/dev/null || true
-          cp "$BREW/lib/libnice"*.dylib     "$LIB_DIR/" 2>/dev/null || true
+          # ── Step 1: copy GStreamer support libs from each package prefix ────
+          # Homebrew plugins already use @loader_path/../lib/ relative paths so
+          # dylibbundler skips those deps entirely. We must copy the actual files
+          # explicitly. $BREW/lib/ symlinks may be missing some; use per-package
+          # brew --prefix to get the real install location.
+          for pkg in gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly; do
+            PKG_LIB="$(brew --prefix $pkg 2>/dev/null)/lib"
+            [ -d "$PKG_LIB" ] && find "$PKG_LIB" -maxdepth 1 -name "libgst*.dylib" \
+              -exec cp -n {} "$LIB_DIR/" \; 2>/dev/null || true
+          done
+          cp -n "$BREW/lib"/libjpeg*.dylib "$LIB_DIR/" 2>/dev/null || true
 
-          # ── Step 2: fix the edge binary's load paths and add non-gst deps ──
+          # ── Step 2: collect edge binary's direct (non-gst) deps ────────────
           dylibbundler \
             --fix-file "$EDGE_BIN" \
             --bundle-deps \
@@ -104,19 +108,23 @@ jobs:
             --overwrite-dir \
             --search-path "$BREW/lib"
 
-          # ── Step 3: fix internal paths inside the support libs themselves ──
+          # ── Step 3: fix install names + Homebrew paths inside support libs ──
           for f in "$LIB_DIR"/*.dylib; do
-            dylibbundler \
-              --fix-file "$f" \
-              --bundle-deps \
-              --dest-dir "$LIB_DIR" \
-              --install-path "@executable_path/gstreamer/lib" \
-              --overwrite-dir \
-              --search-path "$BREW/lib" 2>/dev/null || true
+            libname=$(basename "$f")
+            install_name_tool -id "@executable_path/gstreamer/lib/$libname" "$f" 2>/dev/null || true
+            while IFS= read -r dep; do
+              case "$dep" in
+                /opt/homebrew/*|/usr/local/*)
+                  dep_name=$(basename "$dep")
+                  install_name_tool -change "$dep" \
+                    "@executable_path/gstreamer/lib/$dep_name" "$f" 2>/dev/null || true
+                  ;;
+              esac
+            done < <(otool -L "$f" | tail -n +2 | awk '{print $1}')
           done
 
-          # ── Step 4: copy the GStreamer plugins we use ───────────────────────
-          GST_SRC="$BREW/lib/gstreamer-1.0"
+          # ── Step 4: copy GStreamer plugins ─────────────────────────────────
+          GST_SRC="$(brew --prefix gstreamer)/lib/gstreamer-1.0"
           for plugin in \
             libgstcoreelements libgstapp \
             libgstrtspsrc libgstrtp libgstrtpmanager \
@@ -128,19 +136,29 @@ jobs:
               cp "$GST_SRC/${plugin}.dylib" "$PLUGIN_DIR/" || true
           done
 
-          # ── Step 5: fix each plugin's deps → bundled libs ──────────────────
+          # ── Step 5: fix plugin install names and any remaining absolute paths
           for f in "$PLUGIN_DIR"/*.dylib; do
-            dylibbundler \
-              --fix-file "$f" \
-              --bundle-deps \
-              --dest-dir "$LIB_DIR" \
-              --install-path "@loader_path/../lib" \
-              --overwrite-dir \
-              --search-path "$BREW/lib" 2>/dev/null || true
+            plugname=$(basename "$f")
+            install_name_tool -id "@loader_path/../plugins/$plugname" "$f" 2>/dev/null || true
+            while IFS= read -r dep; do
+              case "$dep" in
+                /opt/homebrew/*|/usr/local/*)
+                  dep_name=$(basename "$dep")
+                  install_name_tool -change "$dep" \
+                    "@loader_path/../lib/$dep_name" "$f" 2>/dev/null || true
+                  ;;
+                @rpath/*)
+                  dep_name=$(basename "$dep")
+                  install_name_tool -change "$dep" \
+                    "@loader_path/../lib/$dep_name" "$f" 2>/dev/null || true
+                  ;;
+              esac
+            done < <(otool -L "$f" | tail -n +2 | awk '{print $1}')
           done
 
           echo "=== Bundled libs: $(ls $LIB_DIR | wc -l) files ==="
           echo "=== Bundled plugins: $(ls $PLUGIN_DIR | wc -l) files ==="
+          echo "=== Missing riff: $(ls $LIB_DIR | grep riff || echo 'NOT FOUND') ==="
 
       # Strip Homebrew Team ID from bundled dylibs so they match the
       # ad-hoc signed edge binary (no Team ID). Without this macOS refuses
