@@ -73,6 +73,19 @@ jobs:
         run: cargo build --release --target aarch64-apple-darwin
         working-directory: edge
 
+      # ── Diagnose GStreamer plugin availability ──────────────────────────────
+      - name: Diagnose GStreamer plugin availability
+        run: |
+          BREW=$(brew --prefix)
+          echo "=== All plugins in \$BREW/lib/gstreamer-1.0 ==="
+          ls "$BREW/lib/gstreamer-1.0/" || echo "(missing)"
+          echo "=== rtspsrc search ==="
+          find "$BREW" -name "*rtspsrc*" 2>/dev/null || true
+          echo "=== nice search ==="
+          find "$BREW" -name "*gstnice*" 2>/dev/null || true
+          echo "=== sctp search ==="
+          find "$BREW" \( -name "*sctp*" -o -name "*usrsctp*" \) 2>/dev/null || true
+
       # ── Bundle GStreamer dylibs + plugins ───────────────────────────────────
       # Rewrites the binary's load paths to @executable_path/gstreamer/lib so
       # the daemon finds its dylibs without Homebrew being present on end-user
