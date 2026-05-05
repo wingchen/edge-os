@@ -83,10 +83,11 @@ jobs:
           brew list --versions | grep -iE "gst|gstreamer|libnice|usrsctp" || true
           echo "=== Cellars with gst in name ==="
           ls "$BREW/Cellar" | grep gst || true
-          echo "=== rtspsrc: all Cellar paths ==="
-          find "$BREW/Cellar" -name "*rtspsrc*" 2>/dev/null || true
-          echo "=== soup (rtspsrc http dep): ==="
-          find "$BREW" -name "*gstsoup*" 2>/dev/null || true
+          echo "=== Any *rtsp* plugin in gstreamer Cellar ==="
+          find "$BREW/Cellar/gstreamer" -name "*rtsp*" 2>/dev/null || true
+          echo "=== gst-inspect rtspsrc ==="
+          GST_PLUGIN_PATH="$(brew --prefix gstreamer)/lib/gstreamer-1.0" \
+            gst-inspect-1.0 rtspsrc 2>&1 | head -5 || true
           echo "=== nice search ==="
           find "$BREW" -name "*gstnice*" 2>/dev/null || true
           echo "=== sctp search ==="
@@ -120,16 +121,15 @@ jobs:
           # aggregates plugins from ALL formulas (gstreamer, gst-plugins-good,
           # gst-plugins-bad, libnice etc.). Per-formula prefix dirs miss plugins
           # installed by OTHER formulas (e.g. rtspsrc is in gst-plugins-good).
-          GST_SRC="$BREW/lib/gstreamer-1.0"
+          # $(brew --prefix gstreamer)/lib/gstreamer-1.0 resolves via the opt
+          # symlink directly into the Cellar — guaranteed to have every plugin
+          # the formula installed, unlike $BREW/lib/gstreamer-1.0 which is an
+          # aggregated directory where individual symlinks can be missing due to
+          # Homebrew link conflicts between formulas.
+          GST_SRC="$(brew --prefix gstreamer)/lib/gstreamer-1.0"
 
-          echo "=== Full GST_SRC plugin listing ==="
-          ls "$GST_SRC" || echo "(GST_SRC missing or empty)"
-          echo "=== Plugin search: rtspsrc / nice / videoconvert ==="
-          find "$BREW" -name "libgstrtspsrc.dylib" -o \
-                       -name "libgstnice.dylib" -o \
-                       -name "libgstvideoconvert*.dylib" 2>/dev/null || true
-          echo "=== sctp search ==="
-          find "$BREW" \( -name "libusrsctp*" -o -name "libgstsctp*" \) 2>/dev/null || true
+          echo "=== GST_SRC = $GST_SRC ==="
+          ls "$GST_SRC" | grep -E "(rtsp|nice|sctp|videoconvert)" || echo "(none of interest)"
 
           # Note: libgstvideoconvert was renamed to libgstvideoconvertscale in GStreamer 1.22.
           for plugin in \
