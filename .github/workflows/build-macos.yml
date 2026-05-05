@@ -79,8 +79,14 @@ jobs:
           BREW=$(brew --prefix)
           echo "=== All plugins in \$BREW/lib/gstreamer-1.0 ==="
           ls "$BREW/lib/gstreamer-1.0/" || echo "(missing)"
-          echo "=== rtspsrc search ==="
-          find "$BREW" -name "*rtspsrc*" 2>/dev/null || true
+          echo "=== Installed gst-related Homebrew formulas ==="
+          brew list --versions | grep -iE "gst|gstreamer|libnice|usrsctp" || true
+          echo "=== Cellars with gst in name ==="
+          ls "$BREW/Cellar" | grep gst || true
+          echo "=== rtspsrc: all Cellar paths ==="
+          find "$BREW/Cellar" -name "*rtspsrc*" 2>/dev/null || true
+          echo "=== soup (rtspsrc http dep): ==="
+          find "$BREW" -name "*gstsoup*" 2>/dev/null || true
           echo "=== nice search ==="
           find "$BREW" -name "*gstnice*" 2>/dev/null || true
           echo "=== sctp search ==="
@@ -131,7 +137,7 @@ jobs:
             libgstrtspsrc libgstrtp libgstrtpmanager \
             libgstvideoconvertscale libgstvideorate \
             libgstisomp4 libgstjpeg \
-            libgstwebrtc libgstnice \
+            libgstwebrtc libgstnice libgstsctp \
             libgstvideoparsersbad libgstapplemedia; do
             if [ -f "$GST_SRC/${plugin}.dylib" ]; then
               cp "$GST_SRC/${plugin}.dylib" "$PLUGIN_DIR/"
@@ -143,6 +149,14 @@ jobs:
                 echo "WARNING: $plugin not found"
             fi
           done
+
+          # Explicitly copy libusrsctp — it's a direct dep of libgstsctp but lives
+          # in a separate formula (/opt/homebrew/Cellar/libusrsctp) so Step 3's
+          # @loader_path resolution won't find it via the gstreamer Cellar.
+          usrsctp=$(find "$BREW" -name "libusrsctp.*.dylib" \
+            -not -name "libusrsctp.dylib" 2>/dev/null | head -1)
+          [ -n "$usrsctp" ] && cp "$usrsctp" "$LIB_DIR/" && \
+            echo "  copied: $(basename $usrsctp)" || echo "WARNING: libusrsctp not found"
 
           # ── Step 3: resolve @loader_path deps from each bundled plugin ────────
           # Plugins use @loader_path/../lib/ relative paths set by Homebrew.
@@ -210,7 +224,8 @@ jobs:
           echo "rtspsrc:          $(ls $PLUGIN_DIR | grep -c rtspsrc) (expect 1)"
           echo "nice:             $(ls $PLUGIN_DIR | grep -c nice) (expect 1)"
           echo "videoconvertscale:$(ls $PLUGIN_DIR | grep -c videoconvert) (expect 1)"
-          echo "sctp (lib):       $(ls $LIB_DIR | grep -c sctp) (expect >=1)"
+          echo "sctp (plugin):    $(ls $PLUGIN_DIR | grep -c sctp) (expect 1)"
+          echo "usrsctp (lib):    $(ls $LIB_DIR | grep -c usrsctp) (expect 1)"
 
       # Strip Homebrew Team ID from bundled dylibs so they match the
       # ad-hoc signed edge binary (no Team ID). Without this macOS refuses
