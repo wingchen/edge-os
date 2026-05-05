@@ -366,25 +366,34 @@ fn check_and_update_daemon(app: &tauri::AppHandle) {
         return; // binary and gstreamer both up to date
     }
 
-    // New version or missing gstreamer — copy the sidecar and/or gstreamer and restart.
-    // The EdgeOS dir is chmod 775 root:admin so an admin-group user can write without sudo.
+    // New version or missing gstreamer — replace binary and gstreamer via osascript
+    // so root owns the binary (required for LaunchDaemon), prompting admin once.
     let Ok(sidecar) = find_sidecar_path(app) else { return };
-    let dest = format!("{edge_dir}/edge-os-edge");
+    let dest    = format!("{edge_dir}/edge-os-edge");
+    let gst_dst = format!("{edge_dir}/gstreamer");
 
-    let _ = std::fs::remove_file(&dest);
-    if std::fs::copy(&sidecar, &dest).is_err() { return }
-    let _ = std::process::Command::new("chmod").args(["755", &dest]).status();
-
-    if let Ok(resource_dir) = app.path().resource_dir() {
+    let gst_copy = if let Ok(resource_dir) = app.path().resource_dir() {
         let gst_src = resource_dir.join("gstreamer");
         if gst_src.exists() {
-            let gst_dst = format!("{edge_dir}/gstreamer");
-            let _ = std::process::Command::new("mkdir").args(["-p", &gst_dst]).status();
-            let _ = std::process::Command::new("cp")
-                .args(["-R", &format!("{}/.", gst_src.display()), &format!("{gst_dst}/")])
-                .status();
-        }
-    }
+            format!(
+                "mkdir -p '{gst_dst}' && cp -R '{gst_src}/.' '{gst_dst}/' && ",
+                gst_src = gst_src.display(),
+            )
+        } else { String::new() }
+    } else { String::new() };
+
+    let script = format!(
+        "do shell script \"{gst_copy}\
+         cp '{sidecar}' '{dest}' && chown root:wheel '{dest}' && chmod 755 '{dest}'\" \
+         with administrator privileges",
+        sidecar = sidecar.display(),
+    );
+    let ok = std::process::Command::new("osascript")
+        .args(["-e", &script])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !ok { return }
 
     let _ = std::fs::write(&version_file, current_version);
     let _ = restart_daemon();

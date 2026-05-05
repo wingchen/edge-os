@@ -87,7 +87,15 @@ jobs:
 
           mkdir -p "$LIB_DIR" "$PLUGIN_DIR"
 
-          # Collect all dylib deps of the binary and rewrite load paths
+          # ── Step 1: pre-copy ALL GStreamer support libs ─────────────────────
+          # dylibbundler skips deps already referenced via @loader_path, so
+          # transitive support libs (libgstriff, libgstnet, libgstcodecparsers,
+          # etc.) never get copied unless we do it explicitly first.
+          cp "$BREW/lib"/libgst*.dylib      "$LIB_DIR/" 2>/dev/null || true
+          cp "$BREW/lib/libjpeg"*.dylib     "$LIB_DIR/" 2>/dev/null || true
+          cp "$BREW/lib/libnice"*.dylib     "$LIB_DIR/" 2>/dev/null || true
+
+          # ── Step 2: fix the edge binary's load paths and add non-gst deps ──
           dylibbundler \
             --fix-file "$EDGE_BIN" \
             --bundle-deps \
@@ -96,7 +104,18 @@ jobs:
             --overwrite-dir \
             --search-path "$BREW/lib"
 
-          # Copy the GStreamer plugins we actually use
+          # ── Step 3: fix internal paths inside the support libs themselves ──
+          for f in "$LIB_DIR"/*.dylib; do
+            dylibbundler \
+              --fix-file "$f" \
+              --bundle-deps \
+              --dest-dir "$LIB_DIR" \
+              --install-path "@executable_path/gstreamer/lib" \
+              --overwrite-dir \
+              --search-path "$BREW/lib" 2>/dev/null || true
+          done
+
+          # ── Step 4: copy the GStreamer plugins we use ───────────────────────
           GST_SRC="$BREW/lib/gstreamer-1.0"
           for plugin in \
             libgstcoreelements libgstapp \
@@ -109,7 +128,7 @@ jobs:
               cp "$GST_SRC/${plugin}.dylib" "$PLUGIN_DIR/" || true
           done
 
-          # Rewrite each plugin's own dylib deps to use the bundled libs
+          # ── Step 5: fix each plugin's deps → bundled libs ──────────────────
           for f in "$PLUGIN_DIR"/*.dylib; do
             dylibbundler \
               --fix-file "$f" \
