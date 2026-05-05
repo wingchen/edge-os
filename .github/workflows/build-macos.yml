@@ -87,19 +87,7 @@ jobs:
 
           mkdir -p "$LIB_DIR" "$PLUGIN_DIR"
 
-          # ── Step 1: copy GStreamer support libs from each package prefix ────
-          # Homebrew plugins already use @loader_path/../lib/ relative paths so
-          # dylibbundler skips those deps entirely. We must copy the actual files
-          # explicitly. $BREW/lib/ symlinks may be missing some; use per-package
-          # brew --prefix to get the real install location.
-          for pkg in gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly; do
-            PKG_LIB="$(brew --prefix $pkg 2>/dev/null)/lib"
-            [ -d "$PKG_LIB" ] && find "$PKG_LIB" -maxdepth 1 -name "libgst*.dylib" \
-              -exec cp -n {} "$LIB_DIR/" \; 2>/dev/null || true
-          done
-          cp -n "$BREW/lib"/libjpeg*.dylib "$LIB_DIR/" 2>/dev/null || true
-
-          # ── Step 2: collect edge binary's direct (non-gst) deps ────────────
+          # ── Step 1: edge binary deps via dylibbundler ───────────────────────
           dylibbundler \
             --fix-file "$EDGE_BIN" \
             --bundle-deps \
@@ -108,23 +96,12 @@ jobs:
             --overwrite-dir \
             --search-path "$BREW/lib"
 
-          # ── Step 3: fix install names + Homebrew paths inside support libs ──
-          for f in "$LIB_DIR"/*.dylib; do
-            libname=$(basename "$f")
-            install_name_tool -id "@executable_path/gstreamer/lib/$libname" "$f" 2>/dev/null || true
-            while IFS= read -r dep; do
-              case "$dep" in
-                /opt/homebrew/*|/usr/local/*)
-                  dep_name=$(basename "$dep")
-                  install_name_tool -change "$dep" \
-                    "@executable_path/gstreamer/lib/$dep_name" "$f" 2>/dev/null || true
-                  ;;
-              esac
-            done < <(otool -L "$f" | tail -n +2 | awk '{print $1}')
-          done
-
-          # ── Step 4: copy GStreamer plugins ─────────────────────────────────
-          GST_SRC="$(brew --prefix gstreamer)/lib/gstreamer-1.0"
+          # ── Step 2: copy plugins ────────────────────────────────────────────
+          # Use $BREW/lib/gstreamer-1.0 — Homebrew's top-level symlink dir that
+          # aggregates plugins from ALL formulas (gstreamer, gst-plugins-good,
+          # gst-plugins-bad, libnice etc.). Per-formula prefix dirs miss plugins
+          # installed by OTHER formulas (e.g. rtspsrc is in gst-plugins-good).
+          GST_SRC="$BREW/lib/gstreamer-1.0"
           for plugin in \
             libgstcoreelements libgstapp \
             libgstrtspsrc libgstrtp libgstrtpmanager \
@@ -132,33 +109,85 @@ jobs:
             libgstisomp4 libgstjpeg \
             libgstwebrtc libgstnice \
             libgstvideoparsersbad libgstapplemedia; do
-            [ -f "$GST_SRC/${plugin}.dylib" ] && \
-              cp "$GST_SRC/${plugin}.dylib" "$PLUGIN_DIR/" || true
+            if [ -f "$GST_SRC/${plugin}.dylib" ]; then
+              cp "$GST_SRC/${plugin}.dylib" "$PLUGIN_DIR/"
+            else
+              # Fallback: search all Homebrew for this plugin
+              found=$(find "$BREW" -name "${plugin}.dylib" \
+                -path "*/gstreamer-1.0/*" 2>/dev/null | head -1)
+              [ -n "$found" ] && cp "$found" "$PLUGIN_DIR/" || \
+                echo "WARNING: $plugin not found"
+            fi
           done
 
-          # ── Step 5: fix plugin install names and any remaining absolute paths
-          for f in "$PLUGIN_DIR"/*.dylib; do
-            plugname=$(basename "$f")
-            install_name_tool -id "@loader_path/../plugins/$plugname" "$f" 2>/dev/null || true
+          # ── Step 3: resolve @loader_path deps from each bundled plugin ────────
+          # Plugins use @loader_path/../lib/ relative paths set by Homebrew.
+          # Follow symlinks to the real Cellar path so the resolution is correct.
+          for plugin in "$PLUGIN_DIR"/*.dylib; do
+            plugin_name=$(basename "$plugin")
+            orig=$(find "$BREW" -name "$plugin_name" \
+              -path "*/gstreamer-1.0/*" 2>/dev/null | head -1)
+            [ -z "$orig" ] && continue
+            orig_real=$(realpath "$orig" 2>/dev/null || echo "$orig")
+            orig_lib="$(cd "$(dirname "$orig_real")/.." 2>/dev/null && pwd)/lib"
+
+            while IFS= read -r dep; do
+              [[ "$dep" != @loader_path/../lib/* ]] && continue
+              libname="${dep#@loader_path/../lib/}"
+              [ -f "$LIB_DIR/$libname" ] && continue
+              if [ -f "$orig_lib/$libname" ]; then
+                cp "$orig_lib/$libname" "$LIB_DIR/" && echo "  dep: $libname"
+              else
+                found=$(find "$BREW" -name "$libname" \
+                  -not -path "*/gstreamer-1.0/*" 2>/dev/null | head -1)
+                if [ -n "$found" ]; then
+                  cp "$found" "$LIB_DIR/" && echo "  dep (fallback): $libname"
+                else
+                  echo "  missing (skipping): $libname"
+                fi
+              fi
+            done < <(otool -L "$orig_real" | awk '{print $1}')
+          done
+
+          # ── Step 4: make all bundled files writable then fix install names ──
+          chmod -R u+w "$LIB_DIR" "$PLUGIN_DIR"
+
+          for f in "$LIB_DIR"/*.dylib; do
+            libname=$(basename "$f")
+            install_name_tool -id "@executable_path/gstreamer/lib/$libname" "$f"
             while IFS= read -r dep; do
               case "$dep" in
                 /opt/homebrew/*|/usr/local/*)
-                  dep_name=$(basename "$dep")
                   install_name_tool -change "$dep" \
-                    "@loader_path/../lib/$dep_name" "$f" 2>/dev/null || true
-                  ;;
-                @rpath/*)
-                  dep_name=$(basename "$dep")
-                  install_name_tool -change "$dep" \
-                    "@loader_path/../lib/$dep_name" "$f" 2>/dev/null || true
-                  ;;
+                    "@executable_path/gstreamer/lib/$(basename "$dep")" "$f" 2>/dev/null || true ;;
               esac
             done < <(otool -L "$f" | tail -n +2 | awk '{print $1}')
           done
 
-          echo "=== Bundled libs: $(ls $LIB_DIR | wc -l) files ==="
-          echo "=== Bundled plugins: $(ls $PLUGIN_DIR | wc -l) files ==="
-          echo "=== Missing riff: $(ls $LIB_DIR | grep riff || echo 'NOT FOUND') ==="
+          for f in "$PLUGIN_DIR"/*.dylib; do
+            plugname=$(basename "$f")
+            install_name_tool -id "@loader_path/../plugins/$plugname" "$f"
+            while IFS= read -r dep; do
+              case "$dep" in
+                /opt/homebrew/*|/usr/local/*)
+                  install_name_tool -change "$dep" \
+                    "@loader_path/../lib/$(basename "$dep")" "$f" 2>/dev/null || true ;;
+                @rpath/*)
+                  install_name_tool -change "$dep" \
+                    "@loader_path/../lib/$(basename "$dep")" "$f" 2>/dev/null || true ;;
+              esac
+            done < <(otool -L "$f" | tail -n +2 | awk '{print $1}')
+          done
+
+          echo "=== PLUGINS ($(ls $PLUGIN_DIR | wc -l | tr -d ' ') files) ==="
+          ls -1 "$PLUGIN_DIR"
+          echo "=== LIBS ($(ls $LIB_DIR | wc -l | tr -d ' ') files) ==="
+          ls -1 "$LIB_DIR"
+          echo "=== KEY CHECKS ==="
+          echo "rtspsrc:     $(ls $PLUGIN_DIR | grep -c rtspsrc) (expect 1)"
+          echo "nice:        $(ls $PLUGIN_DIR | grep -c nice) (expect 1)"
+          echo "videoconvert:$(ls $PLUGIN_DIR | grep -c videoconvert) (expect 1)"
+          echo "sctp (lib):  $(ls $LIB_DIR | grep -c sctp) (expect 1)"
 
       # Strip Homebrew Team ID from bundled dylibs so they match the
       # ad-hoc signed edge binary (no Team ID). Without this macOS refuses
