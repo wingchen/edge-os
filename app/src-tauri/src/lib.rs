@@ -299,10 +299,10 @@ fn install_daemon(cloud_url: &str, team_hash: &str, app: &tauri::AppHandle) -> R
 
     let script = format!(
         "do shell script \
-         \"mkdir -p '{edge_dir}' && chmod 775 '{edge_dir}' && \
+         \"mkdir -p '{edge_dir}' && chgrp admin '{edge_dir}' && chmod 775 '{edge_dir}' && \
          {gst_copy_cmds}\
          cp '{sidecar}' '{edge_bin}' && chmod 755 '{edge_bin}' && \
-         cp '{tmp_config}' '{edge_dir}/config.json' && chmod 644 '{edge_dir}/config.json' && \
+         cp '{tmp_config}' '{edge_dir}/config.json' && chgrp admin '{edge_dir}/config.json' && chmod 664 '{edge_dir}/config.json' && \
          mv '{tmp_plist}' '{plist_dst}' && chown root:wheel '{plist_dst}' && chmod 644 '{plist_dst}' && \
          launchctl unload '{plist_dst}' 2>/dev/null; launchctl load -w '{plist_dst}'\" \
          with administrator privileges",
