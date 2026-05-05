@@ -465,6 +465,7 @@ fn list_cameras() -> serde_json::Value {
 
 #[tauri::command]
 async fn add_camera(name: String, rtsp_url: String, fps: Option<u32>) -> Result<String, String> {
+    eprintln!("[add_camera] called: name={name:?} rtsp_url={rtsp_url:?}");
     let id = uuid_v4();
     let mut config = read_full_config();
     let cameras = config
@@ -483,8 +484,15 @@ async fn add_camera(name: String, rtsp_url: String, fps: Option<u32>) -> Result<
         None => { config["cameras"] = serde_json::json!([entry]); }
     }
 
-    std::fs::write(config_file_path(), config.to_string()).map_err(|e| e.to_string())?;
+    let config_path = config_file_path();
+    eprintln!("[add_camera] writing to {config_path:?}");
+    let write_result = std::fs::write(config_path, config.to_string());
+    eprintln!("[add_camera] write result: {write_result:?}");
+    write_result.map_err(|e| e.to_string())?;
+
+    eprintln!("[add_camera] reloading daemon cameras");
     let _ = reload_daemon_cameras().await;
+    eprintln!("[add_camera] done, id={id}");
     Ok(id.to_string())
 }
 

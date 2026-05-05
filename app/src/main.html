@@ -1189,18 +1189,23 @@
     const rtspUrl = document.getElementById('modal-rtsp-url').value.trim();
     const name    = document.getElementById('modal-cam-name').value.trim();
 
-    if (!rtspUrl) { document.getElementById('modal-rtsp-url').focus(); return; }
-    if (!name)    { document.getElementById('modal-cam-name').focus(); return; }
+    console.log('[add-camera] clicked — name:', JSON.stringify(name), 'rtspUrl:', JSON.stringify(rtspUrl));
+
+    if (!rtspUrl) { console.log('[add-camera] blocked: no rtspUrl'); document.getElementById('modal-rtsp-url').focus(); return; }
+    if (!name)    { console.log('[add-camera] blocked: no name');    document.getElementById('modal-cam-name').focus(); return; }
 
     const btn = document.getElementById('confirm-add-camera');
     btn.textContent = 'Adding…';
     btn.disabled = true;
 
     try {
-      await invoke('add_camera', { name, rtspUrl, fps: 1 });
+      console.log('[add-camera] invoking add_camera…');
+      const id = await invoke('add_camera', { name, rtspUrl, fps: 1 });
+      console.log('[add-camera] success, id:', id);
       closeModal();
       await loadCameras();
     } catch (e) {
+      console.error('[add-camera] failed:', e);
       alert('Failed to add camera: ' + e);
       btn.textContent = 'Add Camera';
       btn.disabled = false;
