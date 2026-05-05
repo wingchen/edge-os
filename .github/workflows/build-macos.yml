@@ -102,19 +102,30 @@ jobs:
           # gst-plugins-bad, libnice etc.). Per-formula prefix dirs miss plugins
           # installed by OTHER formulas (e.g. rtspsrc is in gst-plugins-good).
           GST_SRC="$BREW/lib/gstreamer-1.0"
+
+          echo "=== Full GST_SRC plugin listing ==="
+          ls "$GST_SRC" || echo "(GST_SRC missing or empty)"
+          echo "=== Plugin search: rtspsrc / nice / videoconvert ==="
+          find "$BREW" -name "libgstrtspsrc.dylib" -o \
+                       -name "libgstnice.dylib" -o \
+                       -name "libgstvideoconvert*.dylib" 2>/dev/null || true
+          echo "=== sctp search ==="
+          find "$BREW" \( -name "libusrsctp*" -o -name "libgstsctp*" \) 2>/dev/null || true
+
+          # Note: libgstvideoconvert was renamed to libgstvideoconvertscale in GStreamer 1.22.
           for plugin in \
             libgstcoreelements libgstapp \
             libgstrtspsrc libgstrtp libgstrtpmanager \
-            libgstvideoconvert libgstvideorate \
+            libgstvideoconvertscale libgstvideorate \
             libgstisomp4 libgstjpeg \
             libgstwebrtc libgstnice \
             libgstvideoparsersbad libgstapplemedia; do
             if [ -f "$GST_SRC/${plugin}.dylib" ]; then
               cp "$GST_SRC/${plugin}.dylib" "$PLUGIN_DIR/"
             else
-              # Fallback: search all Homebrew for this plugin
-              found=$(find "$BREW" -name "${plugin}.dylib" \
-                -path "*/gstreamer-1.0/*" 2>/dev/null | head -1)
+              # Fallback: search all Homebrew for this plugin (no path filter —
+              # the list is curated so there's no risk of picking up the wrong file).
+              found=$(find "$BREW" -name "${plugin}.dylib" 2>/dev/null | head -1)
               [ -n "$found" ] && cp "$found" "$PLUGIN_DIR/" || \
                 echo "WARNING: $plugin not found"
             fi
@@ -184,10 +195,10 @@ jobs:
           echo "=== LIBS ($(ls $LIB_DIR | wc -l | tr -d ' ') files) ==="
           ls -1 "$LIB_DIR"
           echo "=== KEY CHECKS ==="
-          echo "rtspsrc:     $(ls $PLUGIN_DIR | grep -c rtspsrc) (expect 1)"
-          echo "nice:        $(ls $PLUGIN_DIR | grep -c nice) (expect 1)"
-          echo "videoconvert:$(ls $PLUGIN_DIR | grep -c videoconvert) (expect 1)"
-          echo "sctp (lib):  $(ls $LIB_DIR | grep -c sctp) (expect 1)"
+          echo "rtspsrc:          $(ls $PLUGIN_DIR | grep -c rtspsrc) (expect 1)"
+          echo "nice:             $(ls $PLUGIN_DIR | grep -c nice) (expect 1)"
+          echo "videoconvertscale:$(ls $PLUGIN_DIR | grep -c videoconvert) (expect 1)"
+          echo "sctp (lib):       $(ls $LIB_DIR | grep -c sctp) (expect >=1)"
 
       # Strip Homebrew Team ID from bundled dylibs so they match the
       # ad-hoc signed edge binary (no Team ID). Without this macOS refuses
