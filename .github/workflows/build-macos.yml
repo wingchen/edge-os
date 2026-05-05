@@ -136,8 +136,7 @@ jobs:
           # Follow symlinks to the real Cellar path so the resolution is correct.
           for plugin in "$PLUGIN_DIR"/*.dylib; do
             plugin_name=$(basename "$plugin")
-            orig=$(find "$BREW" -name "$plugin_name" \
-              -path "*/gstreamer-1.0/*" 2>/dev/null | head -1)
+            orig=$(find "$BREW" -name "$plugin_name" 2>/dev/null | head -1)
             [ -z "$orig" ] && continue
             orig_real=$(realpath "$orig" 2>/dev/null || echo "$orig")
             orig_lib="$(cd "$(dirname "$orig_real")/.." 2>/dev/null && pwd)/lib"
