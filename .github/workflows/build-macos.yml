@@ -77,21 +77,12 @@ jobs:
       - name: Diagnose GStreamer plugin availability
         run: |
           BREW=$(brew --prefix)
-          echo "=== All plugins in \$BREW/lib/gstreamer-1.0 ==="
-          ls "$BREW/lib/gstreamer-1.0/" || echo "(missing)"
-          echo "=== Installed gst-related Homebrew formulas ==="
-          brew list --versions | grep -iE "gst|gstreamer|libnice|usrsctp" || true
-          echo "=== Cellars with gst in name ==="
-          ls "$BREW/Cellar" | grep gst || true
           echo "=== Any *rtsp* plugin in gstreamer Cellar ==="
           find "$BREW/Cellar/gstreamer" -name "*rtsp*" 2>/dev/null || true
-          echo "=== gst-inspect rtspsrc ==="
-          GST_PLUGIN_PATH="$(brew --prefix gstreamer)/lib/gstreamer-1.0" \
-            gst-inspect-1.0 rtspsrc 2>&1 | head -5 || true
           echo "=== nice search ==="
           find "$BREW" -name "*gstnice*" 2>/dev/null || true
-          echo "=== sctp search ==="
-          find "$BREW" \( -name "*sctp*" -o -name "*usrsctp*" \) 2>/dev/null || true
+          echo "=== libnice prefix ==="
+          ls "$(brew --prefix libnice 2>/dev/null)/lib/gstreamer-1.0/" 2>/dev/null || echo "(no gstreamer-1.0 dir under libnice)"
 
       # ── Bundle GStreamer dylibs + plugins ───────────────────────────────────
       # Rewrites the binary's load paths to @executable_path/gstreamer/lib so
@@ -117,38 +108,44 @@ jobs:
             --search-path "$BREW/lib"
 
           # ── Step 2: copy plugins ────────────────────────────────────────────
-          # Use $BREW/lib/gstreamer-1.0 — Homebrew's top-level symlink dir that
-          # aggregates plugins from ALL formulas (gstreamer, gst-plugins-good,
-          # gst-plugins-bad, libnice etc.). Per-formula prefix dirs miss plugins
-          # installed by OTHER formulas (e.g. rtspsrc is in gst-plugins-good).
-          # $(brew --prefix gstreamer)/lib/gstreamer-1.0 resolves via the opt
-          # symlink directly into the Cellar — guaranteed to have every plugin
-          # the formula installed, unlike $BREW/lib/gstreamer-1.0 which is an
-          # aggregated directory where individual symlinks can be missing due to
-          # Homebrew link conflicts between formulas.
+          # Use the formula opt path — resolves directly into the Cellar and
+          # contains every plugin the unified gstreamer formula installed.
           GST_SRC="$(brew --prefix gstreamer)/lib/gstreamer-1.0"
 
           echo "=== GST_SRC = $GST_SRC ==="
           ls "$GST_SRC" | grep -E "(rtsp|nice|sctp|videoconvert)" || echo "(none of interest)"
 
-          # Note: libgstvideoconvert was renamed to libgstvideoconvertscale in GStreamer 1.22.
+          # Notes:
+          # - libgstvideoconvert renamed to libgstvideoconvertscale in GStreamer 1.22
+          # - rtspsrc element lives in libgstrtsp (renamed from libgstrtspsrc in 1.24+)
           for plugin in \
             libgstcoreelements libgstapp \
-            libgstrtspsrc libgstrtp libgstrtpmanager \
+            libgstrtsp libgstrtp libgstrtpmanager \
             libgstvideoconvertscale libgstvideorate \
             libgstisomp4 libgstjpeg \
-            libgstwebrtc libgstnice libgstsctp \
+            libgstwebrtc libgstsctp \
             libgstvideoparsersbad libgstapplemedia; do
             if [ -f "$GST_SRC/${plugin}.dylib" ]; then
               cp "$GST_SRC/${plugin}.dylib" "$PLUGIN_DIR/"
             else
-              # Fallback: search all Homebrew for this plugin (no path filter —
-              # the list is curated so there's no risk of picking up the wrong file).
-              found=$(find "$BREW" -name "${plugin}.dylib" 2>/dev/null | head -1)
+              # Fallback: search all real files in Homebrew (-L follows symlinks,
+              # skipping broken ones that show in ls but have no target).
+              found=$(find -L "$BREW" -name "${plugin}.dylib" 2>/dev/null | head -1)
               [ -n "$found" ] && cp "$found" "$PLUGIN_DIR/" || \
                 echo "WARNING: $plugin not found"
             fi
           done
+
+          # libgstnice.dylib is a broken symlink inside the gstreamer Cellar on
+          # some CI runners — the actual file is owned by the libnice formula.
+          for nice_src in \
+            "$(brew --prefix libnice 2>/dev/null)/lib/gstreamer-1.0/libgstnice.dylib" \
+            "$GST_SRC/libgstnice.dylib"; do
+            if [ -f "$nice_src" ]; then
+              cp "$nice_src" "$PLUGIN_DIR/" && echo "  nice: copied from $nice_src" && break
+            fi
+          done
+          [ -f "$PLUGIN_DIR/libgstnice.dylib" ] || echo "WARNING: libgstnice not found anywhere"
 
           # Explicitly copy libusrsctp — it's a direct dep of libgstsctp but lives
           # in a separate formula (/opt/homebrew/Cellar/libusrsctp) so Step 3's
@@ -221,7 +218,7 @@ jobs:
           echo "=== LIBS ($(ls $LIB_DIR | wc -l | tr -d ' ') files) ==="
           ls -1 "$LIB_DIR"
           echo "=== KEY CHECKS ==="
-          echo "rtspsrc:          $(ls $PLUGIN_DIR | grep -c rtspsrc) (expect 1)"
+          echo "rtsp (libgstrtsp):$(ls $PLUGIN_DIR | grep -c "^libgstrtsp\.dylib$") (expect 1)"
           echo "nice:             $(ls $PLUGIN_DIR | grep -c nice) (expect 1)"
           echo "videoconvertscale:$(ls $PLUGIN_DIR | grep -c videoconvert) (expect 1)"
           echo "sctp (plugin):    $(ls $PLUGIN_DIR | grep -c sctp) (expect 1)"
