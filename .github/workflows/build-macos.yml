@@ -135,8 +135,11 @@ jobs:
             fi
           done
 
-          # libgstnice.dylib is provided by the libnice-gstreamer Homebrew formula.
-          nice_src="$(brew --prefix libnice-gstreamer)/lib/gstreamer-1.0/libgstnice.dylib"
+          # libgstnice.dylib is provided by libnice-gstreamer. Use find -L to
+          # locate the real file (skips the broken symlink in the gstreamer Cellar).
+          nice_src=$(find -L /opt/homebrew/Cellar/libnice-gstreamer \
+            -name "libgstnice.dylib" 2>/dev/null | head -1)
+          echo "nice_src: ${nice_src:-(not found)}"
           if [ -f "$nice_src" ]; then
             cp "$nice_src" "$PLUGIN_DIR/"
             # Copy libnice and any other Homebrew deps the plugin links against
@@ -150,7 +153,7 @@ jobs:
               esac
             done < <(otool -L "$nice_src" | tail -n +2 | awk '{print $1}')
           else
-            echo "WARNING: libgstnice not found at $(brew --prefix libnice-gstreamer)/lib/gstreamer-1.0/"
+            echo "WARNING: libgstnice not found in libnice-gstreamer Cellar"
           fi
 
           # Explicitly copy libusrsctp — it's a direct dep of libgstsctp but lives
