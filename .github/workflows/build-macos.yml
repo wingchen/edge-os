@@ -59,6 +59,7 @@ jobs:
             gst-plugins-bad \
             gst-plugins-ugly \
             libnice \
+            libnice-gstreamer \
             dylibbundler
 
       - name: Export GStreamer pkg-config paths
@@ -67,37 +68,6 @@ jobs:
           echo "PKG_CONFIG_PATH=${BREW}/lib/pkgconfig" >> $GITHUB_ENV
           echo "LIBRARY_PATH=${BREW}/lib"              >> $GITHUB_ENV
           echo "GST_PLUGIN_PATH=${BREW}/lib/gstreamer-1.0" >> $GITHUB_ENV
-
-      # ── Build libgstnice.dylib from source ─────────────────────────────────
-      # The Homebrew gstreamer bottle ships libgstnice.dylib as a broken symlink.
-      # The plugin lives in the libnice project; compile it directly with clang
-      # against the installed Homebrew headers — no meson, no heredoc issues.
-      - name: Build libgstnice.dylib from source
-        run: |
-          set -e
-          NICE_VER=$(pkg-config --modversion nice)
-          WORKDIR=$(mktemp -d)
-          BASE="https://gitlab.freedesktop.org/libnice/libnice/-/raw/master/gst"
-          for f in gstnice.c gstnice.h gstnicesrc.c gstnicesrc.h gstnicesink.c gstnicesink.h; do
-            curl -fsSL "${BASE}/${f}" -o "${WORKDIR}/${f}"
-          done
-          clang -dynamiclib \
-            -I"${WORKDIR}" \
-            $(pkg-config --cflags gstreamer-1.0 gstreamer-base-1.0 nice) \
-            -DVERSION=\"${NICE_VER}\" \
-            -DPACKAGE_VERSION=\"${NICE_VER}\" \
-            -DPACKAGE=\"libnice\" \
-            -DPACKAGE_NAME=\"libnice\" \
-            -DPACKAGE_ORIGIN=\"https://libnice.freedesktop.org\" \
-            -DPACKAGE_BUGREPORT=\"https://gitlab.freedesktop.org/libnice/libnice/issues\" \
-            -Wl,-install_name,@loader_path/../plugins/libgstnice.dylib \
-            "${WORKDIR}/gstnice.c" \
-            "${WORKDIR}/gstnicesrc.c" \
-            "${WORKDIR}/gstnicesink.c" \
-            $(pkg-config --libs gstreamer-1.0 gstreamer-base-1.0 nice) \
-            -o "$RUNNER_TEMP/libgstnice.dylib"
-          echo "=== libgstnice.dylib deps ==="
-          otool -L "$RUNNER_TEMP/libgstnice.dylib"
 
       # ── Build edge binary ───────────────────────────────────────────────────
       - name: Build edge binary (arm64)
@@ -156,8 +126,8 @@ jobs:
             fi
           done
 
-          # libgstnice.dylib was compiled from source in the previous step.
-          nice_src="$RUNNER_TEMP/libgstnice.dylib"
+          # libgstnice.dylib is provided by the libnice-gstreamer Homebrew formula.
+          nice_src="$(brew --prefix libnice-gstreamer)/lib/gstreamer-1.0/libgstnice.dylib"
           if [ -f "$nice_src" ]; then
             cp "$nice_src" "$PLUGIN_DIR/"
             # Copy libnice and any other Homebrew deps the plugin links against
@@ -171,7 +141,7 @@ jobs:
               esac
             done < <(otool -L "$nice_src" | tail -n +2 | awk '{print $1}')
           else
-            echo "WARNING: libgstnice not found — source build failed"
+            echo "WARNING: libgstnice not found at $(brew --prefix libnice-gstreamer)/lib/gstreamer-1.0/"
           fi
 
           # Explicitly copy libusrsctp — it's a direct dep of libgstsctp but lives
