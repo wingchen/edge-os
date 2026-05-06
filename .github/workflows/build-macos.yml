@@ -222,35 +222,46 @@ jobs:
             done < <(otool -L "$f" | tail -n +2 | awk '{print $1}')
           done
 
-          # ── Step 5: catch any @loader_path deps still missing from LIB_DIR ───────
-          # Step 4 rewrites absolute Homebrew paths to @loader_path/../lib/ but
-          # doesn't copy those files. Read the rewritten plugin files and fill gaps.
-          for f in "$PLUGIN_DIR"/*.dylib; do
-            while IFS= read -r dep; do
-              [[ "$dep" != @loader_path/../lib/* ]] && continue
-              libname="${dep#@loader_path/../lib/}"
-              [ -f "$LIB_DIR/$libname" ] && continue
-              found=$(find -L "$BREW" -name "$libname" \
-                -not -path "*/gstreamer-1.0/*" 2>/dev/null | head -1)
-              if [ -n "$found" ]; then
-                cp "$found" "$LIB_DIR/"
-                chmod u+w "$LIB_DIR/$libname"
-                install_name_tool -id \
-                  "@executable_path/gstreamer/lib/$libname" "$LIB_DIR/$libname"
-                while IFS= read -r ldep; do
-                  case "$ldep" in
-                    /opt/homebrew/*|/usr/local/*)
-                      install_name_tool -change "$ldep" \
-                        "@executable_path/gstreamer/lib/$(basename "$ldep")" \
-                        "$LIB_DIR/$libname" 2>/dev/null || true ;;
-                  esac
-                done < <(otool -L "$found" | tail -n +2 | awk '{print $1}')
-                codesign -f -s - "$LIB_DIR/$libname" 2>/dev/null || true
-                echo "  late dep: $libname"
-              else
-                echo "  not in Homebrew (plugin will fail to load): $libname"
-              fi
-            done < <(otool -L "$f" | tail -n +2 | awk '{print $1}')
+          # ── Step 5: transitive closure — fill all missing deps from LIB_DIR/PLUGIN_DIR ──
+          # Step 4 rewrites absolute Homebrew paths to @executable_path/gstreamer/lib/
+          # (in libs) or @loader_path/../lib/ (in plugins) but does NOT copy those
+          # files. This loop iterates both dirs until no new files are added, handling
+          # deep dep chains like libgstnice → libnice → libgnutls → libnettle → libgmp.
+          changed=1
+          while [ "$changed" -eq 1 ]; do
+            changed=0
+            for f in "$LIB_DIR"/*.dylib "$PLUGIN_DIR"/*.dylib; do
+              [ -f "$f" ] || continue
+              while IFS= read -r dep; do
+                case "$dep" in
+                  @executable_path/gstreamer/lib/*) libname="${dep#@executable_path/gstreamer/lib/}" ;;
+                  @loader_path/../lib/*)             libname="${dep#@loader_path/../lib/}" ;;
+                  *) continue ;;
+                esac
+                [ -f "$LIB_DIR/$libname" ] && continue
+                found=$(find -L "$BREW" -name "$libname" \
+                  -not -path "*/gstreamer-1.0/*" 2>/dev/null | head -1)
+                if [ -n "$found" ]; then
+                  cp "$found" "$LIB_DIR/"
+                  chmod u+w "$LIB_DIR/$libname"
+                  install_name_tool -id \
+                    "@executable_path/gstreamer/lib/$libname" "$LIB_DIR/$libname"
+                  while IFS= read -r ldep; do
+                    case "$ldep" in
+                      /opt/homebrew/*|/usr/local/*)
+                        install_name_tool -change "$ldep" \
+                          "@executable_path/gstreamer/lib/$(basename "$ldep")" \
+                          "$LIB_DIR/$libname" 2>/dev/null || true ;;
+                    esac
+                  done < <(otool -L "$found" | tail -n +2 | awk '{print $1}')
+                  codesign -f -s - "$LIB_DIR/$libname" 2>/dev/null || true
+                  echo "  transitive dep: $libname"
+                  changed=1
+                else
+                  echo "  not in Homebrew (will fail to load): $libname"
+                fi
+              done < <(otool -L "$f" | tail -n +2 | awk '{print $1}')
+            done
           done
 
           echo "=== PLUGINS ($(ls $PLUGIN_DIR | wc -l | tr -d ' ') files) ==="
