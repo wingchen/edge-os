@@ -85,7 +85,7 @@ jobs:
           WORKDIR=$(mktemp -d)
 
           # Download the three source files + headers from the exact GStreamer tag
-          BASE="https://gitlab.freedesktop.org/gstreamer/gstreamer/-/raw/v${GST_VER}/subprojects/gst-plugins-bad/ext/nice"
+          BASE="https://gitlab.freedesktop.org/gstreamer/gstreamer/-/raw/${GST_VER}/subprojects/gst-plugins-bad/ext/nice"
           for f in gstnice.c gstnice.h gstnicesrc.c gstnicesrc.h gstnicesink.c gstnicesink.h; do
             curl -fsSL "${BASE}/${f}" -o "${WORKDIR}/${f}"
           done
