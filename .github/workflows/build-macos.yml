@@ -60,6 +60,11 @@ jobs:
             gst-plugins-ugly \
             libnice \
             dylibbundler
+          # Rebuild libnice from source now that GStreamer is present — the
+          # pre-built bottle was compiled without GStreamer, so libgstnice.dylib
+          # is a broken symlink. Source build picks up GStreamer via pkg-config
+          # and installs the plugin to $(brew --prefix libnice)/lib/gstreamer-1.0/
+          brew reinstall --build-from-source libnice
 
       - name: Export GStreamer pkg-config paths
         run: |
@@ -72,34 +77,6 @@ jobs:
       - name: Build edge binary (arm64)
         run: cargo build --release --target aarch64-apple-darwin
         working-directory: edge
-
-      # ── Build libgstnice.dylib from source ─────────────────────────────────
-      # The Homebrew gstreamer bottle ships libgstnice.dylib as a broken symlink
-      # (it expects libnice to install the plugin, but libnice doesn't). We
-      # compile the three-file nice plugin directly against the installed headers.
-      - name: Build libgstnice.dylib from source
-        run: |
-          set -e
-          BREW=$(brew --prefix)
-          GST_VER=$(pkg-config --modversion gstreamer-1.0)
-          WORKDIR=$(mktemp -d)
-
-          # Download the three source files + headers from the exact GStreamer tag
-          BASE="https://gitlab.freedesktop.org/gstreamer/gstreamer/-/raw/${GST_VER}/subprojects/gst-plugins-bad/ext/nice"
-          for f in gstnice.c gstnice.h gstnicesrc.c gstnicesrc.h gstnicesink.c gstnicesink.h; do
-            curl -fsSL "${BASE}/${f}" -o "${WORKDIR}/${f}"
-          done
-
-          # meson.build lives in the repo to avoid heredoc/YAML conflicts
-          cp .github/workflows/gstnice-meson.build "${WORKDIR}/meson.build"
-
-          meson setup "${WORKDIR}/build" "${WORKDIR}" --buildtype=release
-          ninja -C "${WORKDIR}/build"
-
-          BUILT=$(find "${WORKDIR}/build" -name "libgstnice.dylib" | head -1)
-          cp "$BUILT" "$RUNNER_TEMP/libgstnice.dylib"
-          echo "=== libgstnice.dylib deps ==="
-          otool -L "$RUNNER_TEMP/libgstnice.dylib"
 
       # ── Bundle GStreamer dylibs + plugins ───────────────────────────────────
       # Rewrites the binary's load paths to @executable_path/gstreamer/lib so
@@ -153,10 +130,11 @@ jobs:
             fi
           done
 
-          # libgstnice.dylib is a broken symlink in the Homebrew bottle; use the
-          # version we compiled from source in the previous step.
-          if [ -f "$RUNNER_TEMP/libgstnice.dylib" ]; then
-            cp "$RUNNER_TEMP/libgstnice.dylib" "$PLUGIN_DIR/"
+          # libgstnice.dylib: the gstreamer bottle has a broken symlink; rebuilding
+          # libnice from source installs the real plugin to its own prefix.
+          nice_src="$(brew --prefix libnice 2>/dev/null)/lib/gstreamer-1.0/libgstnice.dylib"
+          if [ -f "$nice_src" ]; then
+            cp "$nice_src" "$PLUGIN_DIR/"
             # Copy libnice and any other Homebrew deps the plugin links against
             while IFS= read -r dep; do
               case "$dep" in
@@ -166,9 +144,9 @@ jobs:
                   [ -f "$dep" ] && cp "$dep" "$LIB_DIR/" && echo "  nice dep: $depname"
                   ;;
               esac
-            done < <(otool -L "$RUNNER_TEMP/libgstnice.dylib" | tail -n +2 | awk '{print $1}')
+            done < <(otool -L "$nice_src" | tail -n +2 | awk '{print $1}')
           else
-            echo "WARNING: libgstnice not found — source build must have failed"
+            echo "WARNING: libgstnice not found — brew reinstall libnice may have failed"
           fi
 
           # Explicitly copy libusrsctp — it's a direct dep of libgstsctp but lives
