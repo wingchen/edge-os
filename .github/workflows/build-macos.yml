@@ -69,6 +69,15 @@ jobs:
           echo "LIBRARY_PATH=${BREW}/lib"              >> $GITHUB_ENV
           echo "GST_PLUGIN_PATH=${BREW}/lib/gstreamer-1.0" >> $GITHUB_ENV
 
+      - name: Diagnose libnice-gstreamer
+        run: |
+          echo "=== brew --prefix libnice-gstreamer ==="
+          brew --prefix libnice-gstreamer 2>&1 || true
+          echo "=== libnice-gstreamer Cellar contents ==="
+          find "$(brew --prefix libnice-gstreamer 2>/dev/null)" -name "*.dylib" 2>/dev/null || echo "(not found)"
+          echo "=== find libgstnice anywhere ==="
+          find /opt/homebrew -name "libgstnice*" 2>/dev/null || true
+
       # ── Build edge binary ───────────────────────────────────────────────────
       - name: Build edge binary (arm64)
         run: cargo build --release --target aarch64-apple-darwin
