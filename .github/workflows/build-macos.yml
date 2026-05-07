@@ -123,7 +123,7 @@ jobs:
             libgstvideoconvertscale libgstvideorate \
             libgstisomp4 libgstjpeg \
             libgstwebrtc libgstsctp \
-            libgstvideoparsersbad libgstapplemedia libgstlibav; do
+            libgstvideoparsersbad libgstapplemedia libgstlibav libgstudp; do
             if [ -f "$GST_SRC/${plugin}.dylib" ]; then
               cp "$GST_SRC/${plugin}.dylib" "$PLUGIN_DIR/"
             else
