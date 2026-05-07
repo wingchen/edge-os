@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::anyhow;
@@ -100,6 +102,8 @@ fn pipeline_loop(
     mut cmd_rx:   tokio_mpsc::Receiver<PipelineCmd>,
     rt:           tokio::runtime::Handle,
 ) -> anyhow::Result<()> {
+    let last_frame_secs: Arc<AtomicU64> = Arc::new(AtomicU64::new(0));
+
     // Base pipeline: source + demux + parse + tee.
     // Recording and WebRTC branches are added dynamically.
     let pipeline_str = format!(
@@ -130,8 +134,9 @@ fn pipeline_loop(
     // Wire up thumbnail appsink → SharedFrame
     if let Some(el) = pipeline.by_name("thumbnail") {
         if let Ok(appsink) = el.downcast::<gst_app::AppSink>() {
-            let frame_cb = shared_frame.clone();
-            let rt_cb    = rt.clone();
+            let frame_cb  = shared_frame.clone();
+            let rt_cb     = rt.clone();
+            let wdog_cb   = last_frame_secs.clone();
             appsink.set_callbacks(
                 gst_app::AppSinkCallbacks::builder()
                     .new_sample(move |sink| {
@@ -141,6 +146,9 @@ fn pipeline_loop(
                         let jpeg = map.as_slice().to_vec();
                         let frame = frame_cb.clone();
                         rt_cb.spawn(async move { *frame.lock().await = Some(jpeg); });
+                        let now = SystemTime::now()
+                            .duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+                        wdog_cb.store(now, Ordering::Relaxed);
                         Ok(gst::FlowSuccess::Ok)
                     })
                     .build(),
@@ -183,8 +191,6 @@ fn pipeline_loop(
     let bus = pipeline.bus().unwrap();
     let mut viewers:              HashMap<String, ViewerBranch>  = HashMap::new();
     let mut recordings:           HashMap<i64, RecordingBranch>  = HashMap::new();
-    // Tracks which event_id belongs to the current liveview recording so we can
-    // stop exactly that branch when the last viewer disconnects.
     let mut liveview_recording_eid: Option<i64> = None;
 
     loop {
@@ -221,6 +227,31 @@ fn pipeline_loop(
                     }
                 }
                 _ => {}
+            }
+        }
+
+        // ── Watchdog ──────────────────────────────────────────────────────────
+        // If the pipeline has produced at least one frame but then goes silent
+        // for 30s, the RTSP camera dropped. Tear down all branches and cycle
+        // the pipeline state to force rtspsrc to reconnect.
+        {
+            let last = last_frame_secs.load(Ordering::Relaxed);
+            let now  = SystemTime::now()
+                .duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+            if last > 0 && now.saturating_sub(last) > 30 {
+                warn!("[pipeline:{camera_id}] watchdog: no frames for 30s — reconnecting RTSP");
+                for (sid, branch) in viewers.drain() {
+                    remove_viewer(&pipeline, &tee, &camera_id, &sid, branch);
+                }
+                for (_, rec) in recordings.drain() {
+                    stop_recording(&camera_id, &rec);
+                }
+                liveview_recording_eid = None;
+                pipeline.set_state(gst::State::Null).ok();
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                pipeline.set_state(gst::State::Playing).ok();
+                // Reset watchdog so we don't immediately re-trigger
+                last_frame_secs.store(now, Ordering::Relaxed);
             }
         }
 
