@@ -554,7 +554,18 @@ fn start_recording(
     let tee_src = tee.request_pad_simple("src_%u")
         .ok_or_else(|| anyhow!("tee request_pad failed for recording"))?;
     tee_src.link(&queue.static_pad("sink").unwrap())?;
-    gst::Element::link_many([&queue, &parse, &mux, &filesink])?;
+    queue.link(&parse)?;
+    // stream-format=avc keeps SPS/PPS in codec_data (not separate buffers) so
+    // mp4mux never receives a standalone SPS/PPS NAL with PTS=NONE, which would
+    // otherwise cause a fatal "Buffer has no PTS" error and kill the pipeline.
+    gst::Element::link_filtered(
+        &parse, &mux,
+        &gst::Caps::builder("video/x-h264")
+            .field("stream-format", "avc")
+            .field("alignment", "au")
+            .build(),
+    )?;
+    mux.link(&filesink)?;
 
     for el in [&queue, &parse, &mux, &filesink] {
         el.sync_state_with_parent()?;
