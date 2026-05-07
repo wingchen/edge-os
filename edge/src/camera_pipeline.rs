@@ -137,6 +137,9 @@ fn pipeline_loop(
             let frame_cb  = shared_frame.clone();
             let rt_cb     = rt.clone();
             let wdog_cb   = last_frame_secs.clone();
+            let thumb_cid = camera_id.clone();
+            let thumb_count = Arc::new(std::sync::atomic::AtomicU64::new(0));
+            let thumb_count_cb = thumb_count.clone();
             appsink.set_callbacks(
                 gst_app::AppSinkCallbacks::builder()
                     .new_sample(move |sink| {
@@ -149,6 +152,10 @@ fn pipeline_loop(
                         let now = SystemTime::now()
                             .duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
                         wdog_cb.store(now, Ordering::Relaxed);
+                        let n = thumb_count_cb.fetch_add(1, Ordering::Relaxed) + 1;
+                        if n == 1 || n % 60 == 0 {
+                            info!("[pipeline:{thumb_cid}] thumbnail #{n}");
+                        }
                         Ok(gst::FlowSuccess::Ok)
                     })
                     .build(),
@@ -161,6 +168,9 @@ fn pipeline_loop(
     if let Some(infer_tx) = inference_tx {
         if let Some(el) = pipeline.by_name("yolo") {
             if let Ok(appsink) = el.downcast::<gst_app::AppSink>() {
+                let yolo_frame_count = Arc::new(std::sync::atomic::AtomicU64::new(0));
+                let yolo_count_cb = yolo_frame_count.clone();
+                let yolo_cid = camera_id.clone();
                 appsink.set_callbacks(
                     gst_app::AppSinkCallbacks::builder()
                         .new_sample(move |sink| {
@@ -171,10 +181,16 @@ fn pipeline_loop(
                             let h: i32 = s.get("height").map_err(|_| gst::FlowError::Error)?;
                             let buf    = sample.buffer().ok_or(gst::FlowError::Error)?;
                             let map    = buf.map_readable().map_err(|_| gst::FlowError::Error)?;
+                            let n = yolo_count_cb.fetch_add(1, Ordering::Relaxed) + 1;
+                            if n == 1 || n % 30 == 0 {
+                                info!("[pipeline:{yolo_cid}] YOLO appsink: frame #{n} ({w}x{h})");
+                            }
                             if let Some(rgb) = image::RgbImage::from_raw(
                                 w as u32, h as u32, map.as_slice().to_vec(),
                             ) {
-                                let _ = infer_tx.try_send(rgb);
+                                if infer_tx.try_send(rgb).is_err() {
+                                    // channel full — inference thread is busy, frame dropped
+                                }
                             }
                             Ok(gst::FlowSuccess::Ok)
                         })

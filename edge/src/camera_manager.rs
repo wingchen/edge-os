@@ -165,8 +165,9 @@ fn spawn_inference_thread(
         };
         info!("[infer:{camera_id}] ready, classes={detect_classes:?}");
 
-        let mut active:     HashMap<usize, ActiveEvent> = HashMap::new();
-        let mut last_ended: HashMap<usize, Instant>     = HashMap::new();
+        let mut active:           HashMap<usize, ActiveEvent> = HashMap::new();
+        let mut last_ended:       HashMap<usize, Instant>     = HashMap::new();
+        let mut total_frames:     u64 = 0;
 
         loop {
             let rgb = match frame_rx.blocking_recv() {
@@ -174,6 +175,7 @@ fn spawn_inference_thread(
                 None    => { info!("[infer:{camera_id}] channel closed"); break; }
             };
 
+            total_frames += 1;
             let now = Instant::now();
             let unix_now = SystemTime::now()
                 .duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
@@ -221,6 +223,18 @@ fn spawn_inference_thread(
                 Ok(d)  => d,
                 Err(e) => { error!("[infer:{camera_id}] {e}"); continue; }
             };
+
+            // Periodic diagnostic: log what YOLO sees every 30 frames (~15s at 2fps)
+            if total_frames == 1 || total_frames % 30 == 0 {
+                if detections.is_empty() {
+                    info!("[infer:{camera_id}] frame #{total_frames}: no detections");
+                } else {
+                    let summary: Vec<String> = detections.iter()
+                        .map(|d| format!("{}({:.2})", d.class_name, d.confidence))
+                        .collect();
+                    info!("[infer:{camera_id}] frame #{total_frames}: [{}]", summary.join(", "));
+                }
+            }
 
             let relevant: Vec<_> = detections.iter()
                 .filter(|d| detect_classes.contains(&d.class_id) && d.confidence >= min_confidence)
