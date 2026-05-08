@@ -291,22 +291,27 @@ jobs:
           cp edge/target/aarch64-apple-darwin/release/edge-os-edge \
              edge/target/release/edge-os-edge-aarch64-apple-darwin
 
-      # ── Build Tauri app → .dmg ─────────────────────────────────────────────
+      # ── Build Tauri app → .app only ───────────────────────────────────────
+      # We build only the .app bundle here (--bundles app) and create the DMG
+      # ourselves below. Tauri's own bundle_dmg.sh can fail on GitHub runners
+      # and is redundant since we rebuild the DMG anyway to strip Hardened Runtime.
       - name: Build Tauri app
-        run: npm run build -- --target aarch64-apple-darwin
+        run: npm run build -- --target aarch64-apple-darwin --bundles app
         working-directory: app
         env:
           APPLE_SIGNING_IDENTITY: '-'
 
-      # ── Strip Hardened Runtime + rebuild DMG ───────────────────────────────
+      # ── Strip Hardened Runtime + build DMG ────────────────────────────────
       # Tauri signs the sidecar with --options runtime (Hardened Runtime), which
       # enables Library Validation and prevents loading ad-hoc-signed GStreamer
-      # dylibs. Re-sign without that flag, then rebuild the DMG.
-      - name: Strip Hardened Runtime from sidecar and rebuild DMG
+      # dylibs. Re-sign without that flag, then build the DMG from scratch.
+      - name: Strip Hardened Runtime from sidecar and build DMG
         run: |
           set -e
           BUNDLE="app/src-tauri/target/aarch64-apple-darwin/release/bundle"
           APP="$BUNDLE/macos/EdgeOS.app"
+          DMG="$BUNDLE/dmg/EdgeOS_0.1.0_aarch64.dmg"
+          mkdir -p "$BUNDLE/dmg"
 
           # Re-sign sidecar ad-hoc WITHOUT --options runtime
           codesign --force --sign - "$APP/Contents/MacOS/edge-os-edge"
@@ -318,15 +323,13 @@ jobs:
           # Re-sign the outer app bundle to reflect nested changes
           codesign --force --sign - "$APP"
 
-          # Rebuild DMG (original is now stale)
+          # Build DMG
           STAGING=$(mktemp -d)
           cp -R "$APP" "$STAGING/"
           ln -s /Applications "$STAGING/Applications"
-          DMG=$(find "$BUNDLE/dmg" -name "*.dmg" | head -1)
-          rm -f "$DMG"
           hdiutil create -volname "EdgeOS" -srcfolder "$STAGING" -ov -format UDZO "$DMG"
           rm -rf "$STAGING"
-          echo "=== Rebuilt DMG: $DMG ==="
+          echo "=== Built DMG: $DMG ==="
           codesign -dvvv "$APP/Contents/MacOS/edge-os-edge" 2>&1 | grep "flags="
 
       # ── Upload artifact ─────────────────────────────────────────────────────
