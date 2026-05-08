@@ -211,6 +211,7 @@ fn pipeline_loop(
 
     let mut last_health_log  = std::time::Instant::now();
     let mut last_thumb_count = 0u64;
+    let pipeline_started_at  = std::time::Instant::now();
 
     loop {
         // ── GStreamer bus ─────────────────────────────────────────────────────
@@ -265,14 +266,18 @@ fn pipeline_loop(
         }
 
         // ── Watchdog ──────────────────────────────────────────────────────────
-        // If the pipeline has produced at least one frame but then goes silent
-        // for 30s, the RTSP camera dropped. Tear down all branches and cycle
-        // the pipeline state to force rtspsrc to reconnect.
+        // Reconnect if:
+        //   a) we had frames but went silent for 30s (RTSP dropped mid-stream), OR
+        //   b) we never received even one frame and 30s have elapsed (rtspsrc
+        //      failed to connect — without this check last_frame_secs stays 0
+        //      forever and the watchdog never fires)
         {
             let last = last_frame_secs.load(Ordering::Relaxed);
             let now  = SystemTime::now()
                 .duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
-            if last > 0 && now.saturating_sub(last) > 30 {
+            let stalled = (last > 0 && now.saturating_sub(last) > 30)
+                || (last == 0 && pipeline_started_at.elapsed().as_secs() > 30);
+            if stalled {
                 warn!("[pipeline:{camera_id}] watchdog: no frames for 30s — reconnecting RTSP");
                 for (sid, branch) in viewers.drain() {
                     remove_viewer(&pipeline, &tee, &camera_id, &sid, branch);
