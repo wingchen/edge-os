@@ -345,7 +345,7 @@ pub async fn handle_camera_offer(
     info!("starting camera WebRTC session {}", session_id);
 
     let mut ice_servers = vec![RTCIceServer {
-        urls: vec!["stun:stun.l.google.com:19302".to_owned()],
+        urls: vec!["stun:stun.relay.metered.ca:80".to_owned()],
         ..Default::default()
     }];
 
@@ -355,7 +355,12 @@ pub async fn handle_camera_offer(
         payload.turn_credential,
     ) {
         ice_servers.push(RTCIceServer {
-            urls: vec![format!("turn:{}:3478", host)],
+            urls: vec![
+                format!("turn:{}:80",                 host),
+                format!("turn:{}:80?transport=tcp",   host),
+                format!("turn:{}:443",                host),
+                format!("turns:{}:443?transport=tcp", host),
+            ],
             username: user,
             credential: cred,
             credential_type: RTCIceCredentialType::Password,
@@ -476,7 +481,7 @@ pub async fn handle_webrtc_offer(
     info!("starting WebRTC session {}", session_id);
 
     let mut ice_servers = vec![RTCIceServer {
-        urls: vec!["stun:stun.l.google.com:19302".to_owned()],
+        urls: vec!["stun:stun.relay.metered.ca:80".to_owned()],
         ..Default::default()
     }];
 
@@ -486,7 +491,12 @@ pub async fn handle_webrtc_offer(
         payload.turn_credential,
     ) {
         ice_servers.push(RTCIceServer {
-            urls: vec![format!("turn:{}:3478", host)],
+            urls: vec![
+                format!("turn:{}:80",                 host),
+                format!("turn:{}:80?transport=tcp",   host),
+                format!("turn:{}:443",                host),
+                format!("turns:{}:443?transport=tcp", host),
+            ],
             username: user,
             credential: cred,
             credential_type: RTCIceCredentialType::Password,

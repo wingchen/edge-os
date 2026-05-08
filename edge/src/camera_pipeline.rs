@@ -396,15 +396,21 @@ fn add_viewer(
     webrtc.set_state(gst::State::Ready)?;
 
     // STUN / TURN
-    webrtc.set_property_from_str("stun-server", "stun://stun.l.google.com:19302");
+    webrtc.set_property_from_str("stun-server", "stun://stun.relay.metered.ca:80");
     if let (Some(host), Some(user), Some(cred)) = (
         offer.turn_host.as_deref().filter(|h| !h.is_empty()),
         offer.turn_username.as_deref(),
         offer.turn_credential.as_deref(),
     ) {
-        let turn_uri = format!("turn://{user}:{cred}@{host}:3478");
-        webrtc.emit_by_name::<bool>("add-turn-server", &[&turn_uri.as_str()]);
-        info!("[pipeline:{camera_id}] TURN: {host}");
+        for turn_uri in &[
+            format!("turn://{user}:{cred}@{host}:80"),
+            format!("turn://{user}:{cred}@{host}:80?transport=tcp"),
+            format!("turn://{user}:{cred}@{host}:443"),
+            format!("turns://{user}:{cred}@{host}:443?transport=tcp"),
+        ] {
+            webrtc.emit_by_name::<bool>("add-turn-server", &[&turn_uri.as_str()]);
+        }
+        info!("[pipeline:{camera_id}] TURN: {host} (4 URIs)");
     }
 
     // ICE state — log transitions and send RemoveViewer on disconnect/failure/close

@@ -90,10 +90,14 @@ defmodule EdgeOsCloudWeb.EdgeLive.CameraEvents do
       turn_host ->
         username   = System.get_env("TURN_USERNAME", "")
         credential = System.get_env("TURN_PASSWORD", "")
+        stun_host  = System.get_env("TURN_STUN_HOST", "stun.relay.metered.ca:80")
         fields = %{turn_host: turn_host, turn_username: username, turn_credential: credential}
         servers = [
-          %{urls: ["stun:stun.l.google.com:19302"]},
-          %{urls: ["turn:#{turn_host}:3478"], username: username, credential: credential}
+          %{urls: ["stun:#{stun_host}"]},
+          %{urls: ["turn:#{turn_host}:80"],                 username: username, credential: credential},
+          %{urls: ["turn:#{turn_host}:80?transport=tcp"],   username: username, credential: credential},
+          %{urls: ["turn:#{turn_host}:443"],                username: username, credential: credential},
+          %{urls: ["turns:#{turn_host}:443?transport=tcp"], username: username, credential: credential},
         ]
         {fields, servers}
     end
