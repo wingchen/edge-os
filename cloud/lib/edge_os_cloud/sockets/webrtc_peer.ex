@@ -21,8 +21,7 @@ defmodule EdgeOsCloud.Sockets.WebRTCPeer do
     # via EdgeTcpSocket.get_pid. UserTcpSocket and is_session_ready also use this name.
     Process.register(self(), EdgeTcpSocket.get_pid(session.id))
 
-    {turn_ice_servers, turn_fields} = build_turn_config()
-    ice_servers = [%{urls: ["stun:stun.l.google.com:19302"]}] ++ turn_ice_servers
+    ice_servers = build_ice_servers()
 
     {:ok, pc} = ExWebRTC.PeerConnection.start_link(ice_servers: ice_servers)
     {:ok, dc} = ExWebRTC.PeerConnection.create_data_channel(pc, "ssh-tunnel", ordered: true)
@@ -30,7 +29,7 @@ defmodule EdgeOsCloud.Sockets.WebRTCPeer do
     {:ok, offer} = ExWebRTC.PeerConnection.create_offer(pc)
     :ok = ExWebRTC.PeerConnection.set_local_description(pc, offer)
 
-    offer_payload = Jason.encode!(Map.merge(%{session_id: session_hash, sdp: offer.sdp}, turn_fields))
+    offer_payload = Jason.encode!(%{session_id: session_hash, sdp: offer.sdp, ice_servers: ice_servers})
     send(EdgeSocket.get_pid(edge.id), "WEBRTC_OFFER #{offer_payload}")
 
     Device.append_edge_session_action(session.id, EdgeSessionStage.get.edge_connected)
@@ -128,24 +127,5 @@ defmodule EdgeOsCloud.Sockets.WebRTCPeer do
     {:noreply, state}
   end
 
-  defp build_turn_config do
-    case System.get_env("TURN_HOST") do
-      nil ->
-        {[], %{turn_host: nil, turn_username: nil, turn_credential: nil}}
-
-      turn_host ->
-        username   = System.get_env("TURN_USERNAME", "")
-        credential = System.get_env("TURN_PASSWORD", "")
-        stun_host  = System.get_env("TURN_STUN_HOST", "stun.relay.metered.ca:80")
-        ice = [
-          %{urls: ["stun:#{stun_host}"]},
-          %{urls: ["turn:#{turn_host}:80"],                 username: username, credential: credential},
-          %{urls: ["turn:#{turn_host}:80?transport=tcp"],   username: username, credential: credential},
-          %{urls: ["turn:#{turn_host}:443"],                username: username, credential: credential},
-          %{urls: ["turns:#{turn_host}:443?transport=tcp"], username: username, credential: credential},
-        ]
-        fields = %{turn_host: turn_host, turn_username: username, turn_credential: credential}
-        {ice, fields}
-    end
-  end
+  defp build_ice_servers, do: EdgeOsCloud.IceServers.build()
 end

@@ -12,7 +12,7 @@ defmodule EdgeOsCloudWeb.EdgeLive.Dash do
       user ->
         edge = Device.get_edge!(edge_id)
         protocol = get_in(edge.edge_info, ["protocol"]) || "tcp"
-        {_turn_fields, ice_servers} = build_turn_config()
+        ice_servers = build_ice_servers()
         {:ok, assign(socket,
           edge: edge,
           current_user: user,
@@ -36,17 +36,17 @@ defmodule EdgeOsCloudWeb.EdgeLive.Dash do
   def handle_event("browser_webrtc_offer", %{"sdp" => sdp}, socket) do
     %{edge: edge} = socket.assigns
 
-    {turn_fields, _} = build_turn_config()
     session_hash = generate_session_hash(edge)
 
     # Subscribe to PubSub so EdgeSocket can route the edge's answer back here
     Phoenix.PubSub.subscribe(EdgeOsCloud.PubSub, "browser_session:#{session_hash}")
 
-    offer_payload = Jason.encode!(Map.merge(%{
+    offer_payload = Jason.encode!(%{
       session_id:      session_hash,
       sdp:             sdp,
       connection_type: "camera",
-    }, turn_fields))
+      ice_servers:     build_ice_servers(),
+    })
 
     edge_pid = EdgeSocket.get_pid(edge.id)
     case Process.whereis(edge_pid) do
@@ -73,17 +73,17 @@ defmodule EdgeOsCloudWeb.EdgeLive.Dash do
   def handle_event("browser_camera_video_offer", %{"sdp" => sdp, "camera_id" => camera_id}, socket) do
     %{edge: edge} = socket.assigns
 
-    {turn_fields, _} = build_turn_config()
     video_session_hash = generate_session_hash(edge)
 
     Phoenix.PubSub.subscribe(EdgeOsCloud.PubSub, "browser_session:#{video_session_hash}")
 
-    offer_payload = Jason.encode!(Map.merge(%{
+    offer_payload = Jason.encode!(%{
       session_id:      video_session_hash,
       sdp:             sdp,
       connection_type: "camera_video",
       camera_id:       camera_id,
-    }, turn_fields))
+      ice_servers:     build_ice_servers(),
+    })
 
     edge_pid = EdgeSocket.get_pid(edge.id)
     case Process.whereis(edge_pid) do
@@ -146,24 +146,5 @@ defmodule EdgeOsCloudWeb.EdgeLive.Dash do
     EdgeOsCloud.HashIdHelper.encode(session_id, edge.salt)
   end
 
-  defp build_turn_config do
-    case System.get_env("TURN_HOST") do
-      nil ->
-        {%{turn_host: nil, turn_username: nil, turn_credential: nil},
-         [%{urls: ["stun:stun.l.google.com:19302"]}]}
-      turn_host ->
-        username   = System.get_env("TURN_USERNAME", "")
-        credential = System.get_env("TURN_PASSWORD", "")
-        stun_host  = System.get_env("TURN_STUN_HOST", "stun.relay.metered.ca:80")
-        fields = %{turn_host: turn_host, turn_username: username, turn_credential: credential}
-        servers = [
-          %{urls: ["stun:#{stun_host}"]},
-          %{urls: ["turn:#{turn_host}:80"],                 username: username, credential: credential},
-          %{urls: ["turn:#{turn_host}:80?transport=tcp"],   username: username, credential: credential},
-          %{urls: ["turn:#{turn_host}:443"],                username: username, credential: credential},
-          %{urls: ["turns:#{turn_host}:443?transport=tcp"], username: username, credential: credential},
-        ]
-        {fields, servers}
-    end
-  end
+  defp build_ice_servers, do: EdgeOsCloud.IceServers.build()
 end

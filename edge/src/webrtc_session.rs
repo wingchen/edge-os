@@ -17,14 +17,49 @@ use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 
 
+#[derive(Deserialize, Clone)]
+pub struct IceServerConfig {
+    pub urls:       Vec<String>,
+    pub username:   Option<String>,
+    pub credential: Option<String>,
+}
+
 #[derive(Deserialize)]
 pub struct OfferPayload {
-    pub session_id:    String,
-    pub sdp:           String,
-    pub camera_id:     Option<String>,
-    pub turn_host:     Option<String>,
-    pub turn_username: Option<String>,
-    pub turn_credential: Option<String>,
+    pub session_id:  String,
+    pub sdp:         String,
+    pub camera_id:   Option<String>,
+    pub ice_servers: Option<Vec<IceServerConfig>>,
+}
+
+/// Convert the server-provided ice_servers list into webrtc-rs RTCIceServer structs.
+/// Falls back to Google STUN if the server sends nothing.
+fn build_rtc_ice_servers(servers: Option<&[IceServerConfig]>) -> Vec<RTCIceServer> {
+    let servers = match servers {
+        Some(s) if !s.is_empty() => s,
+        _ => return vec![RTCIceServer {
+            urls: vec!["stun:stun.l.google.com:19302".to_owned()],
+            ..Default::default()
+        }],
+    };
+
+    let mut result: Vec<RTCIceServer> = Vec::new();
+    for s in servers {
+        let is_turn = s.urls.iter().any(|u| u.starts_with("turn:") || u.starts_with("turns:"));
+        if is_turn {
+            if let (Some(u), Some(c)) = (s.username.as_deref(), s.credential.as_deref()) {
+                result.push(RTCIceServer {
+                    urls:            s.urls.clone(),
+                    username:        u.to_owned(),
+                    credential:      c.to_owned(),
+                    credential_type: RTCIceCredentialType::Password,
+                });
+            }
+        } else {
+            result.push(RTCIceServer { urls: s.urls.clone(), ..Default::default() });
+        }
+    }
+    result
 }
 
 pub fn extract_session_id(json: &str) -> Option<String> {
@@ -344,28 +379,7 @@ pub async fn handle_camera_offer(
     let session_id = payload.session_id.clone();
     info!("starting camera WebRTC session {}", session_id);
 
-    let mut ice_servers = vec![RTCIceServer {
-        urls: vec!["stun:stun.relay.metered.ca:80".to_owned()],
-        ..Default::default()
-    }];
-
-    if let (Some(host), Some(user), Some(cred)) = (
-        payload.turn_host.filter(|h| !h.is_empty()),
-        payload.turn_username,
-        payload.turn_credential,
-    ) {
-        ice_servers.push(RTCIceServer {
-            urls: vec![
-                format!("turn:{}:80",                 host),
-                format!("turn:{}:80?transport=tcp",   host),
-                format!("turn:{}:443",                host),
-                format!("turns:{}:443?transport=tcp", host),
-            ],
-            username: user,
-            credential: cred,
-            credential_type: RTCIceCredentialType::Password,
-        });
-    }
+    let ice_servers = build_rtc_ice_servers(payload.ice_servers.as_deref());
 
     let api = APIBuilder::new().build();
     let config = RTCConfiguration { ice_servers, ..Default::default() };
@@ -480,28 +494,7 @@ pub async fn handle_webrtc_offer(
     let session_id = payload.session_id.clone();
     info!("starting WebRTC session {}", session_id);
 
-    let mut ice_servers = vec![RTCIceServer {
-        urls: vec!["stun:stun.relay.metered.ca:80".to_owned()],
-        ..Default::default()
-    }];
-
-    if let (Some(host), Some(user), Some(cred)) = (
-        payload.turn_host.filter(|h| !h.is_empty()),
-        payload.turn_username,
-        payload.turn_credential,
-    ) {
-        ice_servers.push(RTCIceServer {
-            urls: vec![
-                format!("turn:{}:80",                 host),
-                format!("turn:{}:80?transport=tcp",   host),
-                format!("turn:{}:443",                host),
-                format!("turns:{}:443?transport=tcp", host),
-            ],
-            username: user,
-            credential: cred,
-            credential_type: RTCIceCredentialType::Password,
-        });
-    }
+    let ice_servers = build_rtc_ice_servers(payload.ice_servers.as_deref());
 
     let api = APIBuilder::new().build();
     let config = RTCConfiguration { ice_servers, ..Default::default() };

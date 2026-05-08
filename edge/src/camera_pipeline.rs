@@ -395,23 +395,34 @@ fn add_viewer(
     // webrtcbin stays at READY until after SDP negotiation to avoid PT race
     webrtc.set_state(gst::State::Ready)?;
 
-    // STUN / TURN
-    webrtc.set_property_from_str("stun-server", "stun://stun.relay.metered.ca:80");
-    if let (Some(host), Some(user), Some(cred)) = (
-        offer.turn_host.as_deref().filter(|h| !h.is_empty()),
-        offer.turn_username.as_deref(),
-        offer.turn_credential.as_deref(),
-    ) {
-        for turn_uri in &[
-            format!("turn://{user}:{cred}@{host}:80"),
-            format!("turn://{user}:{cred}@{host}:80?transport=tcp"),
-            format!("turn://{user}:{cred}@{host}:443"),
-            format!("turns://{user}:{cred}@{host}:443?transport=tcp"),
-        ] {
-            webrtc.emit_by_name::<bool>("add-turn-server", &[&turn_uri.as_str()]);
+    // STUN / TURN — configured entirely from what the server sent in the offer.
+    // No hardcoded URIs: the server controls which ICE servers the edge uses.
+    let mut stun_set = false;
+    let mut turn_count = 0usize;
+    if let Some(servers) = &offer.ice_servers {
+        for s in servers {
+            for url in &s.urls {
+                if url.starts_with("stun:") {
+                    // "stun:host:port" → "stun://host:port"
+                    let gst_uri = format!("stun://{}", &url["stun:".len()..]);
+                    webrtc.set_property_from_str("stun-server", &gst_uri);
+                    stun_set = true;
+                } else if url.starts_with("turns:") || url.starts_with("turn:") {
+                    if let (Some(u), Some(c)) = (s.username.as_deref(), s.credential.as_deref()) {
+                        let scheme = if url.starts_with("turns:") { "turns" } else { "turn" };
+                        let rest   = &url[(scheme.len() + 1)..]; // strip "turn:" or "turns:"
+                        let gst_uri = format!("{scheme}://{u}:{c}@{rest}");
+                        webrtc.emit_by_name::<bool>("add-turn-server", &[&gst_uri.as_str()]);
+                        turn_count += 1;
+                    }
+                }
+            }
         }
-        info!("[pipeline:{camera_id}] TURN: {host} (4 URIs)");
     }
+    if !stun_set {
+        webrtc.set_property_from_str("stun-server", "stun://stun.l.google.com:19302");
+    }
+    info!("[pipeline:{camera_id}] ICE: stun={stun_set} turn_uris={turn_count}");
 
     // ICE state — log transitions and send RemoveViewer on disconnect/failure/close
     let cid = camera_id.to_string();
