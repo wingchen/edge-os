@@ -102,7 +102,8 @@ fn pipeline_loop(
     mut cmd_rx:   tokio_mpsc::Receiver<PipelineCmd>,
     rt:           tokio::runtime::Handle,
 ) -> anyhow::Result<()> {
-    let last_frame_secs: Arc<AtomicU64> = Arc::new(AtomicU64::new(0));
+    let last_frame_secs:   Arc<AtomicU64> = Arc::new(AtomicU64::new(0));
+    let thumb_frame_count: Arc<AtomicU64> = Arc::new(AtomicU64::new(0));
 
     // Base pipeline: source + demux + parse + tee.
     // Recording and WebRTC branches are added dynamically.
@@ -137,9 +138,8 @@ fn pipeline_loop(
             let frame_cb  = shared_frame.clone();
             let rt_cb     = rt.clone();
             let wdog_cb   = last_frame_secs.clone();
-            let thumb_cid = camera_id.clone();
-            let thumb_count = Arc::new(std::sync::atomic::AtomicU64::new(0));
-            let thumb_count_cb = thumb_count.clone();
+            let thumb_cid      = camera_id.clone();
+            let thumb_count_cb = thumb_frame_count.clone();
             appsink.set_callbacks(
                 gst_app::AppSinkCallbacks::builder()
                     .new_sample(move |sink| {
@@ -209,6 +209,9 @@ fn pipeline_loop(
     let mut recordings:           HashMap<i64, RecordingBranch>  = HashMap::new();
     let mut liveview_recording_eid: Option<i64> = None;
 
+    let mut last_health_log  = std::time::Instant::now();
+    let mut last_thumb_count = 0u64;
+
     loop {
         // ── GStreamer bus ─────────────────────────────────────────────────────
         while let Some(msg) = bus.timed_pop(10 * gst::ClockTime::MSECOND) {
@@ -244,6 +247,21 @@ fn pipeline_loop(
                 }
                 _ => {}
             }
+        }
+
+        // ── 10-second RTSP health heartbeat ──────────────────────────────────
+        if last_health_log.elapsed().as_secs() >= 10 {
+            let total  = thumb_frame_count.load(Ordering::Relaxed);
+            let delta  = total.saturating_sub(last_thumb_count);
+            let last   = last_frame_secs.load(Ordering::Relaxed);
+            let now_s  = SystemTime::now()
+                .duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+            let ago    = if last > 0 { format!("{}s ago", now_s.saturating_sub(last)) }
+                         else { "never".to_string() };
+            info!("[pipeline:{camera_id}] heartbeat: +{delta} frames in last 10s \
+                   (total={total}, last={ago})");
+            last_thumb_count = total;
+            last_health_log  = std::time::Instant::now();
         }
 
         // ── Watchdog ──────────────────────────────────────────────────────────
