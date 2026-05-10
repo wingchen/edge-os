@@ -257,6 +257,12 @@ fn pipeline_loop(
                             }
                             cleanup_branch(&pipeline, &tee, rec.tee_src,
                                 &[&rec.queue, &rec.parse, &rec.mux, &rec.filesink]);
+                            // Restart the pipeline clean after each clip so the next
+                            // recording always starts from a fresh pipeline state.
+                            // Eliminates all dynamic-attachment timing issues (no-PTS etc.).
+                            if recordings.is_empty() && viewers.is_empty() {
+                                need_restart = true;
+                            }
                         }
                     }
                 }
@@ -660,9 +666,6 @@ fn start_recording(
         .ok_or_else(|| anyhow!("tee request_pad failed for recording"))?;
     tee_src.link(&queue.static_pad("sink").unwrap())?;
     queue.link(&parse)?;
-    // stream-format=avc keeps SPS/PPS in codec_data (not separate buffers) so
-    // mp4mux never receives a standalone SPS/PPS NAL with PTS=NONE, which would
-    // otherwise cause a fatal "Buffer has no PTS" error and kill the pipeline.
     gst::Element::link_filtered(
         &parse, &mux,
         &gst::Caps::builder("video/x-h264")
@@ -671,6 +674,22 @@ fn start_recording(
             .build(),
     )?;
     mux.link(&filesink)?;
+
+    // h264parse emits a codec-header buffer with PTS=NONE when it first initialises
+    // on a running pipeline. mp4mux fatally errors on any no-PTS buffer, so drop them
+    // here — they carry no video data and must not reach the muxer.
+    let cid_probe = camera_id.to_string();
+    if let Some(src_pad) = parse.static_pad("src") {
+        src_pad.add_probe(gst::PadProbeType::BUFFER, move |_, info| {
+            if let Some(gst::PadProbeData::Buffer(ref buf)) = info.data {
+                if buf.pts().is_none() {
+                    warn!("[pipeline:{cid_probe}] recording: dropping no-PTS init buffer");
+                    return gst::PadProbeReturn::Drop;
+                }
+            }
+            gst::PadProbeReturn::Ok
+        });
+    }
 
     for el in [&queue, &parse, &mux, &filesink] {
         el.sync_state_with_parent()?;

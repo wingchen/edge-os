@@ -141,6 +141,32 @@ defmodule EdgeOsCloudWeb.EdgeLive.Dash do
     end
   end
 
+  # Browser explicitly stopped the video stream (back button, stop button, etc.)
+  def handle_event("browser_stop_camera_video", _params, socket) do
+    send_webrtc_close(socket)
+    {:noreply, assign(socket, video_session_hash: nil, video_camera_id: nil)}
+  end
+
+  # LiveView process terminating — browser closed tab, navigated away, or connection lost.
+  # Fires for cases 1 & 2; case 3 already cleared video_session_hash so this is a no-op then.
+  @impl true
+  def terminate(_reason, socket) do
+    send_webrtc_close(socket)
+    :ok
+  end
+
+  defp send_webrtc_close(%{assigns: %{edge: edge, video_session_hash: video_session_hash}})
+       when is_binary(video_session_hash) do
+    payload = Jason.encode!(%{session_id: video_session_hash})
+    edge_pid = EdgeSocket.get_pid(edge.id)
+    case Process.whereis(edge_pid) do
+      nil -> :ok
+      pid -> send(pid, "WEBRTC_CLOSE #{payload}")
+    end
+    Logger.info("WEBRTC_CLOSE sent for session=#{video_session_hash}")
+  end
+  defp send_webrtc_close(_socket), do: :ok
+
   defp generate_session_hash(edge) do
     session_id = :rand.uniform(999_999_999)
     EdgeOsCloud.HashIdHelper.encode(session_id, edge.salt)

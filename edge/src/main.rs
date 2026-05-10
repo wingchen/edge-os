@@ -187,6 +187,23 @@ async fn main() {
                         }
                     }
 
+                    "WEBRTC_CLOSE" => {
+                        let json = payload.to_string();
+                        let session_id = webrtc_session::extract_session_id(&json).unwrap_or_default();
+                        sessions.lock().await.remove(&session_id);
+                        let map = frame_map.lock().await;
+                        for state in map.values() {
+                            if let Some(pipe) = &state.pipeline {
+                                let _ = pipe.cmd_tx.send(
+                                    camera_pipeline::PipelineCmd::RemoveViewer {
+                                        session_id: session_id.clone(),
+                                    }
+                                ).await;
+                            }
+                        }
+                        info!("WEBRTC_CLOSE: session {} removed", session_id);
+                    }
+
                     _ => warn!("unknown message: '{}'", command_str),
                 }
             }
