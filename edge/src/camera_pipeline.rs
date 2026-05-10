@@ -108,7 +108,7 @@ fn pipeline_loop(
     // Base pipeline: source + demux + parse + tee.
     // Recording and WebRTC branches are added dynamically.
     let pipeline_str = format!(
-        "rtspsrc location=\"{rtsp_url}\" latency=100 name=src \
+        "rtspsrc location=\"{rtsp_url}\" latency=200 protocols=4 name=src \
          ! rtph264depay \
          ! h264parse config-interval=-1 name=parser \
          ! tee name=t \
@@ -221,9 +221,20 @@ fn pipeline_loop(
                 MessageView::Error(err) => {
                     error!("[pipeline:{camera_id}] GST error: {} — {:?}",
                         err.error(), err.debug());
+                    // Trigger the watchdog immediately instead of waiting 30 s
+                    let stale = SystemTime::now()
+                        .duration_since(UNIX_EPOCH).unwrap_or_default()
+                        .as_secs().saturating_sub(31);
+                    last_frame_secs.store(stale, Ordering::Relaxed);
                 }
                 MessageView::Warning(w) => {
                     warn!("[pipeline:{camera_id}] GST warning: {}", w.error());
+                }
+                MessageView::StateChanged(sc) => {
+                    if msg.src().map(|s| s.name() == "src").unwrap_or(false) {
+                        info!("[pipeline:{camera_id}] rtspsrc state {:?} → {:?}",
+                            sc.old(), sc.current());
+                    }
                 }
                 MessageView::Application(app) => {
                     // "recording-done" is posted by a filesink pad probe when EOS
