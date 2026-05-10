@@ -579,23 +579,6 @@ fn add_viewer(
                 }
             }
 
-            // Force an immediate keyframe after 1s so the browser can start decoding
-            let pipeline_fku = pipeline2.clone();
-            rt2.spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-                if let Some(parser) = pipeline_fku.by_name("parser") {
-                    if let Some(sinkpad) = parser.static_pad("sink") {
-                        let fku = gst::event::CustomUpstream::new(
-                            gst::Structure::builder("GstForceKeyUnit")
-                                .field("all-headers", true)
-                                .field("count", 0u32)
-                                .build(),
-                        );
-                        let ok = sinkpad.push_event(fku);
-                        info!("[pipeline] force-key-unit sent: {ok}");
-                    }
-                }
-            });
         });
 
         webrtc_ans.emit_by_name::<()>("create-answer", &[&None::<gst::Structure>, &create_ans]);
