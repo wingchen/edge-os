@@ -1037,6 +1037,10 @@
         clock.textContent = new Date().toLocaleTimeString();
       };
       probe.onerror = () => {
+        img.src = '';
+        img.style.display = 'none';
+        placeholder.style.display = 'flex';
+        liveBadge.style.display = 'none';
         statusBadge.textContent = 'Connecting';
         statusBadge.className = 'cam-status offline';
       };
@@ -1049,8 +1053,9 @@
   }
 
   // ── Camera detail (MJPEG liveview) ───────────────────────────────────────────
-  let detailTimer = null;
-  let detailCam   = null;
+  let detailTimer       = null;
+  let detailRetryTimer  = null;
+  let detailCam         = null;
 
   function openDetail(cam) {
     detailCam = cam;
@@ -1078,22 +1083,30 @@
     const placeholder = document.getElementById('detail-placeholder');
     const liveBadge   = document.getElementById('detail-live-badge');
 
-    img.onload = () => {
-      img.style.display = 'block';
-      placeholder.style.display = 'none';
-      liveBadge.style.display = 'block';
-    };
-    img.onerror = () => {
-      img.style.display = 'none';
-      placeholder.style.display = 'flex';
-      liveBadge.style.display = 'none';
-    };
-    img.src = `http://localhost:4001/stream/${camId}`;
+    function connectStream() {
+      img.onload = () => {
+        img.style.display = 'block';
+        placeholder.style.display = 'none';
+        liveBadge.style.display = 'block';
+      };
+      img.onerror = () => {
+        img.src = '';
+        img.style.display = 'none';
+        placeholder.style.display = 'flex';
+        liveBadge.style.display = 'none';
+        // Retry after 3s so we reconnect once the daemon is back
+        detailRetryTimer = setTimeout(connectStream, 3000);
+      };
+      img.src = `http://localhost:4001/stream/${camId}`;
+    }
+
+    connectStream();
   }
 
   function stopDetailPolling() {
+    if (detailRetryTimer) { clearTimeout(detailRetryTimer); detailRetryTimer = null; }
     const img = document.getElementById('detail-img');
-    if (img) { img.src = ''; img.style.display = 'none'; }
+    if (img) { img.onload = null; img.onerror = null; img.src = ''; img.style.display = 'none'; }
     const placeholder = document.getElementById('detail-placeholder');
     if (placeholder) placeholder.style.display = 'flex';
     const liveBadge = document.getElementById('detail-live-badge');

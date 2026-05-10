@@ -102,15 +102,21 @@ fn pipeline_loop(
     mut cmd_rx:   tokio_mpsc::Receiver<PipelineCmd>,
     rt:           tokio::runtime::Handle,
 ) -> anyhow::Result<()> {
+    'restart: loop {
+
+    // Clear stale frame so the UI shows placeholder during reconnect
+    rt.block_on(async { *shared_frame.lock().await = None; });
+
     let last_frame_secs:   Arc<AtomicU64> = Arc::new(AtomicU64::new(0));
     let thumb_frame_count: Arc<AtomicU64> = Arc::new(AtomicU64::new(0));
 
     // Base pipeline: source + demux + parse + tee.
     // Recording and WebRTC branches are added dynamically.
     let pipeline_str = format!(
-        "rtspsrc location=\"{rtsp_url}\" latency=200 protocols=4 name=src \
+        "rtspsrc location=\"{rtsp_url}\" latency=100 name=src \
          ! rtph264depay \
-         ! h264parse config-interval=-1 name=parser \
+         ! h264parse config-interval=0 name=parser \
+         ! video/x-h264,stream-format=avc,alignment=au \
          ! tee name=t \
            t. ! queue ! fakesink sync=false name=placeholder \
            t. ! queue leaky=downstream max-size-buffers=2 \
@@ -165,7 +171,7 @@ fn pipeline_loop(
     }
 
     // Wire YOLO appsink → inference channel
-    if let Some(infer_tx) = inference_tx {
+    if let Some(infer_tx) = inference_tx.clone() {
         if let Some(el) = pipeline.by_name("yolo") {
             if let Ok(appsink) = el.downcast::<gst_app::AppSink>() {
                 let yolo_frame_count = Arc::new(std::sync::atomic::AtomicU64::new(0));
@@ -212,6 +218,7 @@ fn pipeline_loop(
     let mut last_health_log  = std::time::Instant::now();
     let mut last_thumb_count = 0u64;
     let pipeline_started_at  = std::time::Instant::now();
+    let mut need_restart     = false;
 
     loop {
         // ── GStreamer bus ─────────────────────────────────────────────────────
@@ -221,11 +228,7 @@ fn pipeline_loop(
                 MessageView::Error(err) => {
                     error!("[pipeline:{camera_id}] GST error: {} — {:?}",
                         err.error(), err.debug());
-                    // Trigger the watchdog immediately instead of waiting 30 s
-                    let stale = SystemTime::now()
-                        .duration_since(UNIX_EPOCH).unwrap_or_default()
-                        .as_secs().saturating_sub(31);
-                    last_frame_secs.store(stale, Ordering::Relaxed);
+                    need_restart = true;
                 }
                 MessageView::Warning(w) => {
                     warn!("[pipeline:{camera_id}] GST warning: {}", w.error());
@@ -288,8 +291,12 @@ fn pipeline_loop(
                 .duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
             let stalled = (last > 0 && now.saturating_sub(last) > 30)
                 || (last == 0 && pipeline_started_at.elapsed().as_secs() > 30);
-            if stalled {
-                warn!("[pipeline:{camera_id}] watchdog: no frames for 30s — reconnecting RTSP");
+            if stalled || need_restart {
+                if stalled {
+                    warn!("[pipeline:{camera_id}] watchdog: no frames for 30s — restarting pipeline");
+                } else {
+                    warn!("[pipeline:{camera_id}] GST error — restarting pipeline in 3s");
+                }
                 for (sid, branch) in viewers.drain() {
                     remove_viewer(&pipeline, &tee, &camera_id, &sid, branch);
                 }
@@ -298,10 +305,8 @@ fn pipeline_loop(
                 }
                 liveview_recording_eid = None;
                 pipeline.set_state(gst::State::Null).ok();
-                std::thread::sleep(std::time::Duration::from_secs(2));
-                pipeline.set_state(gst::State::Playing).ok();
-                // Reset watchdog so we don't immediately re-trigger
-                last_frame_secs.store(now, Ordering::Relaxed);
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                continue 'restart;
             }
         }
 
@@ -388,7 +393,9 @@ fn pipeline_loop(
                 }
             }
         }
-    }
+    } // inner event loop
+
+    } // 'restart: loop
 }
 
 // ── add_viewer ────────────────────────────────────────────────────────────────

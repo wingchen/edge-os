@@ -98,15 +98,13 @@ pub async fn start(working_dir: &str) -> (FrameMap, Arc<std::sync::Mutex<EventSt
         // Always-on GStreamer pipeline — WebRTC viewers + recording
         let frame: SharedFrame = Arc::new(Mutex::new(None));
 
-        let (infer_tx, infer_rx) = tokio::sync::mpsc::channel::<image::RgbImage>(2);
-
         let pipeline = match CameraGstPipeline::new(
             cam.id.clone(),
             cam.rtsp_url.clone(),
             Arc::clone(&event_store),
             clips_dir.clone(),
             Arc::clone(&frame),
-            Some(infer_tx),
+            None, // inference disabled — re-enable below when ready
         ) {
             Ok(p) => {
                 info!("[camera_manager] GStreamer pipeline started for {id}");
@@ -118,21 +116,22 @@ pub async fn start(working_dir: &str) -> (FrameMap, Arc<std::sync::Mutex<EventSt
             }
         };
 
-        // Spawn inference thread (blocking — YOLO is CPU-bound)
-        let pipeline_cmd_tx = pipeline.as_ref().map(|p| p.cmd_tx.clone());
-        spawn_inference_thread(
-            cam.id.clone(),
-            working_dir.to_string(),
-            clips_dir.clone(),
-            cam.detect_classes.clone(),
-            cam.detect_confidence,
-            cam.min_detections,
-            Duration::from_secs(cam.grace_period_secs),
-            Duration::from_secs(cam.cooldown_secs),
-            Arc::clone(&event_store),
-            pipeline_cmd_tx,
-            infer_rx,
-        );
+        // TODO: re-enable inference once streaming is stable
+        // let (infer_tx, infer_rx) = tokio::sync::mpsc::channel::<image::RgbImage>(2);
+        // let pipeline_cmd_tx = pipeline.as_ref().map(|p| p.cmd_tx.clone());
+        // spawn_inference_thread(
+        //     cam.id.clone(),
+        //     working_dir.to_string(),
+        //     clips_dir.clone(),
+        //     cam.detect_classes.clone(),
+        //     cam.detect_confidence,
+        //     cam.min_detections,
+        //     Duration::from_secs(cam.grace_period_secs),
+        //     Duration::from_secs(cam.cooldown_secs),
+        //     Arc::clone(&event_store),
+        //     pipeline_cmd_tx,
+        //     infer_rx,
+        // );
 
         frame_map.lock().await.insert(id, CameraState { name, frame, pipeline });
     }
@@ -381,7 +380,6 @@ async fn reload_handler(State(state): State<AppState>) -> impl IntoResponse {
     for cam in &to_start {
         let id    = cam.id.clone();
         let frame: SharedFrame = Arc::new(Mutex::new(None));
-        let (infer_tx, infer_rx) = tokio::sync::mpsc::channel::<image::RgbImage>(2);
 
         let pipeline = match CameraGstPipeline::new(
             cam.id.clone(),
@@ -389,26 +387,28 @@ async fn reload_handler(State(state): State<AppState>) -> impl IntoResponse {
             Arc::clone(&state.event_store),
             clips_dir.clone(),
             Arc::clone(&frame),
-            Some(infer_tx),
+            None, // inference disabled — re-enable below when ready
         ) {
             Ok(p)  => { info!("[camera_manager] reload: GStreamer pipeline started for {id}"); Some(p) }
             Err(e) => { warn!("[camera_manager] reload: GStreamer pipeline failed for {id}: {e}"); None }
         };
 
-        let pipeline_cmd_tx = pipeline.as_ref().map(|p| p.cmd_tx.clone());
-        spawn_inference_thread(
-            cam.id.clone(),
-            state.working_dir.clone(),
-            clips_dir.clone(),
-            cam.detect_classes.clone(),
-            cam.detect_confidence,
-            cam.min_detections,
-            Duration::from_secs(cam.grace_period_secs),
-            Duration::from_secs(cam.cooldown_secs),
-            Arc::clone(&state.event_store),
-            pipeline_cmd_tx,
-            infer_rx,
-        );
+        // TODO: re-enable inference once streaming is stable
+        // let (infer_tx, infer_rx) = tokio::sync::mpsc::channel::<image::RgbImage>(2);
+        // let pipeline_cmd_tx = pipeline.as_ref().map(|p| p.cmd_tx.clone());
+        // spawn_inference_thread(
+        //     cam.id.clone(),
+        //     state.working_dir.clone(),
+        //     clips_dir.clone(),
+        //     cam.detect_classes.clone(),
+        //     cam.detect_confidence,
+        //     cam.min_detections,
+        //     Duration::from_secs(cam.grace_period_secs),
+        //     Duration::from_secs(cam.cooldown_secs),
+        //     Arc::clone(&state.event_store),
+        //     pipeline_cmd_tx,
+        //     infer_rx,
+        // );
 
         state.frame_map.lock().await.insert(id.clone(), CameraState {
             name: cam.name.clone(),
