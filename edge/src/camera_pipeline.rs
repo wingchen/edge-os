@@ -419,7 +419,10 @@ fn add_viewer(
     cmd_tx:       tokio_mpsc::Sender<PipelineCmd>,
 ) -> anyhow::Result<ViewerBranch> {
     // Build branch elements
-    let queue  = gst::ElementFactory::make("queue").build()?;
+    let queue  = gst::ElementFactory::make("queue")
+                     .property_from_str("leaky", "downstream")
+                     .property("max-size-buffers", 60u32)
+                     .build()?;
     let pay    = gst::ElementFactory::make("rtph264pay")
                      .property("config-interval", -1i32)
                      .build()?;
