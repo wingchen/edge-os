@@ -426,6 +426,29 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 - [ ] Send text-only event summary to cloud for push notification dispatch (no image, no thumbnail)
 - [ ] Send AI Guard token request to cloud; call Vertex AI / Bedrock directly with frames; send text result back to cloud
 
+### Clip Storage Management
+> Prevent edge disks from filling up with recorded clips.
+
+**Retention config in `config.json`:**
+```json
+{
+  "clip_retention_days": 30,
+  "clip_max_gb": 20
+}
+```
+
+**Cleanup logic (hourly background task):**
+1. Delete clips older than `clip_retention_days`
+2. If total clip directory size still exceeds `clip_max_gb`, delete oldest clips first until under quota
+3. For each deleted file, set `clip_path = NULL` in SQLite so the UI degrades gracefully (thumbnail still shown, Play/Save buttons hidden)
+
+**Optional:** shorter retention for liveview clips vs. YOLO-detected event clips (e.g. 3 days vs. 30 days), since liveview clips are lower value.
+
+**Tasks:**
+- [ ] Background tokio task in `camera_manager.rs` alongside the HTTP server
+- [ ] Read retention config from `config.json` (same file as cameras)
+- [ ] Expose retention settings in Tauri Settings view
+
 **Tasks — V4L2 path (Priority 2, Pi + USB camera):**
 - [ ] Capture frames from V4L2 device (`/dev/video0`)
 - [ ] Feed into same frame differencing + YOLO pipeline as RTSP path
@@ -514,6 +537,52 @@ Transform edge-os into a **privacy-first edge AI camera platform** — a self-ho
 - [ ] Apple Vision framework — on-device face recognition
 - [ ] Audio detection — glass breaking, shouting (via Whisper or custom model)
 - [ ] Sensor fusion — correlate camera events with door/window sensors
+
+---
+
+## Phase 11 — Remote Desktop
+> Extends the existing WebRTC video + data channel primitives to share a machine's screen and relay keyboard/mouse input. No new transport needed — reuses the same signaling, ICE, and TURN infrastructure already in place for cameras.
+>
+> **Architecture:**
+> ```
+> Screen capture (platform source)
+>   → H.264 encode → WebRTC video track  (same path as camera live stream)
+>
+> Browser keyboard/mouse events
+>   → WebRTC data channel → edge input injection (xdotool / CGEvent)
+> ```
+>
+> **Signaling:** one new `connection_type: "desktop"` handled in `main.rs` and `dash.ex`, identical to `"camera_video"` routing today.
+
+### 11A — Edge: screen capture pipeline
+- [ ] Linux: `ximagesrc ! videoconvert ! x264enc ! rtph264pay ! webrtcbin` — no permission required, works from root daemon
+- [ ] macOS: screen capture requires TCC "Screen Recording" permission. Permission is per-app bundle — the LaunchDaemon (root, no bundle) cannot request it. Two options:
+  - *(Fast)* Tauri app captures screen via `AVFoundation` / `ScreenCaptureKit` and forwards frames to the daemon over a local socket
+  - *(Clean)* Migrate daemon to a user-level LaunchAgent (aligns with TODO 3F signing work) so the signed `.app` bundle holds the TCC entitlement
+- [ ] `DesktopPipeline` struct in `edge/` mirroring `CameraGstPipeline` — WebRTC viewer add/remove, same tee fan-out model
+
+### 11B — Edge: input relay
+- [ ] WebRTC data channel message schema:
+  ```json
+  {"type": "mouse_move",  "x": 640, "y": 480}
+  {"type": "mouse_click", "x": 640, "y": 480, "button": 1, "down": true}
+  {"type": "key",         "keycode": 65, "down": true, "modifiers": ["shift"]}
+  {"type": "scroll",      "x": 640, "y": 480, "dx": 0, "dy": -3}
+  ```
+- [ ] Linux injection: `xdotool` subprocess or `uinput` virtual device (no privilege needed for xdotool in X11 session; `uinput` needs group membership)
+- [ ] macOS injection: `CGEventCreateMouseEvent` / `CGEventCreateKeyboardEvent` (CoreGraphics) — requires Accessibility permission in TCC (separate from Screen Recording); same bundle-vs-daemon constraint applies
+
+### 11C — Cloud signaling
+- [ ] `dash.ex`: add `browser_desktop_offer` / `browser_stop_desktop` event handlers (mirrors `browser_camera_video_offer`)
+- [ ] `main.rs`: route `connection_type: "desktop"` offers to `DesktopPipeline::add_viewer`
+- [ ] `WEBRTC_CLOSE` already handles session teardown for all connection types — no new teardown code needed
+
+### 11D — Browser UI
+- [ ] `dash.html.heex`: "Remote Desktop" button per edge; opens a full-screen `<video>` overlay
+- [ ] Input capture: `mousemove`, `mousedown`, `mouseup`, `wheel`, `keydown`, `keyup` event listeners on the video element → push over data channel
+- [ ] Pointer lock API (`video.requestPointerLock()`) for seamless mouse capture
+- [ ] Touch support: translate `touchstart`/`touchmove`/`touchend` to mouse events for tablet access
+- [ ] On-screen keyboard toggle for mobile viewers (Phase 9 prerequisite)
 
 ---
 
