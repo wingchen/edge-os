@@ -43,20 +43,30 @@ fn build_rtc_ice_servers(servers: Option<&[IceServerConfig]>) -> Vec<RTCIceServe
         }],
     };
 
+    // webrtc-rs 0.11 does not support ?transport= query params or the turns: scheme.
+    // Strip query params; drop turns: URLs (TLS TURN) since the library rejects them.
+    let sanitize = |u: &str| -> Option<String> {
+        let base = u.split('?').next().unwrap_or(u);
+        if base.starts_with("turns:") { return None; }
+        Some(base.to_owned())
+    };
+
     let mut result: Vec<RTCIceServer> = Vec::new();
     for s in servers {
-        let is_turn = s.urls.iter().any(|u| u.starts_with("turn:") || u.starts_with("turns:"));
+        let urls: Vec<String> = s.urls.iter().filter_map(|u| sanitize(u)).collect();
+        if urls.is_empty() { continue; }
+        let is_turn = urls.iter().any(|u| u.starts_with("turn:"));
         if is_turn {
             if let (Some(u), Some(c)) = (s.username.as_deref(), s.credential.as_deref()) {
                 result.push(RTCIceServer {
-                    urls:            s.urls.clone(),
+                    urls,
                     username:        u.to_owned(),
                     credential:      c.to_owned(),
                     credential_type: RTCIceCredentialType::Password,
                 });
             }
         } else {
-            result.push(RTCIceServer { urls: s.urls.clone(), ..Default::default() });
+            result.push(RTCIceServer { urls, ..Default::default() });
         }
     }
     result

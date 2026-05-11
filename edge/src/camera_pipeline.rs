@@ -461,6 +461,8 @@ fn add_viewer(
                     if let (Some(u), Some(c)) = (s.username.as_deref(), s.credential.as_deref()) {
                         let scheme = if url.starts_with("turns:") { "turns" } else { "turn" };
                         let rest   = &url[(scheme.len() + 1)..]; // strip "turn:" or "turns:"
+                        // Strip ?transport= query params — GStreamer encodes transport in the scheme
+                        let rest   = rest.split('?').next().unwrap_or(rest);
                         let gst_uri = format!("{scheme}://{u}:{c}@{rest}");
                         webrtc.emit_by_name::<bool>("add-turn-server", &[&gst_uri.as_str()]);
                         turn_count += 1;
