@@ -129,7 +129,7 @@ fn pipeline_loop(
            rawt. ! queue leaky=downstream max-size-buffers=2 \
                  ! videoconvert ! video/x-raw,format=RGB \
                  ! videorate ! video/x-raw,framerate=2/1 \
-                 ! appsink name=yolo sync=false emit-signals=true"
+                 ! appsink name=yolo sync=false emit-signals=true drop=true max-buffers=1"
     );
 
     let pipeline = gst::parse::launch(&pipeline_str)?
