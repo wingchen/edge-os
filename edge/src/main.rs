@@ -14,8 +14,6 @@ use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use tokio::net::UnixListener;
 use tokio::time::{sleep};
 use std::os::unix::fs::PermissionsExt;
-#[cfg(target_os = "linux")]
-use systemd_journal_logger::JournalLog;
 
 mod camera_pipeline;
 mod camera_manager;
@@ -30,15 +28,6 @@ mod yolo;
 
 #[tokio::main]
 async fn main() {
-    // Use journald only on Linux when launched by systemd (JOURNAL_STREAM is set by systemd).
-    // On macOS and for interactive use, fall through to env_logger → stderr.
-    #[cfg(target_os = "linux")]
-    if std::env::var("JOURNAL_STREAM").is_ok() {
-        let _ = JournalLog::default().install();
-    } else {
-        env_logger::init();
-    }
-    #[cfg(not(target_os = "linux"))]
     env_logger::init();
     log::set_max_level(LevelFilter::Debug);
 
