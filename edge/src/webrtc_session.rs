@@ -84,8 +84,10 @@ pub fn extract_connection_type(json: &str) -> String {
         .unwrap_or_else(|| "ssh".to_string())
 }
 
+#[cfg(not(target_os = "windows"))]
 type EventStore = Arc<std::sync::Mutex<crate::event_store::EventStore>>;
 
+#[cfg(not(target_os = "windows"))]
 async fn handle_camera_channel(
     dc:          Arc<RTCDataChannel>,
     frame_map:   crate::camera_manager::FrameMap,
@@ -374,6 +376,7 @@ fn make_thumbnail(jpeg: &[u8], max_w: u32, max_h: u32) -> anyhow::Result<Vec<u8>
     Ok(buf)
 }
 
+#[cfg(not(target_os = "windows"))]
 pub async fn handle_camera_offer(
     json_payload: String,
     tx:           UnboundedSender<Message>,
@@ -493,6 +496,23 @@ pub async fn handle_webrtc_offer(
     tx: UnboundedSender<Message>,
     mut ice_rx: tokio_mpsc::UnboundedReceiver<String>,
 ) {
+    handle_webrtc_offer_on_port(json_payload, tx, ice_rx, 22).await;
+}
+
+pub async fn handle_rdp_offer(
+    json_payload: String,
+    tx: UnboundedSender<Message>,
+    ice_rx: tokio_mpsc::UnboundedReceiver<String>,
+) {
+    handle_webrtc_offer_on_port(json_payload, tx, ice_rx, 3389).await;
+}
+
+async fn handle_webrtc_offer_on_port(
+    json_payload: String,
+    tx: UnboundedSender<Message>,
+    mut ice_rx: tokio_mpsc::UnboundedReceiver<String>,
+    tcp_port: u16,
+) {
     let payload: OfferPayload = match serde_json::from_str(&json_payload) {
         Ok(p) => p,
         Err(e) => {
@@ -572,7 +592,7 @@ pub async fn handle_webrtc_offer(
         }
     }));
 
-    // Data channel opened by cloud — bridge to local SSH
+    // Data channel opened by cloud — bridge to local TCP port
     pc.on_data_channel(Box::new(move |dc: Arc<RTCDataChannel>| {
         Box::pin(async move {
             info!("data channel '{}' received", dc.label());
@@ -580,9 +600,9 @@ pub async fn handle_webrtc_offer(
             dc.on_open(Box::new(move || {
                 let dc = Arc::clone(&dc_open);
                 Box::pin(async move {
-                    info!("data channel open, bridging to 127.0.0.1:22");
-                    if let Err(e) = bridge_to_ssh(dc).await {
-                        error!("SSH bridge error: {}", e);
+                    info!("data channel open, bridging to 127.0.0.1:{}", tcp_port);
+                    if let Err(e) = bridge_to_tcp(dc, tcp_port).await {
+                        error!("TCP bridge error on port {}: {}", tcp_port, e);
                     }
                 })
             }));
@@ -661,10 +681,11 @@ pub async fn handle_webrtc_offer(
     info!("WebRTC session {} closed", session_id);
 }
 
-async fn bridge_to_ssh(
+async fn bridge_to_tcp(
     dc: Arc<RTCDataChannel>,
+    port: u16,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let tcp = TcpStream::connect("127.0.0.1:22").await?;
+    let tcp = TcpStream::connect(format!("127.0.0.1:{port}")).await?;
     let (mut tcp_read, mut tcp_write) = tcp.into_split();
 
     // Channel so on_message callback can hand data to the TCP writer task

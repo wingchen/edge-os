@@ -10,6 +10,7 @@ struct StatusMenuItem(Mutex<MenuItem<tauri::Wry>>);
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .manage(std::sync::Mutex::new(RdpProxy::default()))
         .invoke_handler(tauri::generate_handler![
             save_config,
             get_status,
@@ -20,6 +21,9 @@ pub fn run() {
             add_camera,
             remove_camera,
             preview_camera,
+            start_rdp_proxy,
+            send_rdp_data,
+            stop_rdp_proxy,
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -672,4 +676,89 @@ pub fn set_tray_status(app: &tauri::AppHandle, text: &str) -> tauri::Result<()> 
         state.0.lock().unwrap().set_text(text)?;
     }
     Ok(())
+}
+
+// ── RDP proxy ─────────────────────────────────────────────────────────────────
+// Bridges the WebRTC data channel (browser JS) to mstsc.exe via a local TCP
+// listener on 127.0.0.1:13389.
+//
+// Flow:
+//   data channel msg  →  invoke("send_rdp_data")  →  TCP write  →  mstsc.exe
+//   mstsc.exe         →  TCP read  →  emit("rdp_from_edge")  →  data channel send
+
+pub struct RdpProxy {
+    to_tcp_tx: Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>,
+}
+
+impl Default for RdpProxy {
+    fn default() -> Self { Self { to_tcp_tx: None } }
+}
+
+#[tauri::command]
+async fn start_rdp_proxy(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, std::sync::Mutex<RdpProxy>>,
+) -> Result<(), String> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:13389")
+        .await
+        .map_err(|e| format!("failed to bind RDP proxy: {e}"))?;
+
+    let (to_tcp_tx, mut to_tcp_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+    state.lock().unwrap().to_tcp_tx = Some(to_tcp_tx);
+
+    // Launch mstsc.exe — it will connect to the listener we just bound
+    #[cfg(target_os = "windows")]
+    std::process::Command::new("mstsc")
+        .arg("/v:127.0.0.1:13389")
+        .spawn()
+        .map_err(|e| format!("failed to launch mstsc: {e}"))?;
+
+    tokio::spawn(async move {
+        match listener.accept().await {
+            Ok((tcp, _)) => {
+                let (mut tcp_read, mut tcp_write) = tcp.into_split();
+
+                // Incoming data channel bytes → TCP (mstsc.exe reads these as RDP)
+                tokio::spawn(async move {
+                    while let Some(data) = to_tcp_rx.recv().await {
+                        if tcp_write.write_all(&data).await.is_err() { break; }
+                    }
+                });
+
+                // TCP bytes from mstsc.exe → emit to webview → JS sends over data channel
+                let mut buf = vec![0u8; 4096];
+                loop {
+                    match tcp_read.read(&mut buf).await {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => {
+                            let _ = app.emit("rdp_from_edge", buf[..n].to_vec());
+                        }
+                    }
+                }
+            }
+            Err(e) => log::error!("RDP proxy accept error: {e}"),
+        }
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+fn send_rdp_data(
+    data: Vec<u8>,
+    state: tauri::State<'_, std::sync::Mutex<RdpProxy>>,
+) -> Result<(), String> {
+    let proxy = state.lock().unwrap();
+    match &proxy.to_tcp_tx {
+        Some(tx) => tx.send(data).map_err(|e| format!("send_rdp_data error: {e}")),
+        None => Err("RDP proxy not started".to_string()),
+    }
+}
+
+#[tauri::command]
+fn stop_rdp_proxy(state: tauri::State<'_, std::sync::Mutex<RdpProxy>>) {
+    state.lock().unwrap().to_tcp_tx = None;
 }
