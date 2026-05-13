@@ -14,7 +14,7 @@ defmodule EdgeOsCloudWeb.EdgeLive.CameraEvents do
       user ->
         edge = Device.get_edge!(edge_id)
         protocol = get_in(edge.edge_info, ["protocol"]) || "tcp"
-        {_turn_fields, ice_servers} = build_turn_config()
+        ice_servers = build_ice_servers()
 
         camera_name = Map.get(params, "camera_name", camera_id)
         {:ok, assign(socket,
@@ -35,16 +35,16 @@ defmodule EdgeOsCloudWeb.EdgeLive.CameraEvents do
   @impl true
   def handle_event("browser_webrtc_offer", %{"sdp" => sdp}, socket) do
     %{edge: edge} = socket.assigns
-    {turn_fields, _} = build_turn_config()
     session_hash = generate_session_hash(edge)
 
     Phoenix.PubSub.subscribe(EdgeOsCloud.PubSub, "browser_session:#{session_hash}")
 
-    offer_payload = Jason.encode!(Map.merge(%{
+    offer_payload = Jason.encode!(%{
       session_id:      session_hash,
       sdp:             sdp,
       connection_type: "camera",
-    }, turn_fields))
+      ice_servers:     build_ice_servers(),
+    })
 
     edge_pid = EdgeSocket.get_pid(edge.id)
     case Process.whereis(edge_pid) do
@@ -82,20 +82,5 @@ defmodule EdgeOsCloudWeb.EdgeLive.CameraEvents do
     EdgeOsCloud.HashIdHelper.encode(session_id, edge.salt)
   end
 
-  defp build_turn_config do
-    case System.get_env("TURN_HOST") do
-      nil ->
-        {%{turn_host: nil, turn_username: nil, turn_credential: nil},
-         [%{urls: ["stun:stun.l.google.com:19302"]}]}
-      turn_host ->
-        username   = System.get_env("TURN_USERNAME", "")
-        credential = System.get_env("TURN_PASSWORD", "")
-        fields = %{turn_host: turn_host, turn_username: username, turn_credential: credential}
-        servers = [
-          %{urls: ["stun:stun.l.google.com:19302"]},
-          %{urls: ["turn:#{turn_host}:3478"], username: username, credential: credential}
-        ]
-        {fields, servers}
-    end
-  end
+  defp build_ice_servers, do: EdgeOsCloud.IceServers.build()
 end

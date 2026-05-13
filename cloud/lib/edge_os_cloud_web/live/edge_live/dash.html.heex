@@ -221,6 +221,7 @@
 
       function stopDetailVideo() {
         if (detailCamId && videoPCs[detailCamId]) {
+          hook.pushEvent('browser_stop_camera_video', { camera_id: detailCamId });
           const vpc = videoPCs[detailCamId];
           vpc.close();
           delete videoPCs[detailCamId];

@@ -14,7 +14,6 @@ use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use tokio::net::UnixListener;
 use tokio::time::{sleep};
 use std::os::unix::fs::PermissionsExt;
-use systemd_journal_logger::JournalLog;
 
 mod camera_pipeline;
 mod camera_manager;
@@ -29,13 +28,7 @@ mod yolo;
 
 #[tokio::main]
 async fn main() {
-    // Use journald only when launched by systemd (JOURNAL_STREAM is set by systemd).
-    // For interactive use (local.sh, terminal) fall through to env_logger → stderr.
-    if std::env::var("JOURNAL_STREAM").is_ok() {
-        let _ = JournalLog::default().install();
-    } else {
-        env_logger::init();
-    }
+    env_logger::init();
     log::set_max_level(LevelFilter::Debug);
 
     gstreamer::init().expect("GStreamer init failed");
@@ -181,6 +174,23 @@ async fn main() {
                             Some(ice_tx) => { let _ = ice_tx.send(json); }
                             None => warn!("no active WebRTC session for ICE candidate {}", session_id),
                         }
+                    }
+
+                    "WEBRTC_CLOSE" => {
+                        let json = payload.to_string();
+                        let session_id = webrtc_session::extract_session_id(&json).unwrap_or_default();
+                        sessions.lock().await.remove(&session_id);
+                        let map = frame_map.lock().await;
+                        for state in map.values() {
+                            if let Some(pipe) = &state.pipeline {
+                                let _ = pipe.cmd_tx.send(
+                                    camera_pipeline::PipelineCmd::RemoveViewer {
+                                        session_id: session_id.clone(),
+                                    }
+                                ).await;
+                            }
+                        }
+                        info!("WEBRTC_CLOSE: session {} removed", session_id);
                     }
 
                     _ => warn!("unknown message: '{}'", command_str),

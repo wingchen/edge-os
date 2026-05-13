@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::anyhow;
@@ -100,12 +102,21 @@ fn pipeline_loop(
     mut cmd_rx:   tokio_mpsc::Receiver<PipelineCmd>,
     rt:           tokio::runtime::Handle,
 ) -> anyhow::Result<()> {
+    'restart: loop {
+
+    // Clear stale frame so the UI shows placeholder during reconnect
+    rt.block_on(async { *shared_frame.lock().await = None; });
+
+    let last_frame_secs:   Arc<AtomicU64> = Arc::new(AtomicU64::new(0));
+    let thumb_frame_count: Arc<AtomicU64> = Arc::new(AtomicU64::new(0));
+
     // Base pipeline: source + demux + parse + tee.
     // Recording and WebRTC branches are added dynamically.
     let pipeline_str = format!(
         "rtspsrc location=\"{rtsp_url}\" latency=100 name=src \
          ! rtph264depay \
-         ! h264parse config-interval=-1 name=parser \
+         ! h264parse config-interval=0 name=parser \
+         ! video/x-h264,stream-format=avc,alignment=au \
          ! tee name=t \
            t. ! queue ! fakesink sync=false name=placeholder \
            t. ! queue leaky=downstream max-size-buffers=2 \
@@ -118,7 +129,7 @@ fn pipeline_loop(
            rawt. ! queue leaky=downstream max-size-buffers=2 \
                  ! videoconvert ! video/x-raw,format=RGB \
                  ! videorate ! video/x-raw,framerate=2/1 \
-                 ! appsink name=yolo sync=false emit-signals=true"
+                 ! appsink name=yolo sync=false emit-signals=true drop=true max-buffers=1"
     );
 
     let pipeline = gst::parse::launch(&pipeline_str)?
@@ -130,8 +141,11 @@ fn pipeline_loop(
     // Wire up thumbnail appsink → SharedFrame
     if let Some(el) = pipeline.by_name("thumbnail") {
         if let Ok(appsink) = el.downcast::<gst_app::AppSink>() {
-            let frame_cb = shared_frame.clone();
-            let rt_cb    = rt.clone();
+            let frame_cb  = shared_frame.clone();
+            let rt_cb     = rt.clone();
+            let wdog_cb   = last_frame_secs.clone();
+            let thumb_cid      = camera_id.clone();
+            let thumb_count_cb = thumb_frame_count.clone();
             appsink.set_callbacks(
                 gst_app::AppSinkCallbacks::builder()
                     .new_sample(move |sink| {
@@ -141,6 +155,13 @@ fn pipeline_loop(
                         let jpeg = map.as_slice().to_vec();
                         let frame = frame_cb.clone();
                         rt_cb.spawn(async move { *frame.lock().await = Some(jpeg); });
+                        let now = SystemTime::now()
+                            .duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+                        wdog_cb.store(now, Ordering::Relaxed);
+                        let n = thumb_count_cb.fetch_add(1, Ordering::Relaxed) + 1;
+                        if n == 1 || n % 60 == 0 {
+                            info!("[pipeline:{thumb_cid}] thumbnail #{n}");
+                        }
                         Ok(gst::FlowSuccess::Ok)
                     })
                     .build(),
@@ -150,9 +171,12 @@ fn pipeline_loop(
     }
 
     // Wire YOLO appsink → inference channel
-    if let Some(infer_tx) = inference_tx {
+    if let Some(infer_tx) = inference_tx.clone() {
         if let Some(el) = pipeline.by_name("yolo") {
             if let Ok(appsink) = el.downcast::<gst_app::AppSink>() {
+                let yolo_frame_count = Arc::new(std::sync::atomic::AtomicU64::new(0));
+                let yolo_count_cb = yolo_frame_count.clone();
+                let yolo_cid = camera_id.clone();
                 appsink.set_callbacks(
                     gst_app::AppSinkCallbacks::builder()
                         .new_sample(move |sink| {
@@ -163,10 +187,16 @@ fn pipeline_loop(
                             let h: i32 = s.get("height").map_err(|_| gst::FlowError::Error)?;
                             let buf    = sample.buffer().ok_or(gst::FlowError::Error)?;
                             let map    = buf.map_readable().map_err(|_| gst::FlowError::Error)?;
+                            let n = yolo_count_cb.fetch_add(1, Ordering::Relaxed) + 1;
+                            if n == 1 || n % 30 == 0 {
+                                info!("[pipeline:{yolo_cid}] YOLO appsink: frame #{n} ({w}x{h})");
+                            }
                             if let Some(rgb) = image::RgbImage::from_raw(
                                 w as u32, h as u32, map.as_slice().to_vec(),
                             ) {
-                                let _ = infer_tx.try_send(rgb);
+                                if infer_tx.try_send(rgb).is_err() {
+                                    // channel full — inference thread is busy, frame dropped
+                                }
                             }
                             Ok(gst::FlowSuccess::Ok)
                         })
@@ -183,9 +213,12 @@ fn pipeline_loop(
     let bus = pipeline.bus().unwrap();
     let mut viewers:              HashMap<String, ViewerBranch>  = HashMap::new();
     let mut recordings:           HashMap<i64, RecordingBranch>  = HashMap::new();
-    // Tracks which event_id belongs to the current liveview recording so we can
-    // stop exactly that branch when the last viewer disconnects.
     let mut liveview_recording_eid: Option<i64> = None;
+
+    let mut last_health_log  = std::time::Instant::now();
+    let mut last_thumb_count = 0u64;
+    let pipeline_started_at  = std::time::Instant::now();
+    let mut need_restart     = false;
 
     loop {
         // ── GStreamer bus ─────────────────────────────────────────────────────
@@ -195,9 +228,16 @@ fn pipeline_loop(
                 MessageView::Error(err) => {
                     error!("[pipeline:{camera_id}] GST error: {} — {:?}",
                         err.error(), err.debug());
+                    need_restart = true;
                 }
                 MessageView::Warning(w) => {
                     warn!("[pipeline:{camera_id}] GST warning: {}", w.error());
+                }
+                MessageView::StateChanged(sc) => {
+                    if msg.src().map(|s| s.name() == "src").unwrap_or(false) {
+                        info!("[pipeline:{camera_id}] rtspsrc state {:?} → {:?}",
+                            sc.old(), sc.current());
+                    }
                 }
                 MessageView::Application(app) => {
                     // "recording-done" is posted by a filesink pad probe when EOS
@@ -217,10 +257,62 @@ fn pipeline_loop(
                             }
                             cleanup_branch(&pipeline, &tee, rec.tee_src,
                                 &[&rec.queue, &rec.parse, &rec.mux, &rec.filesink]);
+                            // Restart the pipeline clean after each clip so the next
+                            // recording always starts from a fresh pipeline state.
+                            // Eliminates all dynamic-attachment timing issues (no-PTS etc.).
+                            if recordings.is_empty() && viewers.is_empty() {
+                                need_restart = true;
+                            }
                         }
                     }
                 }
                 _ => {}
+            }
+        }
+
+        // ── 10-second RTSP health heartbeat ──────────────────────────────────
+        if last_health_log.elapsed().as_secs() >= 10 {
+            let total  = thumb_frame_count.load(Ordering::Relaxed);
+            let delta  = total.saturating_sub(last_thumb_count);
+            let last   = last_frame_secs.load(Ordering::Relaxed);
+            let now_s  = SystemTime::now()
+                .duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+            let ago    = if last > 0 { format!("{}s ago", now_s.saturating_sub(last)) }
+                         else { "never".to_string() };
+            info!("[pipeline:{camera_id}] heartbeat: +{delta} frames in last 10s \
+                   (total={total}, last={ago})");
+            last_thumb_count = total;
+            last_health_log  = std::time::Instant::now();
+        }
+
+        // ── Watchdog ──────────────────────────────────────────────────────────
+        // Reconnect if:
+        //   a) we had frames but went silent for 30s (RTSP dropped mid-stream), OR
+        //   b) we never received even one frame and 30s have elapsed (rtspsrc
+        //      failed to connect — without this check last_frame_secs stays 0
+        //      forever and the watchdog never fires)
+        {
+            let last = last_frame_secs.load(Ordering::Relaxed);
+            let now  = SystemTime::now()
+                .duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+            let stalled = (last > 0 && now.saturating_sub(last) > 30)
+                || (last == 0 && pipeline_started_at.elapsed().as_secs() > 30);
+            if stalled || need_restart {
+                if stalled {
+                    warn!("[pipeline:{camera_id}] watchdog: no frames for 30s — restarting pipeline");
+                } else {
+                    warn!("[pipeline:{camera_id}] GST error — restarting pipeline in 3s");
+                }
+                for (sid, branch) in viewers.drain() {
+                    remove_viewer(&pipeline, &tee, &camera_id, &sid, branch);
+                }
+                for (_, rec) in recordings.drain() {
+                    stop_recording(&camera_id, &rec);
+                }
+                liveview_recording_eid = None;
+                pipeline.set_state(gst::State::Null).ok();
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                continue 'restart;
             }
         }
 
@@ -307,7 +399,9 @@ fn pipeline_loop(
                 }
             }
         }
-    }
+    } // inner event loop
+
+    } // 'restart: loop
 }
 
 // ── add_viewer ────────────────────────────────────────────────────────────────
@@ -325,7 +419,10 @@ fn add_viewer(
     cmd_tx:       tokio_mpsc::Sender<PipelineCmd>,
 ) -> anyhow::Result<ViewerBranch> {
     // Build branch elements
-    let queue  = gst::ElementFactory::make("queue").build()?;
+    let queue  = gst::ElementFactory::make("queue")
+                     .property_from_str("leaky", "downstream")
+                     .property("max-size-buffers", 60u32)
+                     .build()?;
     let pay    = gst::ElementFactory::make("rtph264pay")
                      .property("config-interval", -1i32)
                      .build()?;
@@ -348,17 +445,36 @@ fn add_viewer(
     // webrtcbin stays at READY until after SDP negotiation to avoid PT race
     webrtc.set_state(gst::State::Ready)?;
 
-    // STUN / TURN
-    webrtc.set_property_from_str("stun-server", "stun://stun.l.google.com:19302");
-    if let (Some(host), Some(user), Some(cred)) = (
-        offer.turn_host.as_deref().filter(|h| !h.is_empty()),
-        offer.turn_username.as_deref(),
-        offer.turn_credential.as_deref(),
-    ) {
-        let turn_uri = format!("turn://{user}:{cred}@{host}:3478");
-        webrtc.emit_by_name::<bool>("add-turn-server", &[&turn_uri.as_str()]);
-        info!("[pipeline:{camera_id}] TURN: {host}");
+    // STUN / TURN — configured entirely from what the server sent in the offer.
+    // No hardcoded URIs: the server controls which ICE servers the edge uses.
+    let mut stun_set = false;
+    let mut turn_count = 0usize;
+    if let Some(servers) = &offer.ice_servers {
+        for s in servers {
+            for url in &s.urls {
+                if url.starts_with("stun:") {
+                    // "stun:host:port" → "stun://host:port"
+                    let gst_uri = format!("stun://{}", &url["stun:".len()..]);
+                    webrtc.set_property_from_str("stun-server", &gst_uri);
+                    stun_set = true;
+                } else if url.starts_with("turns:") || url.starts_with("turn:") {
+                    if let (Some(u), Some(c)) = (s.username.as_deref(), s.credential.as_deref()) {
+                        let scheme = if url.starts_with("turns:") { "turns" } else { "turn" };
+                        let rest   = &url[(scheme.len() + 1)..]; // strip "turn:" or "turns:"
+                        // Strip ?transport= query params — GStreamer encodes transport in the scheme
+                        let rest   = rest.split('?').next().unwrap_or(rest);
+                        let gst_uri = format!("{scheme}://{u}:{c}@{rest}");
+                        webrtc.emit_by_name::<bool>("add-turn-server", &[&gst_uri.as_str()]);
+                        turn_count += 1;
+                    }
+                }
+            }
+        }
     }
+    if !stun_set {
+        webrtc.set_property_from_str("stun-server", "stun://stun.l.google.com:19302");
+    }
+    info!("[pipeline:{camera_id}] ICE: stun={stun_set} turn_uris={turn_count}");
 
     // ICE state — log transitions and send RemoveViewer on disconnect/failure/close
     let cid = camera_id.to_string();
@@ -468,23 +584,6 @@ fn add_viewer(
                 }
             }
 
-            // Force an immediate keyframe after 1s so the browser can start decoding
-            let pipeline_fku = pipeline2.clone();
-            rt2.spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-                if let Some(parser) = pipeline_fku.by_name("parser") {
-                    if let Some(sinkpad) = parser.static_pad("sink") {
-                        let fku = gst::event::CustomUpstream::new(
-                            gst::Structure::builder("GstForceKeyUnit")
-                                .field("all-headers", true)
-                                .field("count", 0u32)
-                                .build(),
-                        );
-                        let ok = sinkpad.push_event(fku);
-                        info!("[pipeline] force-key-unit sent: {ok}");
-                    }
-                }
-            });
         });
 
         webrtc_ans.emit_by_name::<()>("create-answer", &[&None::<gst::Structure>, &create_ans]);
@@ -554,7 +653,31 @@ fn start_recording(
     let tee_src = tee.request_pad_simple("src_%u")
         .ok_or_else(|| anyhow!("tee request_pad failed for recording"))?;
     tee_src.link(&queue.static_pad("sink").unwrap())?;
-    gst::Element::link_many([&queue, &parse, &mux, &filesink])?;
+    queue.link(&parse)?;
+    gst::Element::link_filtered(
+        &parse, &mux,
+        &gst::Caps::builder("video/x-h264")
+            .field("stream-format", "avc")
+            .field("alignment", "au")
+            .build(),
+    )?;
+    mux.link(&filesink)?;
+
+    // h264parse emits a codec-header buffer with PTS=NONE when it first initialises
+    // on a running pipeline. mp4mux fatally errors on any no-PTS buffer, so drop them
+    // here — they carry no video data and must not reach the muxer.
+    let cid_probe = camera_id.to_string();
+    if let Some(src_pad) = parse.static_pad("src") {
+        src_pad.add_probe(gst::PadProbeType::BUFFER, move |_, info| {
+            if let Some(gst::PadProbeData::Buffer(ref buf)) = info.data {
+                if buf.pts().is_none() {
+                    warn!("[pipeline:{cid_probe}] recording: dropping no-PTS init buffer");
+                    return gst::PadProbeReturn::Drop;
+                }
+            }
+            gst::PadProbeReturn::Ok
+        });
+    }
 
     for el in [&queue, &parse, &mux, &filesink] {
         el.sync_state_with_parent()?;

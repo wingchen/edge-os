@@ -1,0 +1,341 @@
+name: Build macOS DMG
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+      - macos-installer
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest   # Apple Silicon (arm64) runner
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Rust ────────────────────────────────────────────────────────────────
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            edge -> target
+            app/src-tauri -> target
+
+      # ── Node / Tauri CLI ────────────────────────────────────────────────────
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install Tauri CLI
+        run: npm ci
+        working-directory: app
+
+      # ── GStreamer (Homebrew) ────────────────────────────────────────────────
+      - name: Cache Homebrew bottles
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/Homebrew
+          key: homebrew-gstreamer-${{ runner.arch }}-${{ hashFiles('.github/workflows/build-macos.yml') }}
+          restore-keys: homebrew-gstreamer-${{ runner.arch }}-
+
+      - name: Install GStreamer and dylibbundler
+        run: |
+          brew install \
+            gstreamer \
+            gst-plugins-base \
+            gst-plugins-good \
+            gst-plugins-bad \
+            gst-plugins-ugly \
+            libnice \
+            libnice-gstreamer \
+            dylibbundler
+
+      - name: Export GStreamer pkg-config paths
+        run: |
+          BREW=$(brew --prefix)
+          echo "PKG_CONFIG_PATH=${BREW}/lib/pkgconfig" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=${BREW}/lib"              >> $GITHUB_ENV
+          echo "GST_PLUGIN_PATH=${BREW}/lib/gstreamer-1.0" >> $GITHUB_ENV
+
+      - name: Diagnose libnice-gstreamer
+        run: |
+          echo "=== brew --prefix libnice-gstreamer ==="
+          brew --prefix libnice-gstreamer 2>&1 || true
+          echo "=== libnice-gstreamer Cellar contents ==="
+          find "$(brew --prefix libnice-gstreamer 2>/dev/null)" -name "*.dylib" 2>/dev/null || echo "(not found)"
+          echo "=== find libgstnice anywhere ==="
+          find /opt/homebrew -name "libgstnice*" 2>/dev/null || true
+
+      # ── Build edge binary ───────────────────────────────────────────────────
+      - name: Build edge binary (arm64)
+        run: cargo build --release --target aarch64-apple-darwin
+        working-directory: edge
+
+      # ── Bundle GStreamer dylibs + plugins ───────────────────────────────────
+      # Rewrites the binary's load paths to @executable_path/gstreamer/lib so
+      # the daemon finds its dylibs without Homebrew being present on end-user
+      # machines. Plugins are copied separately and found via GST_PLUGIN_PATH.
+      - name: Bundle GStreamer into app resources
+        run: |
+          set -e
+          BREW=$(brew --prefix)
+          EDGE_BIN="edge/target/aarch64-apple-darwin/release/edge-os-edge"
+          LIB_DIR="app/src-tauri/gstreamer/lib"
+          PLUGIN_DIR="app/src-tauri/gstreamer/plugins"
+
+          mkdir -p "$LIB_DIR" "$PLUGIN_DIR"
+
+          # ── Step 1: edge binary deps via dylibbundler ───────────────────────
+          dylibbundler \
+            --fix-file "$EDGE_BIN" \
+            --bundle-deps \
+            --dest-dir "$LIB_DIR" \
+            --install-path "@executable_path/gstreamer/lib" \
+            --overwrite-dir \
+            --search-path "$BREW/lib"
+
+          # ── Step 2: copy plugins ────────────────────────────────────────────
+          # Use the formula opt path — resolves directly into the Cellar and
+          # contains every plugin the unified gstreamer formula installed.
+          GST_SRC="$(brew --prefix gstreamer)/lib/gstreamer-1.0"
+
+          echo "=== GST_SRC = $GST_SRC ==="
+          ls "$GST_SRC" | grep -E "(rtsp|nice|sctp|videoconvert)" || echo "(none of interest)"
+
+          # Notes:
+          # - libgstvideoconvert renamed to libgstvideoconvertscale in GStreamer 1.22
+          # - rtspsrc element lives in libgstrtsp (renamed from libgstrtspsrc in 1.24+)
+          for plugin in \
+            libgstcoreelements libgstapp \
+            libgstrtsp libgstrtp libgstrtpmanager \
+            libgstvideoconvertscale libgstvideorate \
+            libgstisomp4 libgstjpeg \
+            libgstwebrtc libgstsctp \
+            libgstvideoparsersbad libgstapplemedia libgstlibav libgstudp libgstdtls libgstsrtp; do
+            if [ -f "$GST_SRC/${plugin}.dylib" ]; then
+              cp "$GST_SRC/${plugin}.dylib" "$PLUGIN_DIR/"
+            else
+              # Fallback: search all real files in Homebrew (-L follows symlinks,
+              # skipping broken ones that show in ls but have no target).
+              found=$(find -L "$BREW" -name "${plugin}.dylib" 2>/dev/null | head -1)
+              [ -n "$found" ] && cp "$found" "$PLUGIN_DIR/" || \
+                echo "WARNING: $plugin not found"
+            fi
+          done
+
+          # libgstnice.dylib is provided by libnice-gstreamer. Use find -L to
+          # locate the real file (skips the broken symlink in the gstreamer Cellar).
+          nice_src=$(find -L /opt/homebrew/Cellar/libnice-gstreamer \
+            -name "libgstnice.dylib" 2>/dev/null | head -1)
+          echo "nice_src: ${nice_src:-(not found)}"
+          if [ -f "$nice_src" ]; then
+            cp "$nice_src" "$PLUGIN_DIR/"
+            # Copy libnice and any other Homebrew deps the plugin links against
+            while IFS= read -r dep; do
+              case "$dep" in
+                /opt/homebrew/*|/usr/local/*)
+                  depname=$(basename "$dep")
+                  [ -f "$LIB_DIR/$depname" ] && continue
+                  [ -f "$dep" ] && cp "$dep" "$LIB_DIR/" && echo "  nice dep: $depname"
+                  ;;
+              esac
+            done < <(otool -L "$nice_src" | tail -n +2 | awk '{print $1}')
+          else
+            echo "WARNING: libgstnice not found in libnice-gstreamer Cellar"
+          fi
+
+          # Explicitly copy libusrsctp — it's a direct dep of libgstsctp but lives
+          # in a separate formula (/opt/homebrew/Cellar/libusrsctp) so Step 3's
+          # @loader_path resolution won't find it via the gstreamer Cellar.
+          usrsctp=$(find "$BREW" -name "libusrsctp.*.dylib" \
+            -not -name "libusrsctp.dylib" 2>/dev/null | head -1)
+          [ -n "$usrsctp" ] && cp "$usrsctp" "$LIB_DIR/" && \
+            echo "  copied: $(basename $usrsctp)" || echo "WARNING: libusrsctp not found"
+
+          # ── Step 3: resolve @loader_path deps from each bundled plugin ────────
+          # Plugins use @loader_path/../lib/ relative paths set by Homebrew.
+          # Follow symlinks to the real Cellar path so the resolution is correct.
+          for plugin in "$PLUGIN_DIR"/*.dylib; do
+            plugin_name=$(basename "$plugin")
+            orig=$(find "$BREW" -name "$plugin_name" 2>/dev/null | head -1)
+            [ -z "$orig" ] && continue
+            orig_real=$(realpath "$orig" 2>/dev/null || echo "$orig")
+            orig_lib="$(cd "$(dirname "$orig_real")/.." 2>/dev/null && pwd)/lib"
+
+            while IFS= read -r dep; do
+              [[ "$dep" != @loader_path/../lib/* ]] && continue
+              libname="${dep#@loader_path/../lib/}"
+              [ -f "$LIB_DIR/$libname" ] && continue
+              if [ -f "$orig_lib/$libname" ]; then
+                cp "$orig_lib/$libname" "$LIB_DIR/" && echo "  dep: $libname"
+              else
+                found=$(find "$BREW" -name "$libname" \
+                  -not -path "*/gstreamer-1.0/*" 2>/dev/null | head -1)
+                if [ -n "$found" ]; then
+                  cp "$found" "$LIB_DIR/" && echo "  dep (fallback): $libname"
+                else
+                  echo "  missing (skipping): $libname"
+                fi
+              fi
+            done < <(otool -L "$orig_real" | awk '{print $1}')
+          done
+
+          # ── Step 4: make all bundled files writable then fix install names ──
+          chmod -R u+w "$LIB_DIR" "$PLUGIN_DIR"
+
+          for f in "$LIB_DIR"/*.dylib; do
+            libname=$(basename "$f")
+            install_name_tool -id "@executable_path/gstreamer/lib/$libname" "$f"
+            while IFS= read -r dep; do
+              case "$dep" in
+                /opt/homebrew/*|/usr/local/*)
+                  install_name_tool -change "$dep" \
+                    "@executable_path/gstreamer/lib/$(basename "$dep")" "$f" 2>/dev/null || true ;;
+              esac
+            done < <(otool -L "$f" | tail -n +2 | awk '{print $1}')
+          done
+
+          for f in "$PLUGIN_DIR"/*.dylib; do
+            plugname=$(basename "$f")
+            install_name_tool -id "@loader_path/../plugins/$plugname" "$f"
+            while IFS= read -r dep; do
+              case "$dep" in
+                /opt/homebrew/*|/usr/local/*)
+                  install_name_tool -change "$dep" \
+                    "@loader_path/../lib/$(basename "$dep")" "$f" 2>/dev/null || true ;;
+                @rpath/*)
+                  install_name_tool -change "$dep" \
+                    "@loader_path/../lib/$(basename "$dep")" "$f" 2>/dev/null || true ;;
+              esac
+            done < <(otool -L "$f" | tail -n +2 | awk '{print $1}')
+          done
+
+          # ── Step 5: transitive closure — fill all missing deps from LIB_DIR/PLUGIN_DIR ──
+          # Step 4 rewrites absolute Homebrew paths to @executable_path/gstreamer/lib/
+          # (in libs) or @loader_path/../lib/ (in plugins) but does NOT copy those
+          # files. This loop iterates both dirs until no new files are added, handling
+          # deep dep chains like libgstnice → libnice → libgnutls → libnettle → libgmp.
+          changed=1
+          while [ "$changed" -eq 1 ]; do
+            changed=0
+            for f in "$LIB_DIR"/*.dylib "$PLUGIN_DIR"/*.dylib; do
+              [ -f "$f" ] || continue
+              while IFS= read -r dep; do
+                case "$dep" in
+                  @executable_path/gstreamer/lib/*) libname="${dep#@executable_path/gstreamer/lib/}" ;;
+                  @loader_path/../lib/*)             libname="${dep#@loader_path/../lib/}" ;;
+                  *) continue ;;
+                esac
+                [ -f "$LIB_DIR/$libname" ] && continue
+                found=$(find -L "$BREW" -name "$libname" \
+                  -not -path "*/gstreamer-1.0/*" 2>/dev/null | head -1)
+                if [ -n "$found" ]; then
+                  cp "$found" "$LIB_DIR/"
+                  chmod u+w "$LIB_DIR/$libname"
+                  install_name_tool -id \
+                    "@executable_path/gstreamer/lib/$libname" "$LIB_DIR/$libname"
+                  while IFS= read -r ldep; do
+                    case "$ldep" in
+                      /opt/homebrew/*|/usr/local/*)
+                        install_name_tool -change "$ldep" \
+                          "@executable_path/gstreamer/lib/$(basename "$ldep")" \
+                          "$LIB_DIR/$libname" 2>/dev/null || true ;;
+                    esac
+                  done < <(otool -L "$found" | tail -n +2 | awk '{print $1}')
+                  codesign -f -s - "$LIB_DIR/$libname" 2>/dev/null || true
+                  echo "  transitive dep: $libname"
+                  changed=1
+                else
+                  echo "  not in Homebrew (will fail to load): $libname"
+                fi
+              done < <(otool -L "$f" | tail -n +2 | awk '{print $1}')
+            done
+          done
+
+          echo "=== PLUGINS ($(ls $PLUGIN_DIR | wc -l | tr -d ' ') files) ==="
+          ls -1 "$PLUGIN_DIR"
+          echo "=== LIBS ($(ls $LIB_DIR | wc -l | tr -d ' ') files) ==="
+          ls -1 "$LIB_DIR"
+          echo "=== KEY CHECKS ==="
+          echo "rtsp (libgstrtsp):$(ls $PLUGIN_DIR | grep -c "^libgstrtsp\.dylib$") (expect 1)"
+          echo "nice:             $(ls $PLUGIN_DIR | grep -c nice) (expect 1)"
+          echo "videoconvertscale:$(ls $PLUGIN_DIR | grep -c videoconvert) (expect 1)"
+          echo "sctp (plugin):    $(ls $PLUGIN_DIR | grep -c sctp) (expect 1)"
+          echo "usrsctp (lib):    $(ls $LIB_DIR | grep -c usrsctp) (expect 1)"
+
+      # Strip Homebrew Team ID from bundled dylibs so they match the
+      # ad-hoc signed edge binary (no Team ID). Without this macOS refuses
+      # to load them: "different Team IDs".
+      - name: Ad-hoc re-sign bundled dylibs
+        run: |
+          for f in app/src-tauri/gstreamer/lib/*.dylib \
+                   app/src-tauri/gstreamer/plugins/*.dylib; do
+            codesign -f -s - "$f" 2>/dev/null || true
+          done
+
+      - name: Stage sidecar for Tauri
+        run: |
+          mkdir -p edge/target/release
+          cp edge/target/aarch64-apple-darwin/release/edge-os-edge \
+             edge/target/release/edge-os-edge-aarch64-apple-darwin
+
+      # ── Build Tauri app → .app only ───────────────────────────────────────
+      # We build only the .app bundle here (--bundles app) and create the DMG
+      # ourselves below. Tauri's own bundle_dmg.sh can fail on GitHub runners
+      # and is redundant since we rebuild the DMG anyway to strip Hardened Runtime.
+      - name: Build Tauri app
+        run: npm run build -- --target aarch64-apple-darwin --bundles app
+        working-directory: app
+        env:
+          APPLE_SIGNING_IDENTITY: '-'
+
+      # ── Strip Hardened Runtime + build DMG ────────────────────────────────
+      # Tauri signs the sidecar with --options runtime (Hardened Runtime), which
+      # enables Library Validation and prevents loading ad-hoc-signed GStreamer
+      # dylibs. Re-sign without that flag, then build the DMG from scratch.
+      - name: Strip Hardened Runtime from sidecar and build DMG
+        run: |
+          set -e
+          BUNDLE="app/src-tauri/target/aarch64-apple-darwin/release/bundle"
+          APP="$BUNDLE/macos/EdgeOS.app"
+          DMG="$BUNDLE/dmg/EdgeOS_0.1.0_aarch64.dmg"
+          mkdir -p "$BUNDLE/dmg"
+
+          # Re-sign sidecar ad-hoc WITHOUT --options runtime
+          codesign --force --sign - "$APP/Contents/MacOS/edge-os-edge"
+
+          # Re-sign GStreamer dylibs (belt-and-suspenders)
+          find "$APP/Contents/Resources/gstreamer" -name "*.dylib" \
+            -exec codesign --force --sign - {} \;
+
+          # Re-sign the outer app bundle to reflect nested changes
+          codesign --force --sign - "$APP"
+
+          # Build DMG
+          STAGING=$(mktemp -d)
+          cp -R "$APP" "$STAGING/"
+          ln -s /Applications "$STAGING/Applications"
+          hdiutil create -volname "EdgeOS" -srcfolder "$STAGING" -ov -format UDZO "$DMG"
+          rm -rf "$STAGING"
+          echo "=== Built DMG: $DMG ==="
+          codesign -dvvv "$APP/Contents/MacOS/edge-os-edge" 2>&1 | grep "flags="
+
+      # ── Upload artifact ─────────────────────────────────────────────────────
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: EdgeOS-macOS-arm64
+          path: app/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+          if-no-files-found: error

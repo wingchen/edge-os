@@ -12,7 +12,7 @@ defmodule EdgeOsCloudWeb.EdgeLive.Dash do
       user ->
         edge = Device.get_edge!(edge_id)
         protocol = get_in(edge.edge_info, ["protocol"]) || "tcp"
-        {_turn_fields, ice_servers} = build_turn_config()
+        ice_servers = build_ice_servers()
         {:ok, assign(socket,
           edge: edge,
           current_user: user,
@@ -36,17 +36,17 @@ defmodule EdgeOsCloudWeb.EdgeLive.Dash do
   def handle_event("browser_webrtc_offer", %{"sdp" => sdp}, socket) do
     %{edge: edge} = socket.assigns
 
-    {turn_fields, _} = build_turn_config()
     session_hash = generate_session_hash(edge)
 
     # Subscribe to PubSub so EdgeSocket can route the edge's answer back here
     Phoenix.PubSub.subscribe(EdgeOsCloud.PubSub, "browser_session:#{session_hash}")
 
-    offer_payload = Jason.encode!(Map.merge(%{
+    offer_payload = Jason.encode!(%{
       session_id:      session_hash,
       sdp:             sdp,
       connection_type: "camera",
-    }, turn_fields))
+      ice_servers:     build_ice_servers(),
+    })
 
     edge_pid = EdgeSocket.get_pid(edge.id)
     case Process.whereis(edge_pid) do
@@ -73,17 +73,17 @@ defmodule EdgeOsCloudWeb.EdgeLive.Dash do
   def handle_event("browser_camera_video_offer", %{"sdp" => sdp, "camera_id" => camera_id}, socket) do
     %{edge: edge} = socket.assigns
 
-    {turn_fields, _} = build_turn_config()
     video_session_hash = generate_session_hash(edge)
 
     Phoenix.PubSub.subscribe(EdgeOsCloud.PubSub, "browser_session:#{video_session_hash}")
 
-    offer_payload = Jason.encode!(Map.merge(%{
+    offer_payload = Jason.encode!(%{
       session_id:      video_session_hash,
       sdp:             sdp,
       connection_type: "camera_video",
       camera_id:       camera_id,
-    }, turn_fields))
+      ice_servers:     build_ice_servers(),
+    })
 
     edge_pid = EdgeSocket.get_pid(edge.id)
     case Process.whereis(edge_pid) do
@@ -141,25 +141,36 @@ defmodule EdgeOsCloudWeb.EdgeLive.Dash do
     end
   end
 
+  # Browser explicitly stopped the video stream (back button, stop button, etc.)
+  def handle_event("browser_stop_camera_video", _params, socket) do
+    send_webrtc_close(socket)
+    {:noreply, assign(socket, video_session_hash: nil, video_camera_id: nil)}
+  end
+
+  # LiveView process terminating — browser closed tab, navigated away, or connection lost.
+  # Fires for cases 1 & 2; case 3 already cleared video_session_hash so this is a no-op then.
+  @impl true
+  def terminate(_reason, socket) do
+    send_webrtc_close(socket)
+    :ok
+  end
+
+  defp send_webrtc_close(%{assigns: %{edge: edge, video_session_hash: video_session_hash}})
+       when is_binary(video_session_hash) do
+    payload = Jason.encode!(%{session_id: video_session_hash})
+    edge_pid = EdgeSocket.get_pid(edge.id)
+    case Process.whereis(edge_pid) do
+      nil -> :ok
+      pid -> send(pid, "WEBRTC_CLOSE #{payload}")
+    end
+    Logger.info("WEBRTC_CLOSE sent for session=#{video_session_hash}")
+  end
+  defp send_webrtc_close(_socket), do: :ok
+
   defp generate_session_hash(edge) do
     session_id = :rand.uniform(999_999_999)
     EdgeOsCloud.HashIdHelper.encode(session_id, edge.salt)
   end
 
-  defp build_turn_config do
-    case System.get_env("TURN_HOST") do
-      nil ->
-        {%{turn_host: nil, turn_username: nil, turn_credential: nil},
-         [%{urls: ["stun:stun.l.google.com:19302"]}]}
-      turn_host ->
-        username   = System.get_env("TURN_USERNAME", "")
-        credential = System.get_env("TURN_PASSWORD", "")
-        fields = %{turn_host: turn_host, turn_username: username, turn_credential: credential}
-        servers = [
-          %{urls: ["stun:stun.l.google.com:19302"]},
-          %{urls: ["turn:#{turn_host}:3478"], username: username, credential: credential}
-        ]
-        {fields, servers}
-    end
-  end
+  defp build_ice_servers, do: EdgeOsCloud.IceServers.build()
 end
