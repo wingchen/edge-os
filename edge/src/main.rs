@@ -13,6 +13,69 @@ use tokio::sync::{Mutex, mpsc as tokio_mpsc};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use tokio::time::{sleep};
 
+#[cfg(windows)]
+use windows_service::{
+    define_windows_service,
+    service::{
+        ServiceControl, ServiceControlAccept, ServiceExitCode,
+        ServiceState, ServiceStatus, ServiceType,
+    },
+    service_control_handler::{self, ServiceControlHandlerResult},
+    service_dispatcher,
+};
+
+#[cfg(windows)]
+define_windows_service!(ffi_service_main, win_service_main);
+
+#[cfg(windows)]
+fn win_service_main(_args: Vec<std::ffi::OsString>) {
+    let (stop_tx, stop_rx) = std::sync::mpsc::sync_channel::<()>(1);
+
+    let status_handle = match service_control_handler::register("EdgeOS", move |ctrl| {
+        match ctrl {
+            ServiceControl::Stop | ServiceControl::Shutdown => {
+                let _ = stop_tx.try_send(());
+                ServiceControlHandlerResult::NoError
+            }
+            ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
+            _ => ServiceControlHandlerResult::NotImplemented,
+        }
+    }) {
+        Ok(h) => h,
+        Err(e) => { error!("service_control_handler::register failed: {e}"); return; }
+    };
+
+    let _ = status_handle.set_service_status(ServiceStatus {
+        service_type:      ServiceType::OWN_PROCESS,
+        current_state:     ServiceState::Running,
+        controls_accepted: ServiceControlAccept::STOP | ServiceControlAccept::SHUTDOWN,
+        exit_code:         ServiceExitCode::Win32(0),
+        checkpoint:        0,
+        wait_hint:         std::time::Duration::default(),
+        process_id:        None,
+    });
+
+    std::thread::spawn(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("tokio runtime")
+            .block_on(run());
+    });
+
+    let _ = stop_rx.recv();
+
+    let _ = status_handle.set_service_status(ServiceStatus {
+        service_type:      ServiceType::OWN_PROCESS,
+        current_state:     ServiceState::Stopped,
+        controls_accepted: ServiceControlAccept::empty(),
+        exit_code:         ServiceExitCode::Win32(0),
+        checkpoint:        0,
+        wait_hint:         std::time::Duration::default(),
+        process_id:        None,
+    });
+}
+
 mod config;
 mod edge_system;
 mod tcp_to_websocket;
@@ -36,13 +99,13 @@ use tokio::net::UnixListener;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
-#[tokio::main]
-async fn main() {
+fn init_logging() {
     #[cfg(target_os = "windows")]
     {
-        let log_dir = std::env::var("APPDATA")
+        // Use PROGRAMDATA (C:\ProgramData) — available to SYSTEM service account, unlike APPDATA
+        let log_dir = std::env::var("PROGRAMDATA")
             .map(std::path::PathBuf::from)
-            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .unwrap_or_else(|_| std::path::PathBuf::from("C:\\ProgramData"))
             .join("EdgeOS");
         std::fs::create_dir_all(&log_dir).ok();
         let log_file = std::fs::OpenOptions::new()
@@ -61,13 +124,35 @@ async fn main() {
         env_logger::init();
         log::set_max_level(LevelFilter::Debug);
     }
+}
 
+fn main() {
+    init_logging();
+
+    #[cfg(windows)]
+    if service_dispatcher::start("EdgeOS", ffi_service_main).is_ok() {
+        return; // ran to completion as a Windows Service
+    }
+
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime")
+        .block_on(run());
+}
+
+async fn run() {
     #[cfg(not(target_os = "windows"))]
     gstreamer::init().expect("GStreamer init failed");
 
     let local_working_dir = match env::var("EDGE_OS_EDGE_DIR") {
         Ok(val) => val,
-        Err(_e) => "/opt/edge-os-edge".to_string(),
+        #[cfg(target_os = "windows")]
+        Err(_) => std::env::var("PROGRAMDATA")
+            .map(|p| format!("{p}\\EdgeOS"))
+            .unwrap_or_else(|_| "C:\\ProgramData\\EdgeOS".to_string()),
+        #[cfg(not(target_os = "windows"))]
+        Err(_) => "/opt/edge-os-edge".to_string(),
     };
 
     let uuid = config::get_device_id(local_working_dir.clone());

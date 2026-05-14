@@ -35,6 +35,8 @@ pub fn run() {
             cleanup_old_launch_agent();
             #[cfg(target_os = "macos")]
             check_and_update_daemon(app.handle());
+            #[cfg(target_os = "windows")]
+            check_and_update_daemon(app.handle());
             start_daemon_monitor(app.handle().clone());
 
             if config_exists() {
@@ -192,6 +194,21 @@ fn save_config(
         std::fs::write(config_file_path(), cfg.to_string()).map_err(|e| e.to_string())?;
         let _ = restart_daemon();
     }
+    #[cfg(target_os = "windows")]
+    {
+        match daemon_process_state() {
+            ProcessState::NotInstalled => {
+                install_daemon_windows(&cloud_url, &team_hash, &app)?;
+            }
+            _ => {
+                let existing = read_full_config();
+                let cameras  = existing.get("cameras").cloned().unwrap_or(serde_json::json!([]));
+                let cfg      = serde_json::json!({ "cloud_url": cloud_url, "team_hash": team_hash, "cameras": cameras });
+                std::fs::write(config_file_path(), cfg.to_string()).map_err(|e| e.to_string())?;
+                let _ = restart_daemon();
+            }
+        }
+    }
 
     if let Some(win) = app.get_webview_window("setup") {
         let _ = win.close();
@@ -222,6 +239,11 @@ fn restart_daemon() -> std::io::Result<()> {
         std::process::Command::new("pkexec")
             .args(["systemctl", "restart", "edge-os"])
             .status()?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let script = "sc.exe stop EdgeOS; Start-Sleep -Seconds 2; sc.exe config EdgeOS start= auto; sc.exe start EdgeOS";
+        let _ = run_elevated_powershell(script);
     }
     Ok(())
 }
@@ -440,6 +462,140 @@ fn find_sidecar_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, Strin
     ))
 }
 
+// ── Windows daemon management ─────────────────────────────────────────────────
+
+/// Locate the bundled sidecar next to the running .exe on Windows.
+/// Tauri strips the target triple when bundling, so the file is `edge-os-edge.exe`
+/// in the same directory as the main executable.
+#[cfg(target_os = "windows")]
+fn find_sidecar_path(_app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    let exe_dir = std::env::current_exe()
+        .map_err(|e| format!("current_exe: {e}"))?
+        .parent()
+        .ok_or("no parent dir for exe")?
+        .to_path_buf();
+
+    let exact = exe_dir.join("edge-os-edge.exe");
+    if exact.exists() { return Ok(exact); }
+
+    // Fallback: scan for any name starting with edge-os-edge
+    for entry in std::fs::read_dir(&exe_dir).map_err(|e| e.to_string())?.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with("edge-os-edge") && name.ends_with(".exe") {
+            return Ok(entry.path());
+        }
+    }
+
+    Err(format!("sidecar not found in {}", exe_dir.display()))
+}
+
+/// Run a PowerShell script with UAC elevation (analogous to osascript on macOS).
+/// Writes a temp .ps1, launches it elevated with -Wait, then removes the file.
+#[cfg(target_os = "windows")]
+fn run_elevated_powershell(script: &str) -> Result<(), String> {
+    let tmp = std::env::temp_dir().join("edgeos_admin.ps1");
+    std::fs::write(&tmp, script).map_err(|e| e.to_string())?;
+    let path = tmp.display().to_string();
+    let status = std::process::Command::new("powershell")
+        .args([
+            "-WindowStyle", "Hidden",
+            "-Command",
+            &format!(
+                "Start-Process powershell \
+                 -ArgumentList '-ExecutionPolicy Bypass -File \"{path}\"' \
+                 -Verb RunAs -Wait"
+            ),
+        ])
+        .status()
+        .map_err(|e| e.to_string())?;
+    let _ = std::fs::remove_file(&tmp);
+    if status.success() { Ok(()) } else { Err("Elevated script failed".into()) }
+}
+
+/// First-time installation on Windows: copies the bundled sidecar to
+/// C:\ProgramData\EdgeOS\, writes config.json, and registers + starts the
+/// Windows Service via an elevated PowerShell script.
+#[cfg(target_os = "windows")]
+fn install_daemon_windows(cloud_url: &str, team_hash: &str, app: &tauri::AppHandle) -> Result<(), String> {
+    let sidecar     = find_sidecar_path(app)?;
+    let data_dir    = "C:\\ProgramData\\EdgeOS";
+    let service_bin = format!("{data_dir}\\edge-os-edge.exe");
+    let wss_url     = cloud_url.replace("https://", "wss://").replace("http://", "ws://");
+
+    let config_json = serde_json::json!({
+        "cloud_url": cloud_url,
+        "team_hash": team_hash,
+        "cameras":   [],
+    }).to_string();
+
+    let tmp_config = std::env::temp_dir().join("edgeos-config.json");
+    std::fs::write(&tmp_config, &config_json).map_err(|e| format!("write tmp config: {e}"))?;
+    let tmp_config_path = tmp_config.display().to_string();
+    let sidecar_path    = sidecar.display().to_string();
+
+    let current_version = env!("CARGO_PKG_VERSION");
+
+    let script = format!(
+        r#"
+New-Item -ItemType Directory -Force -Path '{data_dir}' | Out-Null
+# Grant Users group modify access so the non-elevated Tauri app can write config/status
+icacls '{data_dir}' /grant 'Users:(OI)(CI)M' /T | Out-Null
+Copy-Item -Force '{sidecar_path}' '{service_bin}'
+Copy-Item -Force '{tmp_config_path}' '{data_dir}\config.json'
+Set-Content -Path '{data_dir}\version' -Value '{current_version}' -NoNewline
+sc.exe query EdgeOS 2>&1 | Out-Null
+if ($LASTEXITCODE -ne 0) {{
+    sc.exe create EdgeOS binPath= '"{service_bin}"' start= auto DisplayName= 'EdgeOS Edge' | Out-Null
+    sc.exe description EdgeOS 'EdgeOS edge daemon' | Out-Null
+}}
+[System.Environment]::SetEnvironmentVariable('EDGE_OS_EDGE_DIR', '{data_dir}', 'Machine')
+[System.Environment]::SetEnvironmentVariable('RUST_LOG', 'info', 'Machine')
+sc.exe start EdgeOS | Out-Null
+"#,
+    );
+
+    run_elevated_powershell(&script)?;
+    let _ = std::fs::remove_file(&tmp_config);
+
+    Ok(())
+}
+
+/// On every launch, check whether the installed service binary matches the
+/// current app version. If not, stop the service, replace the binary, restart.
+#[cfg(target_os = "windows")]
+fn check_and_update_daemon(app: &tauri::AppHandle) {
+    if !matches!(daemon_process_state(), ProcessState::Running | ProcessState::Stopped) {
+        return; // not installed yet — nothing to update
+    }
+
+    let current_version = env!("CARGO_PKG_VERSION");
+    let data_dir      = "C:\\ProgramData\\EdgeOS";
+    let version_file  = format!("{data_dir}\\version");
+    let service_bin   = format!("{data_dir}\\edge-os-edge.exe");
+    let installed_ver = std::fs::read_to_string(&version_file).unwrap_or_default();
+    let binary_exists = std::path::Path::new(&service_bin).exists();
+
+    if installed_ver.trim() == current_version && binary_exists {
+        return; // already up to date
+    }
+
+    let Ok(sidecar) = find_sidecar_path(app) else { return };
+    let sidecar_path = sidecar.display().to_string();
+
+    let script = format!(
+        r#"
+Stop-Service -Name EdgeOS -Force -ErrorAction SilentlyContinue
+$svc = Get-Service -Name EdgeOS -ErrorAction SilentlyContinue
+if ($svc) {{ $svc.WaitForStatus('Stopped', (New-TimeSpan -Seconds 30)) }}
+Copy-Item -Force '{sidecar_path}' '{service_bin}'
+Set-Content -Path '{version_file}' -Value '{current_version}' -NoNewline
+sc.exe start EdgeOS | Out-Null
+"#,
+    );
+
+    run_elevated_powershell(&script).ok();
+}
+
 // ── Config helpers ────────────────────────────────────────────────────────────
 
 fn config_file_path() -> &'static str {
@@ -447,7 +603,9 @@ fn config_file_path() -> &'static str {
     { "/Library/Application Support/EdgeOS/config.json" }
     #[cfg(target_os = "linux")]
     { "/opt/edge-os-edge/config.json" }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(target_os = "windows")]
+    { "C:\\ProgramData\\EdgeOS\\config.json" }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     { "" }
 }
 
@@ -651,7 +809,22 @@ fn daemon_process_state() -> ProcessState {
             .unwrap_or(false);
         if running { ProcessState::Running } else { ProcessState::Stopped }
     }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(target_os = "windows")]
+    {
+        let out = std::process::Command::new("sc")
+            .args(["query", "EdgeOS"])
+            .output();
+        match out {
+            Err(_) => ProcessState::NotInstalled,
+            Ok(o) if !o.status.success() => ProcessState::NotInstalled,
+            Ok(o) => {
+                let s = String::from_utf8_lossy(&o.stdout);
+                if s.contains("RUNNING") { ProcessState::Running }
+                else { ProcessState::Stopped }
+            }
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     ProcessState::NotInstalled
 }
 
@@ -662,7 +835,9 @@ fn status_file_path() -> &'static str {
     { "/Library/Application Support/EdgeOS/status.json" }
     #[cfg(target_os = "linux")]
     { "/opt/edge-os-edge/status.json" }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(target_os = "windows")]
+    { "C:\\ProgramData\\EdgeOS\\status.json" }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     { "" }
 }
 
