@@ -66,16 +66,6 @@ jobs:
             edge\target\x86_64-pc-windows-msvc\release\edge-os-edge.exe `
             edge\target\release\edge-os-edge-x86_64-pc-windows-msvc.exe
 
-      # ── Placeholder GStreamer dirs ────────────────────────────────────────────
-      # tauri.conf.json references gstreamer/lib/** and gstreamer/plugins/**
-      # as resources. On Windows these are empty; create the dirs so Tauri
-      # doesn't error on a missing glob source.
-      - name: Create placeholder GStreamer resource dirs
-        shell: powershell
-        run: |
-          New-Item -ItemType Directory -Force -Path app\src-tauri\gstreamer\lib     | Out-Null
-          New-Item -ItemType Directory -Force -Path app\src-tauri\gstreamer\plugins | Out-Null
-
       # ── Build Tauri NSIS installer ────────────────────────────────────────────
       - name: Build Tauri NSIS installer
         run: npm run build -- --target x86_64-pc-windows-msvc --bundles nsis

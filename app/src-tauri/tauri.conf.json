@@ -34,10 +34,6 @@
     "externalBin": [
       "../../edge/target/release/edge-os-edge"
     ],
-    "resources": {
-      "gstreamer/lib/**/*":     "gstreamer/lib/",
-      "gstreamer/plugins/**/*": "gstreamer/plugins/"
-    },
     "macOS": {
       "infoPlist": "./Info.plist",
       "minimumSystemVersion": "12.0",
