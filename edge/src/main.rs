@@ -38,8 +38,29 @@ use std::os::unix::fs::PermissionsExt;
 
 #[tokio::main]
 async fn main() {
-    env_logger::init();
-    log::set_max_level(LevelFilter::Debug);
+    #[cfg(target_os = "windows")]
+    {
+        let log_dir = std::env::var("APPDATA")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .join("EdgeOS");
+        std::fs::create_dir_all(&log_dir).ok();
+        let log_file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_dir.join("edge.log"))
+            .expect("cannot open log file");
+        env_logger::Builder::from_env(
+            env_logger::Env::default().default_filter_or("info"),
+        )
+        .target(env_logger::Target::Pipe(Box::new(log_file)))
+        .init();
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        env_logger::init();
+        log::set_max_level(LevelFilter::Debug);
+    }
 
     #[cfg(not(target_os = "windows"))]
     gstreamer::init().expect("GStreamer init failed");
