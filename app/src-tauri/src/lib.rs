@@ -2,8 +2,9 @@ use std::sync::Mutex;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, PhysicalPosition, WebviewWindowBuilder,
+    Emitter, Manager, PhysicalPosition, WebviewWindowBuilder,
 };
+use log::error;
 
 struct StatusMenuItem(Mutex<MenuItem<tauri::Wry>>);
 
