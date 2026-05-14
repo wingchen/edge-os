@@ -6,6 +6,11 @@ use tauri::{
 };
 use log::error;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 struct StatusMenuItem(Mutex<MenuItem<tauri::Wry>>);
 
 pub fn run() {
@@ -502,10 +507,11 @@ fn run_elevated_powershell(script: &str) -> Result<(), String> {
             "-Command",
             &format!(
                 "Start-Process powershell \
-                 -ArgumentList '-ExecutionPolicy Bypass -File \"{path}\"' \
+                 -ArgumentList '-WindowStyle Hidden -ExecutionPolicy Bypass -File \"{path}\"' \
                  -Verb RunAs -Wait"
             ),
         ])
+        .creation_flags(CREATE_NO_WINDOW)
         .status()
         .map_err(|e| e.to_string())?;
     let _ = std::fs::remove_file(&tmp);
@@ -813,6 +819,7 @@ fn daemon_process_state() -> ProcessState {
     {
         let out = std::process::Command::new("sc")
             .args(["query", "EdgeOS"])
+            .creation_flags(CREATE_NO_WINDOW)
             .output();
         match out {
             Err(_) => ProcessState::NotInstalled,
