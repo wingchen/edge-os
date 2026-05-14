@@ -165,6 +165,7 @@ async fn handle_camera_channel(
     }));
 }
 
+#[cfg(not(target_os = "windows"))]
 async fn list_cameras(
     dc: &Arc<RTCDataChannel>,
     frame_map: &crate::camera_manager::FrameMap,
@@ -185,6 +186,7 @@ async fn list_cameras(
     }
 }
 
+#[cfg(not(target_os = "windows"))]
 async fn get_thumbnail(
     dc: &Arc<RTCDataChannel>,
     frame_map: &crate::camera_manager::FrameMap,
@@ -249,6 +251,7 @@ async fn get_thumbnail(
     }
 }
 
+#[cfg(not(target_os = "windows"))]
 async fn list_events(
     dc:          &Arc<RTCDataChannel>,
     event_store: &EventStore,
@@ -286,6 +289,7 @@ async fn list_events(
     let _ = dc.send_text(payload).await;
 }
 
+#[cfg(not(target_os = "windows"))]
 async fn get_event_frame(
     dc:          &Arc<RTCDataChannel>,
     event_store: &EventStore,
@@ -311,6 +315,7 @@ async fn get_event_frame(
     let _ = dc.send_text(payload).await;
 }
 
+#[cfg(not(target_os = "windows"))]
 async fn send_clip(
     dc:          &Arc<RTCDataChannel>,
     event_store: &EventStore,
@@ -363,6 +368,7 @@ async fn send_clip(
     info!("camera channel: clip sent event_id={} size={}", event_id, data.len());
 }
 
+#[cfg(not(target_os = "windows"))]
 fn make_thumbnail(jpeg: &[u8], max_w: u32, max_h: u32) -> anyhow::Result<Vec<u8>> {
     let img = image::load_from_memory(jpeg)?.into_rgb8();
     let (w, h) = image::GenericImageView::dimensions(&img);
