@@ -31,10 +31,11 @@ define_windows_service!(ffi_service_main, win_service_main);
 fn win_service_main(_args: Vec<std::ffi::OsString>) {
     let (stop_tx, stop_rx) = std::sync::mpsc::sync_channel::<()>(1);
 
+    let stop_tx_scm = stop_tx.clone();
     let status_handle = match service_control_handler::register("EdgeOS", move |ctrl| {
         match ctrl {
             ServiceControl::Stop | ServiceControl::Shutdown => {
-                let _ = stop_tx.try_send(());
+                let _ = stop_tx_scm.try_send(());
                 ServiceControlHandlerResult::NoError
             }
             ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
