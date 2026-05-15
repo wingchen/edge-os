@@ -4,7 +4,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, PhysicalPosition, WebviewWindowBuilder,
 };
-use log::error;
+use log::{error, warn};
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
