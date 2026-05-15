@@ -78,4 +78,13 @@
 
   ${EndIf}
 
+  ; ── Failure recovery ───────────────────────────────────────────────────────
+  ; Restart on unexpected exit: 5s, 10s, 30s, then keep retrying every 30s.
+  ; Reset the failure counter after 24 h of clean uptime.
+  nsExec::Exec 'sc failure EdgeOS reset= 86400 actions= restart/5000/restart/10000/restart/30000'
+  Pop $R0
+  ; Also restart on exit code 0 (WebSocket dropped cleanly, not SCM-stopped).
+  nsExec::Exec 'sc failureflag EdgeOS 1'
+  Pop $R0
+
 !macroend

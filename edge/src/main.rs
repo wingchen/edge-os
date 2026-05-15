@@ -55,12 +55,15 @@ fn win_service_main(_args: Vec<std::ffi::OsString>) {
         process_id:        None,
     });
 
-    std::thread::spawn(|| {
+    let stop_tx_run = stop_tx.clone();
+    std::thread::spawn(move || {
         tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
             .expect("tokio runtime")
             .block_on(run());
+        // run() returned (WebSocket dropped) — exit the service so SCM can restart it
+        let _ = stop_tx_run.try_send(());
     });
 
     let _ = stop_rx.recv();
