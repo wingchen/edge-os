@@ -41,11 +41,11 @@
 
   ${If} $R2 == "0"
     ; Upgrade: stop the service so it releases the file lock on the binary.
-    nsExec::Exec "powershell -WindowStyle Hidden -ExecutionPolicy Bypass \
-      -Command $\"Stop-Service EdgeOS -Force -ErrorAction SilentlyContinue; \
-      $$s = Get-Service EdgeOS -ErrorAction SilentlyContinue; \
-      if ($$s) { $$s.WaitForStatus('Stopped', (New-TimeSpan -Seconds 30)) }$\""
+    ; WaitForStatus only reflects SCM state — the process may still hold the
+    ; file handle briefly after that. Sleep gives it time to fully exit.
+    nsExec::Exec 'sc stop EdgeOS'
     Pop $R0
+    Sleep 5000
   ${EndIf}
 
   ; ── Copy sidecar binary ────────────────────────────────────────────────────

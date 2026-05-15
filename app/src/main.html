@@ -662,12 +662,16 @@
     </div>
 
     <nav class="sidebar-nav">
+      <!-- TODO(windows): gray out Cameras nav item and make it non-clickable when running on Windows
+           (detect via `await os.type() === "windows"` from @tauri-apps/plugin-os, then add
+           pointer-events:none + opacity:0.4 style and skip the view-switch in the click handler) -->
       <div class="nav-item active" data-view="cameras">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
         </svg>
         Cameras
       </div>
+      <!-- TODO(windows): gray out Events nav item on Windows (same approach as Cameras above) -->
       <div class="nav-item" data-view="events">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
@@ -683,6 +687,7 @@
     </nav>
 
     <div class="sidebar-footer">
+      <!-- TODO(windows): hide the Add Camera button on Windows (not supported) -->
       <button class="add-btn" id="open-add-modal">+ Add Camera</button>
       <div class="edge-status">
         <span class="status-dot offline" id="edge-dot"></span>
