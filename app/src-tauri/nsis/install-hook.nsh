@@ -40,12 +40,13 @@
   Pop $R1  ; stdout (discard)
 
   ${If} $R2 == "0"
-    ; Upgrade: stop the service so it releases the file lock on the binary.
-    ; WaitForStatus only reflects SCM state — the process may still hold the
-    ; file handle briefly after that. Sleep gives it time to fully exit.
+    ; Upgrade: stop the service then force-kill the process to guarantee the
+    ; file lock on the binary is released before we copy the new version.
     nsExec::Exec 'sc stop EdgeOS'
     Pop $R0
-    Sleep 5000
+    nsExec::Exec 'taskkill /F /IM edge-os-edge.exe'
+    Pop $R0
+    Sleep 1000
   ${EndIf}
 
   ; ── Copy sidecar binary ────────────────────────────────────────────────────
