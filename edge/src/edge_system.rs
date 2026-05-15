@@ -69,6 +69,7 @@ struct EdgeInfo {
 	os_version: String,
 	host_name: String,
 	protocol: String,
+	os_type: String,
 }
 
 fn run_command(command: &str, args: &[&str]) -> Vec<String> {
@@ -301,6 +302,13 @@ pub fn get_edge_info() -> String {
    	os_version: sys.os_version().unwrap_or_default(),
    	host_name: sys.host_name().unwrap_or_default(),
    	protocol: "webrtc".to_string(),
+   	os_type: if cfg!(target_os = "windows") {
+   		"windows"
+   	} else if cfg!(target_os = "macos") {
+   		"macos"
+   	} else {
+   		"linux"
+   	}.to_string(),
    };
 
    let json_edge_info = serde_json::to_string(&edge_info).unwrap();

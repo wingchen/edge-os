@@ -59,6 +59,51 @@ defmodule EdgeOsCloud.Sockets.EdgeSSHUtils do
     end
   end
 
+  def create_rdp_connection(user, edge, user_ip) do
+    websocket_pid_atom = String.to_atom(get_topic(edge.id))
+
+    case Process.whereis(websocket_pid_atom) do
+      nil ->
+        {:error, "cannot find the pid for websocket process for edge #{inspect websocket_pid_atom}"}
+
+      _websocket_pid ->
+        rdp_port = EdgeOsCloud.Sockets.TCPPortSelector.get_port()
+
+        if is_nil(rdp_port) do
+          Logger.error("no available port found for rdp session on edge #{edge.id}")
+          {:error, "EdgeOS server has resource constraint. Please contact the maintainer."}
+        else
+          {:ok, session} = Device.create_edge_session(%{
+            edge_id: edge.id,
+            user_id: user.id,
+            host: "127.0.0.1",
+            port: rdp_port,
+          })
+
+          session_hash = Device.get_session_id_hash(edge, session.id)
+
+          Logger.info("taking WebRTC path for RDP edge #{edge.id} session #{session.id}")
+          Task.start(fn ->
+            case EdgeOsCloud.Sockets.WebRTCPeer.start_link(
+              session: session,
+              edge: edge,
+              session_hash: session_hash,
+              connection_type: "rdp"
+            ) do
+              {:ok, _pid} -> Logger.info("WebRTCPeer RDP started for session #{session.id}")
+              {:error, reason} -> Logger.error("WebRTCPeer RDP failed for session #{session.id}: #{inspect reason}")
+            end
+          end)
+
+          Task.start(fn ->
+            EdgeOsCloud.Sockets.UserTcpSocket.start_link(session_port: rdp_port, session_id: session.id, user_ip: user_ip)
+          end)
+
+          {:ok, session, "sending RDP message to #{edge.name}"}
+        end
+    end
+  end
+
   def is_session_ready(session_id) do
     user_process_ready = case Process.whereis(EdgeOsCloud.Sockets.UserTcpSocket.get_pid(session_id)) do
       nil -> false

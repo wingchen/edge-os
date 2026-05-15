@@ -106,12 +106,18 @@
             <% end %>
 
             <%= if online do %>
-              <%= live_patch to: Routes.edge_index_path(@socket, :connect, edge), class: "btn btn-sm btn-outline-primary", replace: false do %>
-                <i class="fas fa-terminal"></i><span class="d-none d-sm-inline ml-1">SSH</span>
-              <% end %>
-              <%= if get_in(edge.edge_info, ["protocol"]) == "webrtc" do %>
-                <%= link to: "/edges/#{edge.id}/dash", class: "btn btn-sm btn-outline-info" do %>
-                  <i class="fas fa-th-large"></i><span class="d-none d-sm-inline ml-1">Dashboard</span>
+              <%= if get_in(edge.edge_info, ["os_type"]) == "windows" do %>
+                <%= live_patch to: Routes.edge_index_path(@socket, :connect, edge), class: "btn btn-sm btn-outline-secondary", replace: false do %>
+                  <i class="fas fa-desktop"></i><span class="d-none d-sm-inline ml-1">RDP</span>
+                <% end %>
+              <% else %>
+                <%= live_patch to: Routes.edge_index_path(@socket, :connect, edge), class: "btn btn-sm btn-outline-primary", replace: false do %>
+                  <i class="fas fa-terminal"></i><span class="d-none d-sm-inline ml-1">SSH</span>
+                <% end %>
+                <%= if get_in(edge.edge_info, ["protocol"]) == "webrtc" do %>
+                  <%= link to: "/edges/#{edge.id}/dash", class: "btn btn-sm btn-outline-info" do %>
+                    <i class="fas fa-th-large"></i><span class="d-none d-sm-inline ml-1">Dashboard</span>
+                  <% end %>
                 <% end %>
               <% end %>
             <% end %>

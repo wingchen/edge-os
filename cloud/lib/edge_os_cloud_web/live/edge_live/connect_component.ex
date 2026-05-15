@@ -34,4 +34,22 @@ defmodule EdgeOsCloudWeb.EdgeLive.ConnectComponent do
         {:noreply, socket}
     end
   end
+
+  @impl true
+  def handle_event("rdp", %{"id" => id}, socket) do
+    edge = Device.get_edge!(id)
+    %{current_user: user, user_ip: user_ip} = socket.assigns
+
+    case EdgeOsCloud.Sockets.EdgeSSHUtils.create_rdp_connection(user, edge, user_ip) do
+      {:error, message} ->
+        Logger.error("connect to edge rdp, with error: #{message}")
+        {:noreply, socket |> put_flash(:error, message)}
+
+      {:ok, session, message} ->
+        Logger.info("commanding to edge rdp: #{message}")
+        Process.send_after(self(), {:check_rdp_readiness, session.id, 0}, 3000)
+        socket = push_event(socket, "rdp_step2", %{note: "sending message to #{edge.name}"})
+        {:noreply, socket}
+    end
+  end
 end

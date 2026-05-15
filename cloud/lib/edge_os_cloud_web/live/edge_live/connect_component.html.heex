@@ -132,4 +132,110 @@
     });
   }
 </script>
+
+<%= if get_in(@edge.edge_info, ["os_type"]) == "windows" do %>
+  <hr class="my-3" />
+
+  <div class="d-flex align-items-center mb-3">
+    <div>
+      <h5 class="mb-0 font-weight-bold text-dark">RDP Connection</h5>
+      <p class="mb-0 text-muted" style="font-size:0.82rem;"><%= @edge.name %></p>
+    </div>
+    <span class="badge badge-secondary ml-auto" style="font-size:0.72rem;">WebRTC tunnel</span>
+  </div>
+
+  <%# RDP Step 1: initial %>
+  <div id="rdp-step-1">
+    <p class="text-muted mb-3" style="font-size:0.875rem;">
+      Opens an encrypted tunnel to port 3389 on this device. Connect with any RDP client using the host and port shown after the tunnel is ready.
+    </p>
+    <%= link to: "#", phx_target: @myself, phx_click: "rdp", phx_value_id: @edge.id, class: "btn btn-secondary btn-sm", replace: false do %>
+      <i class="fas fa-desktop mr-1"></i>Connect RDP
+    <% end %>
+  </div>
+
+  <%# RDP Step 2: negotiating %>
+  <div id="rdp-step-2" hidden>
+    <div class="d-flex align-items-center text-muted py-2" style="font-size:0.875rem;">
+      <div class="spinner-border spinner-border-sm mr-3 text-secondary" role="status">
+        <span class="sr-only">Loading...</span>
+      </div>
+      <span id="rdp-step-2-note">Setting up tunnel…</span>
+    </div>
+  </div>
+
+  <%# RDP Step 3: connected / disconnected %>
+  <div id="rdp-step-3" hidden>
+
+    <%# Connected state %>
+    <div id="rdp-step-3-connected">
+      <div class="d-flex align-items-center mb-3">
+        <span style="width:8px;height:8px;border-radius:50%;background:#1cc88a;flex-shrink:0;" class="mr-2"></span>
+        <span class="font-weight-bold text-success" style="font-size:0.875rem;">RDP tunnel ready</span>
+      </div>
+      <p class="text-muted mb-2" style="font-size:0.82rem;">Open your RDP client and connect to:</p>
+      <div style="background:#1e2733;border-radius:6px;padding:10px 14px;position:relative;">
+        <code class="text-light" style="font-size:0.82rem;">
+          <span id="rdp-tcp-url">—</span>:<span id="rdp-tcp-port">—</span>
+        </code>
+        <button onclick="navigator.clipboard.writeText(document.getElementById('rdp-tcp-url').textContent+':'+document.getElementById('rdp-tcp-port').textContent).then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',2000)})" style="position:absolute;top:6px;right:8px;background:rgba(255,255,255,0.1);border:none;color:rgba(255,255,255,0.6);font-size:0.7rem;border-radius:4px;padding:2px 8px;cursor:pointer;">Copy</button>
+      </div>
+      <p class="text-muted mt-2 mb-0" style="font-size:0.78rem;">Username and password are your Windows account credentials.</p>
+    </div>
+
+    <%# Disconnected state %>
+    <div id="rdp-step-3-disconnected" hidden>
+      <div class="d-flex align-items-center mb-2">
+        <span style="width:8px;height:8px;border-radius:50%;background:#858796;flex-shrink:0;" class="mr-2"></span>
+        <span class="text-muted font-weight-bold" style="font-size:0.875rem;">Session ended</span>
+      </div>
+      <p class="text-muted mb-0" style="font-size:0.82rem;">Click <strong>Connect RDP</strong> above to start a new session.</p>
+    </div>
+
+  </div>
+
+  <%# RDP Error state %>
+  <div id="rdp-step-error" hidden>
+    <div class="d-flex align-items-start p-3" style="background:#fff5f5;border:1px solid #fed7d7;border-radius:6px;">
+      <i class="fas fa-exclamation-circle text-danger mr-2 mt-1" style="font-size:0.9rem;"></i>
+      <div>
+        <p class="mb-1 font-weight-bold text-danger" style="font-size:0.875rem;" id="rdp-step-error-title">Connection failed</p>
+        <p class="mb-0 text-muted" style="font-size:0.82rem;" id="rdp-step-error-note">Something went wrong.</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    window.addEventListener("phx:rdp_step2", (e) => {
+      document.getElementById("rdp-step-1").hidden = true;
+      document.getElementById("rdp-step-2").hidden = false;
+      document.getElementById("rdp-step-3").hidden = true;
+      document.getElementById("rdp-step-error").hidden = true;
+      if (e.detail.note) document.getElementById("rdp-step-2-note").textContent = e.detail.note;
+    });
+    window.addEventListener("phx:rdp_step3", (e) => {
+      document.getElementById("rdp-step-1").hidden = true;
+      document.getElementById("rdp-step-2").hidden = true;
+      document.getElementById("rdp-step-error").hidden = true;
+      document.getElementById("rdp-step-3").hidden = false;
+      if (e.detail.disconnected) {
+        document.getElementById("rdp-step-3-connected").hidden = true;
+        document.getElementById("rdp-step-3-disconnected").hidden = false;
+      } else {
+        document.getElementById("rdp-step-3-connected").hidden = false;
+        document.getElementById("rdp-step-3-disconnected").hidden = true;
+        if (e.detail.tcp_url) document.getElementById("rdp-tcp-url").textContent = e.detail.tcp_url;
+        if (e.detail.tcp_port) document.getElementById("rdp-tcp-port").textContent = e.detail.tcp_port;
+      }
+    });
+    window.addEventListener("phx:rdp_error", (e) => {
+      document.getElementById("rdp-step-1").hidden = true;
+      document.getElementById("rdp-step-2").hidden = true;
+      document.getElementById("rdp-step-3").hidden = true;
+      document.getElementById("rdp-step-error").hidden = false;
+      if (e.detail.title) document.getElementById("rdp-step-error-title").textContent = e.detail.title;
+      if (e.detail.note)  document.getElementById("rdp-step-error-note").textContent  = e.detail.note;
+    });
+  </script>
+<% end %>
 </div>

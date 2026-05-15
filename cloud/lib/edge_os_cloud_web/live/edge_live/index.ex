@@ -143,14 +143,54 @@ defmodule EdgeOsCloudWeb.EdgeLive.Index do
       Process.send_after(self(), {:tcp_disconnected, session_id}, 3000)
       {:noreply, socket}
     else
-      socket = push_event(socket, "step3", 
+      socket = push_event(socket, "step3",
         %{
-          title: "SSH session finished", 
+          title: "SSH session finished",
           finishnote: "Your ssh session is concluded. Please start a new one if you wish to do more operations.",
           disconnected: "true"
         }
       )
 
+      {:noreply, socket}
+    end
+  end
+
+  @impl true
+  def handle_info({:check_rdp_readiness, session_id, counter}, socket) do
+    if counter >= 3 do
+      Logger.warning("timeout trying to establish RDP connection for session #{session_id}")
+      note = "The edge did not complete the RDP connection handshake in time. Ensure the edge is online and Windows Remote Desktop is enabled."
+      socket = push_event(socket, "rdp_error", %{title: "RDP connection timed out", note: note})
+      {:noreply, socket}
+    else
+      if EdgeSSHUtils.is_session_ready(session_id) do
+        cloud_url = System.get_env("PHX_HOST", "127.0.0.1")
+        session = Device.get_edge_session!(session_id)
+        random_session_hash = EdgeOsCloud.HashIdHelper.encode(session_id, UUID.uuid4()) |> String.slice(0..5) |> String.downcase()
+
+        socket = push_event(socket, "rdp_step3",
+          %{
+            tcp_port: "#{session.port}",
+            tcp_url: "#{random_session_hash}.#{cloud_url}",
+          }
+        )
+
+        Process.send_after(self(), {:rdp_disconnected, session_id}, 3000)
+        {:noreply, socket}
+      else
+        socket = push_event(socket, "rdp_step2", %{note: "still working on it..."})
+        Process.send_after(self(), {:check_rdp_readiness, session_id, counter + 1}, 3000)
+        {:noreply, socket}
+      end
+    end
+  end
+
+  def handle_info({:rdp_disconnected, session_id}, socket) do
+    if EdgeSSHUtils.is_session_ready(session_id) do
+      Process.send_after(self(), {:rdp_disconnected, session_id}, 3000)
+      {:noreply, socket}
+    else
+      socket = push_event(socket, "rdp_step3", %{disconnected: "true"})
       {:noreply, socket}
     end
   end

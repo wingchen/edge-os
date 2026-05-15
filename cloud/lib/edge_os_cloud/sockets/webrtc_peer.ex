@@ -12,10 +12,11 @@ defmodule EdgeOsCloud.Sockets.WebRTCPeer do
     session = Keyword.fetch!(opts, :session)
     edge = Keyword.fetch!(opts, :edge)
     session_hash = Keyword.fetch!(opts, :session_hash)
-    GenServer.start_link(__MODULE__, {session, edge, session_hash}, [])
+    connection_type = Keyword.get(opts, :connection_type, "ssh")
+    GenServer.start_link(__MODULE__, {session, edge, session_hash, connection_type}, [])
   end
 
-  def init({session, edge, session_hash}) do
+  def init({session, edge, session_hash, connection_type}) do
     # One registration only — Erlang allows a process only one registered name.
     # EdgeSocket signaling handlers decode the session hash to find this process
     # via EdgeTcpSocket.get_pid. UserTcpSocket and is_session_ready also use this name.
@@ -24,16 +25,16 @@ defmodule EdgeOsCloud.Sockets.WebRTCPeer do
     ice_servers = build_ice_servers()
 
     {:ok, pc} = ExWebRTC.PeerConnection.start_link(ice_servers: ice_servers)
-    {:ok, dc} = ExWebRTC.PeerConnection.create_data_channel(pc, "ssh-tunnel", ordered: true)
+    {:ok, dc} = ExWebRTC.PeerConnection.create_data_channel(pc, "#{connection_type}-tunnel", ordered: true)
     dc_ref = dc.ref  # plain Erlang reference — what send_data and state_change events use
     {:ok, offer} = ExWebRTC.PeerConnection.create_offer(pc)
     :ok = ExWebRTC.PeerConnection.set_local_description(pc, offer)
 
-    offer_payload = Jason.encode!(%{session_id: session_hash, sdp: offer.sdp, ice_servers: ice_servers})
+    offer_payload = Jason.encode!(%{session_id: session_hash, sdp: offer.sdp, ice_servers: ice_servers, connection_type: connection_type})
     send(EdgeSocket.get_pid(edge.id), "WEBRTC_OFFER #{offer_payload}")
 
     Device.append_edge_session_action(session.id, EdgeSessionStage.get.edge_connected)
-    Logger.info("WebRTCPeer started for session #{session.id}, offer sent to edge #{edge.id}")
+    Logger.info("WebRTCPeer started for session #{session.id} (#{connection_type}), offer sent to edge #{edge.id}")
 
     {:ok, %{pc: pc, dc_ref: dc_ref, session: session, edge: edge, session_hash: session_hash, dc_open: false, pending: []}}
   end
