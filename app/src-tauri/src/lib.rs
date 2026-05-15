@@ -525,8 +525,7 @@ fn run_elevated_powershell(script: &str) -> Result<(), String> {
 fn install_daemon_windows(cloud_url: &str, team_hash: &str, app: &tauri::AppHandle) -> Result<(), String> {
     let sidecar     = find_sidecar_path(app)?;
     let data_dir    = "C:\\ProgramData\\EdgeOS";
-    let service_bin = format!("{data_dir}\\edge-os-edge.exe");
-    let wss_url     = cloud_url.replace("https://", "wss://").replace("http://", "ws://");
+    let sidecar_path = sidecar.display().to_string();
 
     let config_json = serde_json::json!({
         "cloud_url": cloud_url,
@@ -537,25 +536,20 @@ fn install_daemon_windows(cloud_url: &str, team_hash: &str, app: &tauri::AppHand
     let tmp_config = std::env::temp_dir().join("edgeos-config.json");
     std::fs::write(&tmp_config, &config_json).map_err(|e| format!("write tmp config: {e}"))?;
     let tmp_config_path = tmp_config.display().to_string();
-    let sidecar_path    = sidecar.display().to_string();
 
-    let current_version = env!("CARGO_PKG_VERSION");
-
+    // The NSIS installer registers the service pointing to the binary in $INSTDIR.
+    // This script only needs to write config.json and start it. The sc create
+    // guard handles the rare case where this is called without a prior NSIS install.
     let script = format!(
         r#"
 New-Item -ItemType Directory -Force -Path '{data_dir}' | Out-Null
-# Grant Users group modify access so the non-elevated Tauri app can write config/status
-icacls '{data_dir}' /grant 'Users:(OI)(CI)M' /T | Out-Null
-Copy-Item -Force '{sidecar_path}' '{service_bin}'
 Copy-Item -Force '{tmp_config_path}' '{data_dir}\config.json'
-Set-Content -Path '{data_dir}\version' -Value '{current_version}' -NoNewline
 sc.exe query EdgeOS 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {{
-    sc.exe create EdgeOS binPath= '"{service_bin}"' start= auto DisplayName= 'EdgeOS Edge' | Out-Null
+    sc.exe create EdgeOS binPath= '"{sidecar_path}"' start= demand DisplayName= 'EdgeOS Edge' | Out-Null
     sc.exe description EdgeOS 'EdgeOS edge daemon' | Out-Null
 }}
-[System.Environment]::SetEnvironmentVariable('EDGE_OS_EDGE_DIR', '{data_dir}', 'Machine')
-[System.Environment]::SetEnvironmentVariable('RUST_LOG', 'info', 'Machine')
+sc.exe config EdgeOS start= auto | Out-Null
 sc.exe start EdgeOS | Out-Null
 "#,
     );
@@ -575,31 +569,18 @@ fn check_and_update_daemon(app: &tauri::AppHandle) {
     }
 
     let current_version = env!("CARGO_PKG_VERSION");
-    let data_dir      = "C:\\ProgramData\\EdgeOS";
-    let version_file  = format!("{data_dir}\\version");
-    let service_bin   = format!("{data_dir}\\edge-os-edge.exe");
-    let installed_ver = std::fs::read_to_string(&version_file).unwrap_or_default();
-    let binary_exists = std::path::Path::new(&service_bin).exists();
+    let version_file  = "C:\\ProgramData\\EdgeOS\\version";
+    let installed_ver = std::fs::read_to_string(version_file).unwrap_or_default();
 
-    if installed_ver.trim() == current_version && binary_exists {
+    if installed_ver.trim() == current_version {
         return; // already up to date
     }
 
-    let Ok(sidecar) = find_sidecar_path(app) else { return };
-    let sidecar_path = sidecar.display().to_string();
-
-    let script = format!(
-        r#"
-Stop-Service -Name EdgeOS -Force -ErrorAction SilentlyContinue
-$svc = Get-Service -Name EdgeOS -ErrorAction SilentlyContinue
-if ($svc) {{ $svc.WaitForStatus('Stopped', (New-TimeSpan -Seconds 30)) }}
-Copy-Item -Force '{sidecar_path}' '{service_bin}'
-Set-Content -Path '{version_file}' -Value '{current_version}' -NoNewline
-sc.exe start EdgeOS | Out-Null
-"#,
-    );
-
-    run_elevated_powershell(&script).ok();
+    // Version mismatch — the NSIS installer updates the binary in $INSTDIR and
+    // rewrites the version file. Nothing to copy here; just log so the user
+    // knows to run the installer wizard to get the latest daemon.
+    warn!("daemon version mismatch: installed={} current={} — run the installer to update",
+        installed_ver.trim(), current_version);
 }
 
 // ── Config helpers ────────────────────────────────────────────────────────────
