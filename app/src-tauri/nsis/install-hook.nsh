@@ -3,19 +3,20 @@
 ; and NSIS_HOOK_POSTINSTALL after. The installer already runs elevated.
 ;
 ;   Fresh install  — PREINSTALL is a safe no-op (service doesn't exist yet).
-;                    POSTINSTALL creates the data dir, sets the env var, and
-;                    registers the service pointing to $INSTDIR (demand-start).
+;                    POSTINSTALL creates the data dir, copies the binary to
+;                    C:\ProgramData\EdgeOS (no spaces — avoids sc quoting issues),
+;                    registers the service as demand-start.
 ;                    Service starts when the user saves credentials in the wizard.
 ;
-;   Upgrade        — PREINSTALL stops and force-kills the process so Tauri can
-;                    freely overwrite the binary in $INSTDIR. POSTINSTALL then
-;                    updates the service binPath and restarts it.
+;   Upgrade        — PREINSTALL stops and force-kills the process so the file
+;                    lock is released before Tauri (and then our copy) touches it.
+;                    POSTINSTALL copies the new binary and restarts the service.
 
 !include "LogicLib.nsh"
 
 !macro NSIS_HOOK_PREINSTALL
 
-  ; Stop the service and force-kill the process before Tauri overwrites the binary.
+  ; Stop the service and force-kill the process before anything touches the binary.
   ; Both commands are safe no-ops if the service / process does not exist.
   nsExec::Exec 'sc stop EdgeOS'
   Pop $R0
@@ -28,7 +29,6 @@
 !macro NSIS_HOOK_POSTINSTALL
 
   ; ── Data directory ─────────────────────────────────────────────────────────
-  ; Config and status files live here; the service binary lives in $INSTDIR.
   CreateDirectory "C:\ProgramData\EdgeOS"
 
   ; Grant Users:(OI)(CI)Modify so the non-elevated Tauri app can write
@@ -40,6 +40,12 @@
   WriteRegStr HKLM \
     "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" \
     "EDGE_OS_EDGE_DIR" "C:\ProgramData\EdgeOS"
+
+  ; ── Copy sidecar binary to ProgramData ────────────────────────────────────
+  ; The process was killed in PREINSTALL so there is no file lock.
+  ; Keeping the binary at C:\ProgramData\EdgeOS avoids path-with-spaces
+  ; quoting issues when registering the service via sc.exe.
+  CopyFiles /SILENT "$INSTDIR\edge-os-edge.exe" "C:\ProgramData\EdgeOS\edge-os-edge.exe"
 
   ; ── Version file ───────────────────────────────────────────────────────────
   FileOpen $R0 "C:\ProgramData\EdgeOS\version" w
@@ -54,19 +60,26 @@
 
   ; ── Service: restart (upgrade) or register (fresh install) ────────────────
   ${If} $R2 == "0"
-    ; Upgrade: update binPath in case the install directory changed, then start.
-    nsExec::Exec 'sc config EdgeOS binPath= "$INSTDIR\edge-os-edge.exe"'
-    Pop $R0
+    ; Upgrade: binary is replaced — just start the service again.
     nsExec::Exec 'sc start EdgeOS'
     Pop $R0
 
   ${Else}
     ; Fresh install: register as demand-start (no config.json yet).
-    ; restart_daemon() promotes to auto-start when credentials are saved.
-    nsExec::Exec 'sc create EdgeOS binPath= "$INSTDIR\edge-os-edge.exe" start= demand DisplayName= "EdgeOS Edge"'
+    ; install_daemon_windows() promotes to auto-start when credentials are saved.
+    nsExec::Exec 'sc create EdgeOS binPath= "C:\ProgramData\EdgeOS\edge-os-edge.exe" start= demand DisplayName= "EdgeOS Edge"'
     Pop $R0
     nsExec::Exec 'sc description EdgeOS "EdgeOS edge daemon"'
     Pop $R0
+
+    ; If config.json already exists (re-install or service recovery), the setup
+    ; wizard won't run again, so promote to auto-start and start right now.
+    IfFileExists "C:\ProgramData\EdgeOS\config.json" 0 no_autostart
+      nsExec::Exec 'sc config EdgeOS start= auto'
+      Pop $R0
+      nsExec::Exec 'sc start EdgeOS'
+      Pop $R0
+    no_autostart:
 
   ${EndIf}
 

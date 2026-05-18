@@ -537,16 +537,18 @@ fn install_daemon_windows(cloud_url: &str, team_hash: &str, app: &tauri::AppHand
     std::fs::write(&tmp_config, &config_json).map_err(|e| format!("write tmp config: {e}"))?;
     let tmp_config_path = tmp_config.display().to_string();
 
-    // The NSIS installer registers the service pointing to the binary in $INSTDIR.
+    // The NSIS installer copies the binary to data_dir and registers the service.
     // This script only needs to write config.json and start it. The sc create
     // guard handles the rare case where this is called without a prior NSIS install.
+    let service_bin = format!("{data_dir}\\edge-os-edge.exe");
     let script = format!(
         r#"
 New-Item -ItemType Directory -Force -Path '{data_dir}' | Out-Null
 Copy-Item -Force '{tmp_config_path}' '{data_dir}\config.json'
 sc.exe query EdgeOS 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {{
-    sc.exe create EdgeOS binPath= '"{sidecar_path}"' start= demand DisplayName= 'EdgeOS Edge' | Out-Null
+    Copy-Item -Force '{sidecar_path}' '{service_bin}'
+    sc.exe create EdgeOS binPath= '"{service_bin}"' start= demand DisplayName= 'EdgeOS Edge' | Out-Null
     sc.exe description EdgeOS 'EdgeOS edge daemon' | Out-Null
 }}
 sc.exe config EdgeOS start= auto | Out-Null
