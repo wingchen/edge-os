@@ -16,13 +16,31 @@
 
 !macro NSIS_HOOK_PREINSTALL
 
-  ; Stop the service and force-kill the process before anything touches the binary.
-  ; Both commands are safe no-ops if the service / process does not exist.
-  nsExec::Exec 'sc stop EdgeOS'
-  Pop $R0
-  nsExec::Exec 'taskkill /F /IM edge-os-edge.exe'
-  Pop $R0
-  Sleep 1000
+  ; Only act if the service exists (safe no-op on fresh install).
+  nsExec::ExecToStack 'sc.exe query EdgeOS'
+  Pop $R0  ; 0 = service exists
+  Pop $R1
+
+  ${If} $R0 == "0"
+    ; Clean stop via SCM — does NOT trigger failure-recovery restart.
+    ; (taskkill /F looks like a crash: SCM would restart the process after 5 s,
+    ; re-locking the binary before POSTINSTALL's CopyFiles runs.)
+    nsExec::Exec 'sc.exe stop EdgeOS'
+    Pop $R0
+
+    ; Wait up to 10 s for the service to reach STOPPED state.
+    StrCpy $R2 0
+    ${While} $R2 < 20
+      Sleep 500
+      nsExec::ExecToStack 'cmd /c sc.exe query EdgeOS | findstr STOPPED'
+      Pop $R3  ; 0 = STOPPED found in output
+      Pop $R4
+      ${If} $R3 == "0"
+        ${Break}
+      ${EndIf}
+      IntOp $R2 $R2 + 1
+    ${EndWhile}
+  ${EndIf}
 
 !macroend
 
