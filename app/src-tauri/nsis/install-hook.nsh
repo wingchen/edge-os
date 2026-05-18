@@ -8,8 +8,9 @@
 ;                    registers the service as demand-start.
 ;                    Service starts when the user saves credentials in the wizard.
 ;
-;   Upgrade        — PREINSTALL stops and force-kills the process so the file
-;                    lock is released before Tauri (and then our copy) touches it.
+;   Upgrade        — PREINSTALL clears failureflag (so a clean stop is not
+;                    treated as a failure by SCM), stops the service, and waits
+;                    for the process to exit so the file lock is released.
 ;                    POSTINSTALL copies the new binary and restarts the service.
 
 !include "LogicLib.nsh"
@@ -22,24 +23,16 @@
   Pop $R1
 
   ${If} $R0 == "0"
-    ; Clean stop via SCM — does NOT trigger failure-recovery restart.
-    ; (taskkill /F looks like a crash: SCM would restart the process after 5 s,
-    ; re-locking the binary before POSTINSTALL's CopyFiles runs.)
+    ; Clear failureflag so a clean exit is not counted as a failure.
+    ; Without this, sc failureflag=1 causes SCM to restart the process
+    ; 5 s after a clean stop — re-locking the binary before CopyFiles runs.
+    nsExec::Exec 'sc.exe failureflag EdgeOS 0'
+    Pop $R0
+    ; Clean stop.
     nsExec::Exec 'sc.exe stop EdgeOS'
     Pop $R0
-
-    ; Wait up to 10 s for the service to reach STOPPED state.
-    StrCpy $R2 0
-    ${While} $R2 < 20
-      Sleep 500
-      nsExec::ExecToStack 'cmd /c sc.exe query EdgeOS | findstr STOPPED'
-      Pop $R3  ; 0 = STOPPED found in output
-      Pop $R4
-      ${If} $R3 == "0"
-        ${Break}
-      ${EndIf}
-      IntOp $R2 $R2 + 1
-    ${EndWhile}
+    ; Wait for the process to fully release the file lock.
+    Sleep 3000
   ${EndIf}
 
 !macroend
@@ -60,7 +53,7 @@
     "EDGE_OS_EDGE_DIR" "C:\ProgramData\EdgeOS"
 
   ; ── Copy sidecar binary to ProgramData ────────────────────────────────────
-  ; The process was killed in PREINSTALL so there is no file lock.
+  ; PREINSTALL stopped the service cleanly, so there is no file lock here.
   ; Keeping the binary at C:\ProgramData\EdgeOS avoids path-with-spaces
   ; quoting issues when registering the service via sc.exe.
   CopyFiles /SILENT "$INSTDIR\edge-os-edge.exe" "C:\ProgramData\EdgeOS\edge-os-edge.exe"
