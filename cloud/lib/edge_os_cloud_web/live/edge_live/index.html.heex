@@ -239,4 +239,34 @@
       if (e.detail.note) document.getElementById("ssh-step-error-note").innerHTML = e.detail.note;
     }
   });
+  window.addEventListener("phx:rdp_step2", (e) => {
+    document.getElementById("rdp-step-1").hidden = true;
+    document.getElementById("rdp-step-2").hidden = false;
+    document.getElementById("rdp-step-3").hidden = true;
+    document.getElementById("rdp-step-error").hidden = true;
+    if (e.detail.note) document.getElementById("rdp-step-2-note").textContent = e.detail.note;
+  });
+  window.addEventListener("phx:rdp_step3", (e) => {
+    document.getElementById("rdp-step-1").hidden = true;
+    document.getElementById("rdp-step-2").hidden = true;
+    document.getElementById("rdp-step-error").hidden = true;
+    document.getElementById("rdp-step-3").hidden = false;
+    if (e.detail.disconnected) {
+      document.getElementById("rdp-step-3-connected").hidden = true;
+      document.getElementById("rdp-step-3-disconnected").hidden = false;
+    } else {
+      document.getElementById("rdp-step-3-connected").hidden = false;
+      document.getElementById("rdp-step-3-disconnected").hidden = true;
+      if (e.detail.tcp_url) document.getElementById("rdp-tcp-url").textContent = e.detail.tcp_url;
+      if (e.detail.tcp_port) document.getElementById("rdp-tcp-port").textContent = e.detail.tcp_port;
+    }
+  });
+  window.addEventListener("phx:rdp_error", (e) => {
+    document.getElementById("rdp-step-1").hidden = true;
+    document.getElementById("rdp-step-2").hidden = true;
+    document.getElementById("rdp-step-3").hidden = true;
+    document.getElementById("rdp-step-error").hidden = false;
+    if (e.detail.title) document.getElementById("rdp-step-error-title").textContent = e.detail.title;
+    if (e.detail.note)  document.getElementById("rdp-step-error-note").textContent  = e.detail.note;
+  });
 </script>

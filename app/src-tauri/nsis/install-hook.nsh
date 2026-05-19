@@ -17,22 +17,25 @@
 
 !macro NSIS_HOOK_PREINSTALL
 
-  ; Only act if the service exists (safe no-op on fresh install).
-  nsExec::ExecToStack 'sc.exe query EdgeOS'
-  Pop $R0  ; 0 = service exists
+  ; Only stop the service if it is actively RUNNING.
+  ; If it is already stopped (or does not exist) there is no file lock — skip.
+  nsExec::ExecToStack '$SYSDIR\cmd.exe /c $SYSDIR\sc.exe query EdgeOS | $SYSDIR\findstr.exe RUNNING'
+  Pop $R0  ; 0 = RUNNING found in output
   Pop $R1
 
   ${If} $R0 == "0"
-    ; Clear failureflag so a clean exit is not counted as a failure.
-    ; Without this, sc failureflag=1 causes SCM to restart the process
-    ; 5 s after a clean stop — re-locking the binary before CopyFiles runs.
-    nsExec::Exec 'sc.exe failureflag EdgeOS 0'
+    ; Clear failureflag so a clean stop is not treated as a failure by SCM
+    ; (failureflag=1 would otherwise restart the process 5 s later).
+    nsExec::Exec '$SYSDIR\sc.exe failureflag EdgeOS 0'
     Pop $R0
-    ; Clean stop.
-    nsExec::Exec 'sc.exe stop EdgeOS'
+    ; Stop the service cleanly.
+    nsExec::Exec '$SYSDIR\sc.exe stop EdgeOS'
     Pop $R0
-    ; Wait for the process to fully release the file lock.
-    Sleep 3000
+    ${If} $R0 != "0"
+      Abort "Failed to stop the EdgeOS service (exit code $R0). Please stop it manually and retry."
+    ${EndIf}
+    ; Give the process time to fully exit and release the file lock.
+    Sleep 5000
   ${EndIf}
 
 !macroend

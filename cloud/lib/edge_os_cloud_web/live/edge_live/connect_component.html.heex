@@ -1,4 +1,5 @@
 <div id="connect-component-root">
+<%= if get_in(@edge.edge_info, ["os_type"]) != "windows" do %>
   <div class="d-flex align-items-center mb-3">
     <div>
       <h5 class="mb-0 font-weight-bold text-dark">SSH Connection</h5>
@@ -132,6 +133,7 @@
     });
   }
 </script>
+<% end %>
 
 <%= if get_in(@edge.edge_info, ["os_type"]) == "windows" do %>
   <hr class="my-3" />
@@ -149,7 +151,7 @@
     <p class="text-muted mb-3" style="font-size:0.875rem;">
       Opens an encrypted tunnel to port 3389 on this device. Connect with any RDP client using the host and port shown after the tunnel is ready.
     </p>
-    <%= link to: "#", phx_target: @myself, phx_click: "rdp", phx_value_id: @edge.id, class: "btn btn-secondary btn-sm", replace: false do %>
+    <%= link to: "#", phx_target: @myself, phx_click: "rdp", phx_value_id: @edge.id, class: "btn btn-primary btn-sm", replace: false do %>
       <i class="fas fa-desktop mr-1"></i>Connect RDP
     <% end %>
   </div>
@@ -205,37 +207,5 @@
     </div>
   </div>
 
-  <script>
-    window.addEventListener("phx:rdp_step2", (e) => {
-      document.getElementById("rdp-step-1").hidden = true;
-      document.getElementById("rdp-step-2").hidden = false;
-      document.getElementById("rdp-step-3").hidden = true;
-      document.getElementById("rdp-step-error").hidden = true;
-      if (e.detail.note) document.getElementById("rdp-step-2-note").textContent = e.detail.note;
-    });
-    window.addEventListener("phx:rdp_step3", (e) => {
-      document.getElementById("rdp-step-1").hidden = true;
-      document.getElementById("rdp-step-2").hidden = true;
-      document.getElementById("rdp-step-error").hidden = true;
-      document.getElementById("rdp-step-3").hidden = false;
-      if (e.detail.disconnected) {
-        document.getElementById("rdp-step-3-connected").hidden = true;
-        document.getElementById("rdp-step-3-disconnected").hidden = false;
-      } else {
-        document.getElementById("rdp-step-3-connected").hidden = false;
-        document.getElementById("rdp-step-3-disconnected").hidden = true;
-        if (e.detail.tcp_url) document.getElementById("rdp-tcp-url").textContent = e.detail.tcp_url;
-        if (e.detail.tcp_port) document.getElementById("rdp-tcp-port").textContent = e.detail.tcp_port;
-      }
-    });
-    window.addEventListener("phx:rdp_error", (e) => {
-      document.getElementById("rdp-step-1").hidden = true;
-      document.getElementById("rdp-step-2").hidden = true;
-      document.getElementById("rdp-step-3").hidden = true;
-      document.getElementById("rdp-step-error").hidden = false;
-      if (e.detail.title) document.getElementById("rdp-step-error-title").textContent = e.detail.title;
-      if (e.detail.note)  document.getElementById("rdp-step-error-note").textContent  = e.detail.note;
-    });
-  </script>
 <% end %>
 </div>
