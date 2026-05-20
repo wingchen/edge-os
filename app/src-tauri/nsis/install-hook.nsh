@@ -29,9 +29,10 @@
   Pop $R1
 
   ${If} $R0 == "0"
-    ; Clear failureflag so a clean stop is not treated as a failure by SCM
-    ; (failureflag=1 would otherwise restart the process 5 s later).
-    nsExec::Exec '"$R9" failureflag EdgeOS 0'
+    ; Disable the service so SCM cannot restart it during the update —
+    ; failureflag=1 would otherwise restart the process 5 s after our stop,
+    ; racing with the file copy. POSTINSTALL restores start= auto.
+    nsExec::Exec '"$R9" config EdgeOS start= disabled'
     Pop $R0
     ; Stop the service cleanly.
     nsExec::Exec '"$R9" stop EdgeOS'
@@ -91,7 +92,9 @@
 
   ; ── Service: restart (upgrade) or register (fresh install) ────────────────
   ${If} $R2 == "0"
-    ; Upgrade: binary is replaced — just start the service again.
+    ; Upgrade: binary is replaced — re-enable and start the service.
+    nsExec::Exec '"$R9" config EdgeOS start= auto'
+    Pop $R0
     nsExec::Exec '"$R9" start EdgeOS'
     Pop $R0
 
