@@ -35,10 +35,18 @@
   ; Exit code 0 = service registered; non-zero = not installed.
   nsExec::ExecToStack '"$R9" query EdgeOS'
   Pop $R0  ; exit code
-  Pop $R1  ; output (discard)
+  Pop $R1  ; output text
+
+  ; DEBUG: confirm PREINSTALL runs and show what sc query returned.
+  ; Remove this MessageBox once the stop logic is verified working.
+  MessageBox MB_OK "PREINSTALL sc query: exit=$R0$\noutput=$R1"
 
   ${If} $R0 == "0"
-    StrCpy $0 "PREINSTALL: service exists — disabling and stopping"
+    ; Persist status to a temp file — $0..$9 get clobbered by Tauri's
+    ; installer code between the PREINSTALL and POSTINSTALL hooks.
+    FileOpen $R2 "$TEMP\edgeos-preinstall.log" w
+    FileWrite $R2 "service found, disabling and stopping"
+    FileClose $R2
 
     ; Disable the service so SCM cannot restart it via failure actions
     ; while we are copying files. POSTINSTALL restores start= auto.
@@ -56,27 +64,35 @@
     ; Pipe sc query through 64-bit cmd.exe. Use $WINDIR\System32\ for the
     ; sc.exe and findstr.exe paths inside the command string — Sysnative is
     ; invisible inside the 64-bit cmd.exe child (see PATH NOTE above).
-    StrCpy $R2 0
+    StrCpy $R3 0
     preinstall_poll:
       nsExec::ExecToStack '$WINDIR\Sysnative\cmd.exe /c "$WINDIR\System32\sc.exe" query EdgeOS | "$WINDIR\System32\findstr.exe" /C:"RUNNING" /C:"PENDING"'
-      Pop $R3  ; exit code: 0 = still transitioning, non-zero = fully stopped
-      Pop $R4  ; output (discard)
-      ${If} $R3 != "0"
-        StrCpy $0 "PREINSTALL: service stopped after $R2s"
+      Pop $R4  ; exit code: 0 = still transitioning, non-zero = fully stopped
+      Pop $R5  ; output (discard)
+      ${If} $R4 != "0"
+        FileOpen $R2 "$TEMP\edgeos-preinstall.log" w
+        FileWrite $R2 "service stopped after $R3s"
+        FileClose $R2
         Goto preinstall_stop_done
       ${EndIf}
-      IntOp $R2 $R2 + 1
-      ${If} $R2 >= 30
+      IntOp $R3 $R3 + 1
+      ${If} $R3 >= 30
         ; 30 s elapsed — force-kill so CopyFiles is not blocked by a file lock.
-        StrCpy $0 "PREINSTALL: timed out after 30s — force-killed edge-os-edge.exe"
+        FileOpen $R2 "$TEMP\edgeos-preinstall.log" w
+        FileWrite $R2 "timed out after 30s — force-killed edge-os-edge.exe"
+        FileClose $R2
         nsExec::Exec '"$WINDIR\Sysnative\taskkill.exe" /F /IM edge-os-edge.exe'
-        Pop $R3
+        Pop $R4
         Sleep 2000
         Goto preinstall_stop_done
       ${EndIf}
       Sleep 1000
       Goto preinstall_poll
     preinstall_stop_done:
+  ${Else}
+    FileOpen $R2 "$TEMP\edgeos-preinstall.log" w
+    FileWrite $R2 "service not found — fresh install, no stop needed"
+    FileClose $R2
   ${EndIf}
 
 !macroend
@@ -115,8 +131,11 @@
   IfErrors postinstall_copy_failed postinstall_copy_ok
 
   postinstall_copy_failed:
+    FileOpen $R0 "$TEMP\edgeos-preinstall.log" r
+    FileRead $R0 $R1
+    FileClose $R0
     MessageBox MB_OK "CopyFiles failed — edge-os-edge.exe may still be locked.$\n$\n\
-$0$\n$\n\
+PREINSTALL: $R1$\n$\n\
 sc query before copy:$\n$R6$\n\
 tasklist: $R8"
     Abort "Failed to copy edge-os-edge.exe. See the diagnostic above."
