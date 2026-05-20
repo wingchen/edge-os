@@ -60,6 +60,15 @@
     "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" \
     "EDGE_OS_EDGE_DIR" "C:\ProgramData\EdgeOS"
 
+  ; ── Diagnostic: show service state and process list before copy ────────────
+  nsExec::ExecToStack '$WINDIR\Sysnative\sc.exe query EdgeOS'
+  Pop $R5
+  Pop $R6
+  nsExec::ExecToStack '$SYSDIR\cmd.exe /c tasklist /FI "IMAGENAME eq edge-os-edge.exe" /FO CSV /NH'
+  Pop $R7
+  Pop $R8
+  MessageBox MB_OK "Before CopyFiles:$\nsc query exit=$R5$\nsc query output=$R6$\ntasklist output=$R8"
+
   ; ── Copy sidecar binary to ProgramData ────────────────────────────────────
   ; PREINSTALL stopped the service cleanly, so there is no file lock here.
   ; Keeping the binary at C:\ProgramData\EdgeOS avoids path-with-spaces
