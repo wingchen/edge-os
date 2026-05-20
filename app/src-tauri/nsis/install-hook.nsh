@@ -2,16 +2,14 @@
 ; Tauri calls NSIS_HOOK_PREINSTALL before copying app files,
 ; and NSIS_HOOK_POSTINSTALL after. The installer already runs elevated.
 ;
-;   Fresh install  — PREINSTALL is a safe no-op (service doesn't exist yet).
-;                    POSTINSTALL creates the data dir, copies the binary to
-;                    C:\ProgramData\EdgeOS (no spaces — avoids sc quoting issues),
-;                    registers the service as demand-start.
-;                    Service starts when the user saves credentials in the wizard.
+;   Fresh install  — PREINSTALL: no-op (service not registered yet).
+;                    POSTINSTALL: creates data dir, copies binary, registers
+;                    service as demand-start. Offers to start immediately
+;                    if config.json already exists.
 ;
-;   Upgrade        — PREINSTALL disables the service (prevents SCM restart via
-;                    failure actions), stops it, and polls until fully stopped
-;                    so the file lock is released before CopyFiles runs.
-;                    POSTINSTALL copies the new binary and restarts the service.
+;   Upgrade        — PREINSTALL: detects existing service, asks user to stop
+;                    it via a dialog before the file copy proceeds.
+;                    POSTINSTALL: copies new binary, offers to start service.
 ;
 ; PATH NOTE — Sysnative vs System32 inside child processes:
 ;   $WINDIR\Sysnative is a virtual folder only visible to 32-bit processes.
@@ -25,62 +23,46 @@
 
 !macro NSIS_HOOK_PREINSTALL
 
-  ; $R9 = sc.exe path for direct nsExec calls (32-bit NSIS → Sysnative works).
+  ; $R9 = sc.exe for direct nsExec calls (32-bit NSIS → Sysnative works).
   StrCpy $R9 "$WINDIR\Sysnative\sc.exe"
 
-  ; Default diagnostic string (read by POSTINSTALL if CopyFiles fails).
-  StrCpy $0 "PREINSTALL: service not found — fresh install, no stop needed"
-
-  ; Check whether the service exists at all.
-  ; Exit code 0 = service registered; non-zero = not installed.
+  ; Check if the service is registered at all (exit 0 = exists, upgrade path).
+  ; This is a direct call — no pipe, no 64-bit cmd.exe, no Sysnative issues.
   nsExec::ExecToStack '"$R9" query EdgeOS'
-  Pop $R0  ; exit code
-  Pop $R1  ; output text
-
-  ; DEBUG: confirm PREINSTALL runs and show what sc query returned.
-  ; Remove this MessageBox once the stop logic is verified working.
-  MessageBox MB_OK "PREINSTALL sc query: exit=$R0$\noutput=$R1"
+  Pop $R0  ; exit code: 0 = service exists
+  Pop $R1  ; output (discard)
 
   ${If} $R0 == "0"
-    ; Persist status to a temp file — $0..$9 get clobbered by Tauri's
-    ; installer code between the PREINSTALL and POSTINSTALL hooks.
-    FileOpen $R2 "$TEMP\edgeos-preinstall.log" w
-    FileWrite $R2 "service found, disabling and stopping"
-    FileClose $R2
+    ; Service is registered — ask the user to stop it before we replace the binary.
+    MessageBox MB_YESNO "The EdgeOS service must be stopped before updating.$\n$\nStop it now and continue the installation?" \
+      IDYES preinstall_do_stop
+      Abort "Installation cancelled. Stop the EdgeOS service and run the installer again."
+    preinstall_do_stop:
 
-    ; Disable the service so SCM cannot restart it via failure actions
-    ; while we are copying files. POSTINSTALL restores start= auto.
+    ; Disable first so SCM failure-recovery actions cannot restart it
+    ; between our stop and the file copy. POSTINSTALL restores start= auto.
     nsExec::Exec '"$R9" config EdgeOS start= disabled'
     Pop $R0
-
-    ; Send the stop signal. Ignore non-zero — service may already be stopping.
     nsExec::Exec '"$R9" stop EdgeOS'
     Pop $R0
 
-    ; Poll until the service leaves the RUNNING state (up to 30 s).
-    ; sc stop is asynchronous: a zero exit code only means the stop signal was
-    ; accepted, not that the process has exited and released the file lock.
+    ; Poll up to 15 s for the process to fully exit and release the file lock.
+    ; sc stop is asynchronous — exit code 0 means the signal was sent, not
+    ; that the process has terminated.
     ;
-    ; Pipe sc query through 64-bit cmd.exe. Use $WINDIR\System32\ for the
-    ; sc.exe and findstr.exe paths inside the command string — Sysnative is
-    ; invisible inside the 64-bit cmd.exe child (see PATH NOTE above).
+    ; Use $WINDIR\System32 paths inside the 64-bit cmd.exe pipe (not Sysnative —
+    ; see PATH NOTE above).
     StrCpy $R3 0
     preinstall_poll:
       nsExec::ExecToStack '$WINDIR\Sysnative\cmd.exe /c "$WINDIR\System32\sc.exe" query EdgeOS | "$WINDIR\System32\findstr.exe" /C:"RUNNING" /C:"PENDING"'
-      Pop $R4  ; exit code: 0 = still transitioning, non-zero = fully stopped
+      Pop $R4  ; 0 = still transitioning, non-zero = fully stopped
       Pop $R5  ; output (discard)
       ${If} $R4 != "0"
-        FileOpen $R2 "$TEMP\edgeos-preinstall.log" w
-        FileWrite $R2 "service stopped after $R3s"
-        FileClose $R2
         Goto preinstall_stop_done
       ${EndIf}
       IntOp $R3 $R3 + 1
-      ${If} $R3 >= 30
-        ; 30 s elapsed — force-kill so CopyFiles is not blocked by a file lock.
-        FileOpen $R2 "$TEMP\edgeos-preinstall.log" w
-        FileWrite $R2 "timed out after 30s — force-killed edge-os-edge.exe"
-        FileClose $R2
+      ${If} $R3 >= 15
+        ; Timeout — force-kill so the file lock is released.
         nsExec::Exec '"$WINDIR\Sysnative\taskkill.exe" /F /IM edge-os-edge.exe'
         Pop $R4
         Sleep 2000
@@ -89,10 +71,6 @@
       Sleep 1000
       Goto preinstall_poll
     preinstall_stop_done:
-  ${Else}
-    FileOpen $R2 "$TEMP\edgeos-preinstall.log" w
-    FileWrite $R2 "service not found — fresh install, no stop needed"
-    FileClose $R2
   ${EndIf}
 
 !macroend
@@ -112,9 +90,7 @@
     "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" \
     "EDGE_OS_EDGE_DIR" "C:\ProgramData\EdgeOS"
 
-  ; ── Collect diagnostic state before attempting the copy ────────────────────
-  ; Stored in $R6 (sc query output) and $R8 (tasklist output).
-  ; Only shown to the user if CopyFiles fails below.
+  ; ── Collect diagnostic state before the copy (shown only on failure) ───────
   nsExec::ExecToStack '"$WINDIR\Sysnative\sc.exe" query EdgeOS'
   Pop $R5  ; exit code (discard)
   Pop $R6  ; sc query output
@@ -123,22 +99,15 @@
   Pop $R8  ; tasklist output
 
   ; ── Copy sidecar binary to ProgramData ────────────────────────────────────
-  ; PREINSTALL stopped the service cleanly, so there should be no file lock.
-  ; Keeping the binary at C:\ProgramData\EdgeOS avoids path-with-spaces
-  ; quoting issues when registering the service via sc.exe.
   ClearErrors
   CopyFiles /SILENT "$INSTDIR\edge-os-edge.exe" "C:\ProgramData\EdgeOS\edge-os-edge.exe"
   IfErrors postinstall_copy_failed postinstall_copy_ok
 
   postinstall_copy_failed:
-    FileOpen $R0 "$TEMP\edgeos-preinstall.log" r
-    FileRead $R0 $R1
-    FileClose $R0
-    MessageBox MB_OK "CopyFiles failed — edge-os-edge.exe may still be locked.$\n$\n\
-PREINSTALL: $R1$\n$\n\
-sc query before copy:$\n$R6$\n\
-tasklist: $R8"
-    Abort "Failed to copy edge-os-edge.exe. See the diagnostic above."
+    MessageBox MB_OK "Failed to copy edge-os-edge.exe — the service process may still be running.$\n$\n\
+sc query: $R6$\ntasklist: $R8$\n$\n\
+Please stop the EdgeOS service manually and run the installer again."
+    Abort "Failed to copy edge-os-edge.exe."
 
   postinstall_copy_ok:
 
@@ -147,48 +116,58 @@ tasklist: $R8"
   FileWrite $R0 "${VERSION}"
   FileClose $R0
 
-  ; Use 64-bit sc.exe via Sysnative for all service control (same reason as PREINSTALL).
+  ; Use 64-bit sc.exe via Sysnative for all service control.
   StrCpy $R9 "$WINDIR\Sysnative\sc.exe"
 
   ; ── Detect existing service ────────────────────────────────────────────────
-  ; $R2 = 0 means service already exists (upgrade), non-zero means fresh install.
   nsExec::ExecToStack '"$R9" query EdgeOS'
-  Pop $R2  ; exit code: 0 = service exists
+  Pop $R2  ; exit code: 0 = service exists (upgrade), non-zero = fresh install
   Pop $R1  ; stdout (discard)
 
-  ; ── Service: restart (upgrade) or register (fresh install) ────────────────
+  ; ── Service: register (fresh) or re-enable (upgrade) ──────────────────────
   ${If} $R2 == "0"
-    ; Upgrade: binary is replaced — re-enable and start the service.
+    ; Upgrade: binary replaced — restore auto-start (PREINSTALL disabled it).
     nsExec::Exec '"$R9" config EdgeOS start= auto'
-    Pop $R0
-    nsExec::Exec '"$R9" start EdgeOS'
     Pop $R0
 
   ${Else}
     ; Fresh install: register as demand-start (no config.json yet).
-    ; install_daemon_windows() promotes to auto-start when credentials are saved.
     nsExec::Exec '"$R9" create EdgeOS binPath= "C:\ProgramData\EdgeOS\edge-os-edge.exe" start= demand DisplayName= "EdgeOS Edge"'
     Pop $R0
     nsExec::Exec '"$R9" description EdgeOS "EdgeOS edge daemon"'
     Pop $R0
-
-    ; If config.json already exists (re-install or service recovery), the setup
-    ; wizard won't run again, so promote to auto-start and start right now.
-    IfFileExists "C:\ProgramData\EdgeOS\config.json" 0 no_autostart
-      nsExec::Exec '"$R9" config EdgeOS start= auto'
-      Pop $R0
-      nsExec::Exec '"$R9" start EdgeOS'
-      Pop $R0
-    no_autostart:
-
   ${EndIf}
 
   ; ── Failure recovery ───────────────────────────────────────────────────────
-  ; Restart on unexpected exit: 5 s, 10 s, 30 s. Reset counter after 24 h.
   nsExec::Exec '"$R9" failure EdgeOS reset= 86400 actions= restart/5000/restart/10000/restart/30000'
   Pop $R0
-  ; Also restart on exit code 0 (clean WebSocket drop, not an SCM stop).
   nsExec::Exec '"$R9" failureflag EdgeOS 1'
   Pop $R0
+
+  ; ── Offer to start the service now ────────────────────────────────────────
+  ; Show the prompt if this is an upgrade, or a fresh install where config.json
+  ; already exists (re-install / service recovery — wizard won't run again).
+  StrCpy $R3 "0"  ; flag: show start prompt?
+  ${If} $R2 == "0"
+    StrCpy $R3 "1"  ; upgrade — always offer to start
+  ${Else}
+    IfFileExists "C:\ProgramData\EdgeOS\config.json" 0 +2
+      StrCpy $R3 "1"  ; config exists — offer to start
+  ${EndIf}
+
+  ${If} $R3 == "1"
+    MessageBox MB_YESNO "Installation complete.$\n$\nStart the EdgeOS service now?" \
+      IDYES postinstall_start_service
+      Goto postinstall_no_start
+    postinstall_start_service:
+      nsExec::Exec '"$R9" start EdgeOS'
+      Pop $R0
+      ${If} $R0 == "0"
+        MessageBox MB_OK "EdgeOS service started successfully."
+      ${Else}
+        MessageBox MB_OK "EdgeOS service could not be started (error $R0).$\nYou can start it manually from Windows Services."
+      ${EndIf}
+    postinstall_no_start:
+  ${EndIf}
 
 !macroend
