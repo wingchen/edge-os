@@ -606,9 +606,44 @@ async fn handle_webrtc_offer_on_port(
             dc.on_open(Box::new(move || {
                 let dc = Arc::clone(&dc_open);
                 Box::pin(async move {
-                    info!("data channel open, bridging to 127.0.0.1:{}", tcp_port);
-                    if let Err(e) = bridge_to_tcp(dc, tcp_port).await {
-                        error!("TCP bridge error on port {}: {}", tcp_port, e);
+                    // Windows RDP resets the TCP connection (WSAECONNRESET) when
+                    // transitioning from the pre-auth winlogon session to the user's
+                    // desktop session. mstsc.exe reconnects automatically; we must
+                    // also reconnect the local bridge so it picks up the new session.
+                    // Retry on clean close or ConnectionReset (up to 3 attempts).
+                    // Only report an error for unrecoverable failures (e.g. ECONNREFUSED
+                    // = RDP not enabled) — sending raw text over the data channel on
+                    // a mid-session error would corrupt the RDP stream.
+                    let mut attempts = 0u8;
+                    loop {
+                        info!("bridging to 127.0.0.1:{} (attempt {})", tcp_port, attempts + 1);
+                        match bridge_to_tcp(Arc::clone(&dc), tcp_port).await {
+                            Ok(()) => {
+                                attempts += 1;
+                                if attempts < 3 {
+                                    info!("TCP connection to port {} closed cleanly, retrying in 2s (session transition?)", tcp_port);
+                                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                                } else {
+                                    info!("TCP connection to port {} closed, bridge done after {} attempts", tcp_port, attempts);
+                                    break;
+                                }
+                            }
+                            Err(e) => {
+                                let is_reset = e.downcast_ref::<std::io::Error>()
+                                    .map(|io_e| io_e.kind() == std::io::ErrorKind::ConnectionReset)
+                                    .unwrap_or(false);
+                                if is_reset && attempts < 3 {
+                                    attempts += 1;
+                                    info!("TCP connection to port {} reset by remote (session transition), retrying in 2s", tcp_port);
+                                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                                } else {
+                                    error!("TCP bridge error on port {}: {}", tcp_port, e);
+                                    let msg = format!("ERROR: could not connect to 127.0.0.1:{} — {}", tcp_port, e);
+                                    let _ = dc.send(&Bytes::from(msg.into_bytes())).await;
+                                    break;
+                                }
+                            }
+                        }
                     }
                 })
             }));

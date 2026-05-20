@@ -70,6 +70,17 @@ struct EdgeInfo {
 	host_name: String,
 	protocol: String,
 	os_type: String,
+	rdp_enabled: bool,
+}
+
+// Check whether RDP is accepting connections on this machine.
+// Uses a short-timeout TCP connect to 127.0.0.1:3389 — works on any OS,
+// needs no extra crates, and reflects the actual runtime state.
+fn check_rdp_enabled() -> bool {
+	use std::net::{SocketAddr, TcpStream};
+	use std::time::Duration;
+	let addr: SocketAddr = "127.0.0.1:3389".parse().unwrap();
+	TcpStream::connect_timeout(&addr, Duration::from_secs(1)).is_ok()
 }
 
 fn run_command(command: &str, args: &[&str]) -> Vec<String> {
@@ -309,6 +320,7 @@ pub fn get_edge_info() -> String {
    	} else {
    		"linux"
    	}.to_string(),
+   	rdp_enabled: check_rdp_enabled(),
    };
 
    let json_edge_info = serde_json::to_string(&edge_info).unwrap();

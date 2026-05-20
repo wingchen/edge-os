@@ -107,8 +107,16 @@
 
             <%= if online do %>
               <%= if get_in(edge.edge_info, ["os_type"]) == "windows" do %>
-                <%= live_patch to: Routes.edge_index_path(@socket, :connect, edge), class: "btn btn-sm btn-outline-secondary", replace: false do %>
-                  <i class="fas fa-desktop"></i><span class="d-none d-sm-inline ml-1">RDP</span>
+                <%= if get_in(edge.edge_info, ["rdp_enabled"]) do %>
+                  <%= live_patch to: Routes.edge_index_path(@socket, :connect, edge), class: "btn btn-sm btn-outline-secondary", replace: false do %>
+                    <i class="fas fa-desktop"></i><span class="d-none d-sm-inline ml-1">RDP</span>
+                  <% end %>
+                <% else %>
+                  <button class="btn btn-sm btn-outline-secondary disabled" disabled
+                    title="Remote Desktop is not enabled on this machine. Enable it in Windows Settings → System → Remote Desktop.">
+                    <i class="fas fa-desktop"></i><span class="d-none d-sm-inline ml-1">RDP</span>
+                    <i class="fas fa-exclamation-triangle ml-1 text-warning"></i>
+                  </button>
                 <% end %>
               <% else %>
                 <%= live_patch to: Routes.edge_index_path(@socket, :connect, edge), class: "btn btn-sm btn-outline-primary", replace: false do %>
