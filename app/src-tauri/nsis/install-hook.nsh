@@ -2,17 +2,10 @@
 ; Tauri calls NSIS_HOOK_PREINSTALL before copying app files,
 ; and NSIS_HOOK_POSTINSTALL after. The installer already runs elevated.
 ;
-;   Fresh install  — PREINSTALL: no-op (service not registered yet).
-;                    POSTINSTALL: creates data dir, copies binary, registers
-;                    service as demand-start. Offers to start immediately
-;                    if config.json already exists.
-;
-;   Upgrade        — PREINSTALL: detects existing service, asks user to stop
-;                    it. If automatic stop fails, guides user to services.msc
-;                    with a Retry option.
-;                    POSTINSTALL: copies new binary, offers to start service.
-;                    If automatic start fails, guides user to services.msc
-;                    with a Retry option.
+;   PREINSTALL  — silently attempts to stop the service (best-effort, no dialog).
+;   POSTINSTALL — copies binary; if copy fails (service still running), shows a
+;                 Retry/Cancel dialog instructing the user to stop manually.
+;                 Same for service start: try once, show Retry/Cancel on failure.
 ;
 ; PATH NOTE — Sysnative vs System32 inside child processes:
 ;   $WINDIR\Sysnative is a virtual folder only visible to 32-bit processes.
@@ -28,73 +21,13 @@
 
   StrCpy $R9 "$WINDIR\Sysnative\sc.exe"
 
-  ; Check if the service is registered (exit 0 = exists, upgrade path).
-  nsExec::ExecToStack '"$R9" query EdgeOS'
-  Pop $R0  ; exit code: 0 = service exists
-  Pop $R1  ; output (discard)
-
-  ${If} $R0 == "0"
-    ; Confirm with the user before touching the running service.
-    MessageBox MB_YESNO "The EdgeOS service needs to be stopped before the \
-update can proceed.$\n$\nClick Yes to stop it now, or No to cancel." \
-      IDYES preinstall_do_stop
-      Abort "Installation cancelled."
-    preinstall_do_stop:
-
-    ; Disable so SCM failure-recovery cannot restart it during the file copy.
-    ; POSTINSTALL restores start= auto.
-    nsExec::Exec '"$R9" config EdgeOS start= disabled'
-    Pop $R0
-
-    ; ── Stop + poll loop ───────────────────────────────────────────────────
-    ; Jumps back here if the user clicks Retry after a failed automatic stop.
-    preinstall_attempt_stop:
-      nsExec::Exec '"$R9" stop EdgeOS'
-      Pop $R0
-
-      StrCpy $R3 0
-      preinstall_poll:
-        nsExec::ExecToStack '$WINDIR\Sysnative\cmd.exe /c "$WINDIR\System32\sc.exe" query EdgeOS | "$WINDIR\System32\findstr.exe" /C:"RUNNING" /C:"PENDING"'
-        Pop $R4  ; 0 = still transitioning, non-zero = fully stopped
-        Pop $R5
-        ${If} $R4 != "0"
-          Goto preinstall_stop_done
-        ${EndIf}
-        IntOp $R3 $R3 + 1
-        ${If} $R3 >= 15
-          ; Could not stop automatically — guide the user to Services.
-          MessageBox MB_RETRYCANCEL \
-            "EdgeOS could not be stopped automatically.$\n$\n\
-To stop it manually:$\n\
-  1. Press Win + R, type  services.msc  and press Enter$\n\
-  2. Find $\"EdgeOS Edge$\" in the list$\n\
-  3. Right-click it and choose Stop$\n$\n\
-Once stopped, click Retry to continue the installation." \
-            IDRETRY preinstall_attempt_stop
-            Abort "Installation cancelled. Please stop the EdgeOS service from \
-Windows Services (services.msc) and run the installer again."
-        ${EndIf}
-        Sleep 1000
-        Goto preinstall_poll
-    preinstall_stop_done:
-    ; Service state is STOPPED, but the process may still be alive and holding
-    ; the file lock. Poll tasklist until edge-os-edge.exe disappears (up to 10 s).
-    StrCpy $R3 0
-    preinstall_process_poll:
-      nsExec::ExecToStack '$SYSDIR\cmd.exe /c tasklist /FI "IMAGENAME eq edge-os-edge.exe" /NH | findstr /I "edge-os-edge"'
-      Pop $R4  ; 0 = process still in list, non-zero = gone
-      Pop $R5
-      ${If} $R4 != "0"
-        Goto preinstall_process_done
-      ${EndIf}
-      IntOp $R3 $R3 + 1
-      ${If} $R3 >= 10
-        Goto preinstall_process_done  ; give up and let CopyFiles try
-      ${EndIf}
-      Sleep 1000
-      Goto preinstall_process_poll
-    preinstall_process_done:
-  ${EndIf}
+  ; Silently disable and stop the service so it does not restart during the
+  ; file copy. If the service is not registered (fresh install) these fail
+  ; silently — that is fine. No dialog, no polling.
+  nsExec::Exec '"$R9" config EdgeOS start= disabled'
+  Pop $R0
+  nsExec::Exec '"$R9" stop EdgeOS'
+  Pop $R0
 
 !macroend
 
@@ -113,24 +46,25 @@ Windows Services (services.msc) and run the installer again."
     "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" \
     "EDGE_OS_EDGE_DIR" "C:\ProgramData\EdgeOS"
 
-  ; ── Collect diagnostic state before the copy (shown only on failure) ───────
-  nsExec::ExecToStack '"$WINDIR\Sysnative\sc.exe" query EdgeOS'
-  Pop $R5
-  Pop $R6  ; sc query output
-  nsExec::ExecToStack '$SYSDIR\cmd.exe /c tasklist /FI "IMAGENAME eq edge-os-edge.exe" /FO CSV /NH'
-  Pop $R7
-  Pop $R8  ; tasklist output
-
-  ; ── Copy sidecar binary to ProgramData ────────────────────────────────────
-  ClearErrors
-  CopyFiles /SILENT "$INSTDIR\edge-os-edge.exe" "C:\ProgramData\EdgeOS\edge-os-edge.exe"
-  IfErrors postinstall_copy_failed postinstall_copy_ok
+  ; ── Copy sidecar binary — retry loop ──────────────────────────────────────
+  ; If edge-os-edge.exe is still running it holds a file lock on the copy in
+  ; ProgramData. Ask the user to stop it and click Retry.
+  postinstall_copy_retry:
+    ClearErrors
+    CopyFiles /SILENT "$INSTDIR\edge-os-edge.exe" "C:\ProgramData\EdgeOS\edge-os-edge.exe"
+    IfErrors postinstall_copy_failed postinstall_copy_ok
 
   postinstall_copy_failed:
-    MessageBox MB_OK "Failed to copy edge-os-edge.exe — the service process \
-may still be running.$\n$\nsc query: $R6$\ntasklist: $R8$\n$\n\
-Please stop the EdgeOS service manually and run the installer again."
-    Abort "Failed to copy edge-os-edge.exe."
+    MessageBox MB_RETRYCANCEL \
+      "Could not copy edge-os-edge.exe — the EdgeOS service may still be running.$\n$\n\
+To stop it manually:$\n\
+  1. Press Win + R, type  services.msc  and press Enter$\n\
+  2. Find $\"EdgeOS Edge$\" in the list$\n\
+  3. Right-click it and choose Stop$\n\
+  (Or open Task Manager, find edge-os-edge.exe under Details, and End Task.)$\n$\n\
+Once stopped, click Retry to continue, or Cancel to abort." \
+      IDRETRY postinstall_copy_retry
+      Abort "Installation cancelled."
 
   postinstall_copy_ok:
 
@@ -180,24 +114,11 @@ service now?" IDYES postinstall_do_start
       Goto postinstall_no_start
     postinstall_do_start:
 
-    ; ── Start + retry loop ─────────────────────────────────────────────────
-    ; Jumps back here if the user clicks Retry after a failed automatic start.
+    ; ── Start — retry loop ─────────────────────────────────────────────────
     postinstall_attempt_start:
 
-      ; Check first — user may have already started it manually via Services.
-      nsExec::ExecToStack '$WINDIR\Sysnative\cmd.exe /c "$WINDIR\System32\sc.exe" query EdgeOS | "$WINDIR\System32\findstr.exe" RUNNING'
-      Pop $R4  ; 0 = RUNNING found
-      Pop $R5
-      ${If} $R4 == "0"
-        MessageBox MB_OK "The EdgeOS service is running."
-        Goto postinstall_no_start
-      ${EndIf}
-
-      ; Not running yet — try to start it.
       nsExec::Exec '"$R9" start EdgeOS'
       Pop $R0
-
-      ; Give it 3 s to reach RUNNING state, then check.
       Sleep 3000
       nsExec::ExecToStack '$WINDIR\Sysnative\cmd.exe /c "$WINDIR\System32\sc.exe" query EdgeOS | "$WINDIR\System32\findstr.exe" RUNNING'
       Pop $R4
@@ -207,7 +128,6 @@ service now?" IDYES postinstall_do_start
         Goto postinstall_no_start
       ${EndIf}
 
-      ; Could not start automatically — guide the user to Services.
       MessageBox MB_RETRYCANCEL \
         "EdgeOS could not be started automatically.$\n$\n\
 To start it manually:$\n\
@@ -216,8 +136,8 @@ To start it manually:$\n\
   3. Right-click it and choose Start$\n$\n\
 Once started, click Retry to confirm, or Cancel to leave it stopped." \
         IDRETRY postinstall_attempt_start
-        ; User chose to leave it stopped — that is fine, the Tauri setup wizard
-        ; or the user can start it from Services later.
+        ; User chose Cancel — leave it stopped, that is fine.
+
     postinstall_no_start:
   ${EndIf}
 
