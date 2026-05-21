@@ -193,7 +193,13 @@ async fn run() {
     tokio::spawn(custom_metrics(ping_tx.clone()));
 
     let url = url::Url::parse(&cloud_server_url).unwrap();
-    let (ws_stream, _) = connect_async(url).await.expect("WebSocket failed to connect");
+    let (ws_stream, _) = match connect_async(url).await {
+        Ok(result) => result,
+        Err(e) => {
+            error!("WebSocket connection failed: {e}");
+            return;
+        }
+    };
     debug!("WebSocket handshake has been successfully completed");
 
     write_status(&local_working_dir, "connected", &cloud);
@@ -224,7 +230,13 @@ async fn run() {
             #[cfg(not(target_os = "windows"))]
             let event_store  = Arc::clone(&event_store_ref);
             async move {
-                let command_str = message.unwrap().to_string();
+                let command_str = match message {
+                    Ok(m) => m.to_string(),
+                    Err(e) => {
+                        error!("WebSocket error: {e}");
+                        return;
+                    }
+                };
 
                 if command_str.is_empty() {
                     return;
