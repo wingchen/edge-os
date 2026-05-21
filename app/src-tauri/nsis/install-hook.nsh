@@ -77,6 +77,23 @@ Windows Services (services.msc) and run the installer again."
         Sleep 1000
         Goto preinstall_poll
     preinstall_stop_done:
+    ; Service state is STOPPED, but the process may still be alive and holding
+    ; the file lock. Poll tasklist until edge-os-edge.exe disappears (up to 10 s).
+    StrCpy $R3 0
+    preinstall_process_poll:
+      nsExec::ExecToStack '$SYSDIR\cmd.exe /c tasklist /FI "IMAGENAME eq edge-os-edge.exe" /NH | findstr /I "edge-os-edge"'
+      Pop $R4  ; 0 = process still in list, non-zero = gone
+      Pop $R5
+      ${If} $R4 != "0"
+        Goto preinstall_process_done
+      ${EndIf}
+      IntOp $R3 $R3 + 1
+      ${If} $R3 >= 10
+        Goto preinstall_process_done  ; give up and let CopyFiles try
+      ${EndIf}
+      Sleep 1000
+      Goto preinstall_process_poll
+    preinstall_process_done:
   ${EndIf}
 
 !macroend
