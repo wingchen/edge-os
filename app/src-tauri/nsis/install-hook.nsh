@@ -114,29 +114,32 @@ service now?" IDYES postinstall_do_start
       Goto postinstall_no_start
     postinstall_do_start:
 
-    ; ── Start — retry loop ─────────────────────────────────────────────────
+    ; ── Start — try once, then let user verify manually ───────────────────
     postinstall_attempt_start:
 
       nsExec::Exec '"$R9" start EdgeOS'
       Pop $R0
       Sleep 3000
+
+    postinstall_verify_start:
+
       nsExec::ExecToStack '$WINDIR\Sysnative\cmd.exe /c "$WINDIR\System32\sc.exe" query EdgeOS | "$WINDIR\System32\findstr.exe" RUNNING'
       Pop $R4
       Pop $R5
       ${If} $R4 == "0"
-        MessageBox MB_OK "The EdgeOS service started successfully."
+        MessageBox MB_OK "The EdgeOS service is running."
         Goto postinstall_no_start
       ${EndIf}
 
-      MessageBox MB_RETRYCANCEL \
-        "EdgeOS could not be started automatically.$\n$\n\
+      MessageBox MB_YESNO \
+        "EdgeOS is not running yet.$\n$\n\
 To start it manually:$\n\
   1. Press Win + R, type  services.msc  and press Enter$\n\
   2. Find $\"EdgeOS Edge$\" in the list$\n\
   3. Right-click it and choose Start$\n$\n\
-Once started, click Retry to confirm, or Cancel to leave it stopped." \
-        IDRETRY postinstall_attempt_start
-        ; User chose Cancel — leave it stopped, that is fine.
+Once started, click Yes to verify, or No to leave it stopped." \
+        IDYES postinstall_verify_start
+        ; User chose No — leave it stopped, that is fine.
 
     postinstall_no_start:
   ${EndIf}
