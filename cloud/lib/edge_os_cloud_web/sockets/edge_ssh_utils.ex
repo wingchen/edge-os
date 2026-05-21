@@ -96,7 +96,7 @@ defmodule EdgeOsCloud.Sockets.EdgeSSHUtils do
           end)
 
           Task.start(fn ->
-            EdgeOsCloud.Sockets.UserTcpSocket.start_link(session_port: rdp_port, session_id: session.id, user_ip: user_ip)
+            EdgeOsCloud.Sockets.UserTcpSocket.start_link(session_port: rdp_port, session_id: session.id, user_ip: user_ip, connection_type: "rdp")
           end)
 
           {:ok, session, "sending RDP message to #{edge.name}"}

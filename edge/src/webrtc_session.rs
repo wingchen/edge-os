@@ -621,8 +621,7 @@ async fn handle_webrtc_offer_on_port(
                             Ok(()) => {
                                 attempts += 1;
                                 if attempts < 3 {
-                                    info!("TCP connection to port {} closed cleanly, retrying in 2s (session transition?)", tcp_port);
-                                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                                    info!("TCP connection to port {} closed cleanly, retrying (NLA session transition?)", tcp_port);
                                 } else {
                                     info!("TCP connection to port {} closed, bridge done after {} attempts", tcp_port, attempts);
                                     break;
@@ -634,8 +633,7 @@ async fn handle_webrtc_offer_on_port(
                                     .unwrap_or(false);
                                 if is_reset && attempts < 3 {
                                     attempts += 1;
-                                    info!("TCP connection to port {} reset by remote (session transition), retrying in 2s", tcp_port);
-                                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                                    info!("TCP connection to port {} reset by remote (NLA session transition), retrying immediately", tcp_port);
                                 } else {
                                     error!("TCP bridge error on port {}: {}", tcp_port, e);
                                     let msg = format!("ERROR: could not connect to 127.0.0.1:{} — {}", tcp_port, e);
@@ -726,10 +724,10 @@ async fn bridge_to_tcp(
     dc: Arc<RTCDataChannel>,
     port: u16,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let tcp = TcpStream::connect(format!("127.0.0.1:{port}")).await?;
-    let (mut tcp_read, mut tcp_write) = tcp.into_split();
-
-    // Channel so on_message callback can hand data to the TCP writer task
+    // Register the DC→TCP channel BEFORE connecting so no incoming DC data is
+    // dropped during the brief window while TcpStream::connect is pending.
+    // The unbounded channel buffers any data that arrives before the TCP
+    // write task starts draining it.
     let (to_tcp_tx, mut to_tcp_rx) = tokio_mpsc::unbounded_channel::<Bytes>();
 
     dc.on_message(Box::new(move |msg: DataChannelMessage| {
@@ -738,6 +736,9 @@ async fn bridge_to_tcp(
             let _ = tx.send(msg.data);
         })
     }));
+
+    let tcp = TcpStream::connect(format!("127.0.0.1:{port}")).await?;
+    let (mut tcp_read, mut tcp_write) = tcp.into_split();
 
     // Data channel → TCP
     tokio::spawn(async move {
