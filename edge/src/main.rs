@@ -143,6 +143,10 @@ fn main() {
         .build()
         .expect("tokio runtime")
         .block_on(run());
+
+    // WebSocket disconnected — exit non-zero so systemd Restart=on-failure triggers a restart.
+    // (Windows returns above via service_dispatcher so this only runs on Linux/macOS.)
+    std::process::exit(1);
 }
 
 async fn run() {
