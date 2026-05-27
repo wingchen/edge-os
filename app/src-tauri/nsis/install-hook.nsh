@@ -92,7 +92,9 @@ Once stopped, click Retry to continue, or Cancel to abort." \
   ${EndIf}
 
   ; ── Failure recovery ───────────────────────────────────────────────────────
-  nsExec::Exec '"$R9" failure EdgeOS reset= 3600 actions= restart/5000/restart/5000/restart/5000'
+  ; reset= 60: failure counter resets after the service has been running 60 s without issue,
+  ; giving effectively unlimited restarts for transient disconnects.
+  nsExec::Exec '"$R9" failure EdgeOS reset= 60 actions= restart/5000/restart/10000/restart/30000'
   Pop $R0
   nsExec::Exec '"$R9" failureflag EdgeOS 1'
   Pop $R0

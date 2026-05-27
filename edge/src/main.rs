@@ -29,13 +29,17 @@ define_windows_service!(ffi_service_main, win_service_main);
 
 #[cfg(windows)]
 fn win_service_main(_args: Vec<std::ffi::OsString>) {
-    let (stop_tx, stop_rx) = std::sync::mpsc::sync_channel::<()>(1);
+    // Channel carries a bool: true = SCM-requested stop (clean, exit 0),
+    // false = run() exited on its own (WebSocket dropped, exit 1).
+    // With failureflag=1 set by the installer, a non-zero exit code tells
+    // SCM to apply the configured restart actions automatically.
+    let (stop_tx, stop_rx) = std::sync::mpsc::sync_channel::<bool>(1);
 
     let stop_tx_scm = stop_tx.clone();
     let status_handle = match service_control_handler::register("EdgeOS", move |ctrl| {
         match ctrl {
             ServiceControl::Stop | ServiceControl::Shutdown => {
-                let _ = stop_tx_scm.try_send(());
+                let _ = stop_tx_scm.try_send(true); // clean stop
                 ServiceControlHandlerResult::NoError
             }
             ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
@@ -63,17 +67,25 @@ fn win_service_main(_args: Vec<std::ffi::OsString>) {
             .build()
             .expect("tokio runtime")
             .block_on(run());
-        // run() returned (WebSocket dropped) — exit the service so SCM can restart it
-        let _ = stop_tx_run.try_send(());
+        // run() returned unexpectedly (WebSocket dropped) — signal abnormal exit
+        warn!("run() returned — WebSocket dropped, signalling abnormal exit (code 1)");
+        let _ = stop_tx_run.try_send(false);
     });
 
-    let _ = stop_rx.recv();
+    let clean_stop = stop_rx.recv().unwrap_or(false);
+
+    let exit_code: u32 = if clean_stop { 0 } else { 1 };
+    info!("service stopping — reason: {}, exit code: {}",
+        if clean_stop { "SCM stop request" } else { "run() exited unexpectedly" },
+        exit_code);
 
     let _ = status_handle.set_service_status(ServiceStatus {
         service_type:      ServiceType::OWN_PROCESS,
         current_state:     ServiceState::Stopped,
         controls_accepted: ServiceControlAccept::empty(),
-        exit_code:         ServiceExitCode::Win32(0),
+        // Non-zero exit code + failureflag=1 triggers SCM restart actions.
+        // Zero on a clean SCM-requested stop so no unwanted restart fires.
+        exit_code:         ServiceExitCode::Win32(exit_code),
         checkpoint:        0,
         wait_hint:         std::time::Duration::default(),
         process_id:        None,
