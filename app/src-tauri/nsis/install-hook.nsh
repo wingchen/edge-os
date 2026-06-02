@@ -7,19 +7,18 @@
 ;                 Retry/Cancel dialog instructing the user to stop manually.
 ;                 Same for service start: try once, show Retry/Cancel on failure.
 ;
-; PATH NOTE — Sysnative vs System32 inside child processes:
-;   $WINDIR\Sysnative is a virtual folder only visible to 32-bit processes.
-;   32-bit NSIS can use it to launch the real 64-bit sc.exe or cmd.exe.
-;   BUT: once inside a 64-bit cmd.exe child, Sysnative does not exist.
-;   Any sc.exe / findstr.exe paths embedded in a cmd /c "..." string must use
-;   $WINDIR\System32 (the real directory, always accessible to 64-bit processes).
-;   Direct nsExec calls from NSIS itself still use $WINDIR\Sysnative.
+; PATH NOTE — use $SYSDIR for sc.exe everywhere:
+;   $SYSDIR always resolves to the real System32 in NSIS regardless of whether
+;   the installer is 32-bit or 64-bit (NSIS disables WOW64 redirection internally).
+;   $WINDIR\Sysnative is only visible to 32-bit processes — Tauri's NSIS installer
+;   is 64-bit so Sysnative does not exist and sc.exe calls via that path fail silently.
+;   cmd.exe children also use $SYSDIR in their embedded path strings.
 
 !include "LogicLib.nsh"
 
 !macro NSIS_HOOK_PREINSTALL
 
-  StrCpy $R9 "$WINDIR\Sysnative\sc.exe"
+  StrCpy $R9 "$SYSDIR\sc.exe"
 
   ; Silently disable and stop the service so it does not restart during the
   ; file copy. If the service is not registered (fresh install) these fail
@@ -73,7 +72,7 @@ Once stopped, click Retry to continue, or Cancel to abort." \
   FileWrite $R0 "${VERSION}"
   FileClose $R0
 
-  StrCpy $R9 "$WINDIR\Sysnative\sc.exe"
+  StrCpy $R9 "$SYSDIR\sc.exe"
 
   ; ── Detect existing service ────────────────────────────────────────────────
   nsExec::ExecToStack '"$R9" query EdgeOS'
@@ -116,7 +115,7 @@ service now?" IDYES postinstall_do_start
       Goto postinstall_no_start
     postinstall_do_start:
 
-    ; ── Start — try once, then let user verify manually ───────────────────
+    ; ── Start — try once, then offer Services UI if it didn't come up ────
     postinstall_attempt_start:
 
       nsExec::Exec '"$R9" start EdgeOS'
@@ -125,7 +124,7 @@ service now?" IDYES postinstall_do_start
 
     postinstall_verify_start:
 
-      nsExec::ExecToStack '$WINDIR\Sysnative\cmd.exe /c "$WINDIR\System32\sc.exe" query EdgeOS | "$WINDIR\System32\findstr.exe" RUNNING'
+      nsExec::ExecToStack '$SYSDIR\cmd.exe /c "$SYSDIR\sc.exe" query EdgeOS | "$SYSDIR\findstr.exe" RUNNING'
       Pop $R4
       Pop $R5
       ${If} $R4 == "0"
@@ -133,15 +132,16 @@ service now?" IDYES postinstall_do_start
         Goto postinstall_no_start
       ${EndIf}
 
+      ; Service did not start — offer to open Services so the user can start
+      ; it manually without needing to know where services.msc lives.
       MessageBox MB_YESNO \
-        "EdgeOS is not running yet.$\n$\n\
-To start it manually:$\n\
-  1. Press Win + R, type  services.msc  and press Enter$\n\
-  2. Find $\"EdgeOS Edge$\" in the list$\n\
-  3. Right-click it and choose Start$\n$\n\
-Once started, click Yes to verify, or No to leave it stopped." \
-        IDYES postinstall_verify_start
-        ; User chose No — leave it stopped, that is fine.
+        "The EdgeOS service did not start automatically.$\n$\n\
+Click Yes to open Windows Services where you can start it manually$\n\
+(find $\"EdgeOS Edge$\" in the list, right-click $\"Start$\").$\n$\n\
+Click No to finish the installation and start it later." \
+        IDNO postinstall_no_start
+
+      ExecShell "" "services.msc"
 
     postinstall_no_start:
   ${EndIf}
