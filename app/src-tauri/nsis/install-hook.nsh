@@ -2,10 +2,11 @@
 ; Tauri calls NSIS_HOOK_PREINSTALL before copying app files,
 ; and NSIS_HOOK_POSTINSTALL after. The installer already runs elevated.
 ;
-;   PREINSTALL  — silently attempts to stop the service (best-effort, no dialog).
-;   POSTINSTALL — copies binary; if copy fails (service still running), shows a
-;                 Retry/Cancel dialog instructing the user to stop manually.
-;                 Same for service start: try once, show Retry/Cancel on failure.
+;   PREINSTALL  — silently disables and stops the service (best-effort, no dialog).
+;   POSTINSTALL — copies binary; if locked (service still running), opens Services
+;                 immediately and shows one OK/Cancel retry dialog.
+;                 Starts service silently on upgrades/reinstalls; only shows a
+;                 dialog if start fails, offering to open Services.
 ;
 ; PATH NOTE — use $SYSDIR for sc.exe everywhere:
 ;   $SYSDIR always resolves to the real System32 in NSIS regardless of whether
@@ -54,16 +55,17 @@
     IfErrors postinstall_copy_failed postinstall_copy_ok
 
   postinstall_copy_failed:
-    MessageBox MB_RETRYCANCEL \
-      "Could not copy edge-os-edge.exe — the EdgeOS service may still be running.$\n$\n\
-To stop it manually:$\n\
-  1. Press Win + R, type  services.msc  and press Enter$\n\
-  2. Find $\"EdgeOS Edge$\" in the list$\n\
-  3. Right-click it and choose Stop$\n\
-  (Or open Task Manager, find edge-os-edge.exe under Details, and End Task.)$\n$\n\
-Once stopped, click Retry to continue, or Cancel to abort." \
-      IDRETRY postinstall_copy_retry
-      Abort "Installation cancelled."
+    ; Open Services immediately — no need to ask first, it's clearly needed.
+    ExecShell "" "services.msc"
+    MessageBox MB_OKCANCEL \
+      "Could not copy the EdgeOS binary — the service is still running.$\n$\n\
+Stop the $\"EdgeOS Edge$\" service in the Services window that just opened,$\n\
+then click OK to retry, or Cancel to abort." \
+      IDCANCEL postinstall_copy_cancel
+    Goto postinstall_copy_retry
+
+  postinstall_copy_cancel:
+    Abort "Installation cancelled."
 
   postinstall_copy_ok:
 
@@ -98,9 +100,11 @@ Once stopped, click Retry to continue, or Cancel to abort." \
   nsExec::Exec '"$R9" failureflag EdgeOS 1'
   Pop $R0
 
-  ; ── Offer to start the service ────────────────────────────────────────────
-  ; Show for upgrades, and for fresh installs where config.json already exists
-  ; (re-install / service recovery — the setup wizard will not run again).
+  ; ── Start the service automatically ──────────────────────────────────────
+  ; For upgrades and reinstalls (config.json already exists), start silently
+  ; with no prompt — success needs no popup. Only show a dialog on failure.
+  ; Fresh installs without config.json skip this; the Tauri setup wizard
+  ; handles first-time configuration and will start the service from there.
   StrCpy $R3 "0"
   ${If} $R2 == "0"
     StrCpy $R3 "1"
@@ -110,38 +114,23 @@ Once stopped, click Retry to continue, or Cancel to abort." \
   ${EndIf}
 
   ${If} $R3 == "1"
-    MessageBox MB_YESNO "Installation complete.$\n$\nStart the EdgeOS \
-service now?" IDYES postinstall_do_start
-      Goto postinstall_no_start
-    postinstall_do_start:
+    nsExec::Exec '"$R9" start EdgeOS'
+    Pop $R0
+    Sleep 3000
 
-    ; ── Start — try once, then offer Services UI if it didn't come up ────
-    postinstall_attempt_start:
-
-      nsExec::Exec '"$R9" start EdgeOS'
-      Pop $R0
-      Sleep 3000
-
-    postinstall_verify_start:
-
-      nsExec::ExecToStack '$SYSDIR\cmd.exe /c "$SYSDIR\sc.exe" query EdgeOS | "$SYSDIR\findstr.exe" RUNNING'
-      Pop $R4
-      Pop $R5
-      ${If} $R4 == "0"
-        MessageBox MB_OK "The EdgeOS service is running."
-        Goto postinstall_no_start
-      ${EndIf}
-
-      ; Service did not start — offer to open Services so the user can start
-      ; it manually without needing to know where services.msc lives.
+    nsExec::ExecToStack '$SYSDIR\cmd.exe /c "$SYSDIR\sc.exe" query EdgeOS | "$SYSDIR\findstr.exe" RUNNING'
+    Pop $R4
+    Pop $R5
+    ${If} $R4 != "0"
+      ; Service did not start — offer Services so the user can start manually.
       MessageBox MB_YESNO \
         "The EdgeOS service did not start automatically.$\n$\n\
 Click Yes to open Windows Services where you can start it manually$\n\
 (find $\"EdgeOS Edge$\" in the list, right-click $\"Start$\").$\n$\n\
 Click No to finish the installation and start it later." \
         IDNO postinstall_no_start
-
       ExecShell "" "services.msc"
+    ${EndIf}
 
     postinstall_no_start:
   ${EndIf}
