@@ -84,8 +84,10 @@ pub fn extract_connection_type(json: &str) -> String {
         .unwrap_or_else(|| "ssh".to_string())
 }
 
+#[cfg(not(target_os = "windows"))]
 type EventStore = Arc<std::sync::Mutex<crate::event_store::EventStore>>;
 
+#[cfg(not(target_os = "windows"))]
 async fn handle_camera_channel(
     dc:          Arc<RTCDataChannel>,
     frame_map:   crate::camera_manager::FrameMap,
@@ -163,6 +165,7 @@ async fn handle_camera_channel(
     }));
 }
 
+#[cfg(not(target_os = "windows"))]
 async fn list_cameras(
     dc: &Arc<RTCDataChannel>,
     frame_map: &crate::camera_manager::FrameMap,
@@ -183,6 +186,7 @@ async fn list_cameras(
     }
 }
 
+#[cfg(not(target_os = "windows"))]
 async fn get_thumbnail(
     dc: &Arc<RTCDataChannel>,
     frame_map: &crate::camera_manager::FrameMap,
@@ -247,6 +251,7 @@ async fn get_thumbnail(
     }
 }
 
+#[cfg(not(target_os = "windows"))]
 async fn list_events(
     dc:          &Arc<RTCDataChannel>,
     event_store: &EventStore,
@@ -284,6 +289,7 @@ async fn list_events(
     let _ = dc.send_text(payload).await;
 }
 
+#[cfg(not(target_os = "windows"))]
 async fn get_event_frame(
     dc:          &Arc<RTCDataChannel>,
     event_store: &EventStore,
@@ -309,6 +315,7 @@ async fn get_event_frame(
     let _ = dc.send_text(payload).await;
 }
 
+#[cfg(not(target_os = "windows"))]
 async fn send_clip(
     dc:          &Arc<RTCDataChannel>,
     event_store: &EventStore,
@@ -361,6 +368,7 @@ async fn send_clip(
     info!("camera channel: clip sent event_id={} size={}", event_id, data.len());
 }
 
+#[cfg(not(target_os = "windows"))]
 fn make_thumbnail(jpeg: &[u8], max_w: u32, max_h: u32) -> anyhow::Result<Vec<u8>> {
     let img = image::load_from_memory(jpeg)?.into_rgb8();
     let (w, h) = image::GenericImageView::dimensions(&img);
@@ -374,6 +382,7 @@ fn make_thumbnail(jpeg: &[u8], max_w: u32, max_h: u32) -> anyhow::Result<Vec<u8>
     Ok(buf)
 }
 
+#[cfg(not(target_os = "windows"))]
 pub async fn handle_camera_offer(
     json_payload: String,
     tx:           UnboundedSender<Message>,
@@ -493,6 +502,23 @@ pub async fn handle_webrtc_offer(
     tx: UnboundedSender<Message>,
     mut ice_rx: tokio_mpsc::UnboundedReceiver<String>,
 ) {
+    handle_webrtc_offer_on_port(json_payload, tx, ice_rx, 22).await;
+}
+
+pub async fn handle_rdp_offer(
+    json_payload: String,
+    tx: UnboundedSender<Message>,
+    ice_rx: tokio_mpsc::UnboundedReceiver<String>,
+) {
+    handle_webrtc_offer_on_port(json_payload, tx, ice_rx, 3389).await;
+}
+
+async fn handle_webrtc_offer_on_port(
+    json_payload: String,
+    tx: UnboundedSender<Message>,
+    mut ice_rx: tokio_mpsc::UnboundedReceiver<String>,
+    tcp_port: u16,
+) {
     let payload: OfferPayload = match serde_json::from_str(&json_payload) {
         Ok(p) => p,
         Err(e) => {
@@ -572,7 +598,7 @@ pub async fn handle_webrtc_offer(
         }
     }));
 
-    // Data channel opened by cloud — bridge to local SSH
+    // Data channel opened by cloud — bridge to local TCP port
     pc.on_data_channel(Box::new(move |dc: Arc<RTCDataChannel>| {
         Box::pin(async move {
             info!("data channel '{}' received", dc.label());
@@ -580,9 +606,42 @@ pub async fn handle_webrtc_offer(
             dc.on_open(Box::new(move || {
                 let dc = Arc::clone(&dc_open);
                 Box::pin(async move {
-                    info!("data channel open, bridging to 127.0.0.1:22");
-                    if let Err(e) = bridge_to_ssh(dc).await {
-                        error!("SSH bridge error: {}", e);
+                    // Windows RDP resets the TCP connection (WSAECONNRESET) when
+                    // transitioning from the pre-auth winlogon session to the user's
+                    // desktop session. mstsc.exe reconnects automatically; we must
+                    // also reconnect the local bridge so it picks up the new session.
+                    // Retry on clean close or ConnectionReset (up to 3 attempts).
+                    // Only report an error for unrecoverable failures (e.g. ECONNREFUSED
+                    // = RDP not enabled) — sending raw text over the data channel on
+                    // a mid-session error would corrupt the RDP stream.
+                    let mut attempts = 0u8;
+                    loop {
+                        info!("bridging to 127.0.0.1:{} (attempt {})", tcp_port, attempts + 1);
+                        match bridge_to_tcp(Arc::clone(&dc), tcp_port).await {
+                            Ok(()) => {
+                                attempts += 1;
+                                if attempts < 3 {
+                                    info!("TCP connection to port {} closed cleanly, retrying (NLA session transition?)", tcp_port);
+                                } else {
+                                    info!("TCP connection to port {} closed, bridge done after {} attempts", tcp_port, attempts);
+                                    break;
+                                }
+                            }
+                            Err(e) => {
+                                let is_reset = e.downcast_ref::<std::io::Error>()
+                                    .map(|io_e| io_e.kind() == std::io::ErrorKind::ConnectionReset)
+                                    .unwrap_or(false);
+                                if is_reset && attempts < 3 {
+                                    attempts += 1;
+                                    info!("TCP connection to port {} reset by remote (NLA session transition), retrying immediately", tcp_port);
+                                } else {
+                                    error!("TCP bridge error on port {}: {}", tcp_port, e);
+                                    let msg = format!("ERROR: could not connect to 127.0.0.1:{} — {}", tcp_port, e);
+                                    let _ = dc.send(&Bytes::from(msg.into_bytes())).await;
+                                    break;
+                                }
+                            }
+                        }
                     }
                 })
             }));
@@ -661,13 +720,14 @@ pub async fn handle_webrtc_offer(
     info!("WebRTC session {} closed", session_id);
 }
 
-async fn bridge_to_ssh(
+async fn bridge_to_tcp(
     dc: Arc<RTCDataChannel>,
+    port: u16,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let tcp = TcpStream::connect("127.0.0.1:22").await?;
-    let (mut tcp_read, mut tcp_write) = tcp.into_split();
-
-    // Channel so on_message callback can hand data to the TCP writer task
+    // Register the DC→TCP channel BEFORE connecting so no incoming DC data is
+    // dropped during the brief window while TcpStream::connect is pending.
+    // The unbounded channel buffers any data that arrives before the TCP
+    // write task starts draining it.
     let (to_tcp_tx, mut to_tcp_rx) = tokio_mpsc::unbounded_channel::<Bytes>();
 
     dc.on_message(Box::new(move |msg: DataChannelMessage| {
@@ -676,6 +736,9 @@ async fn bridge_to_ssh(
             let _ = tx.send(msg.data);
         })
     }));
+
+    let tcp = TcpStream::connect(format!("127.0.0.1:{port}")).await?;
+    let (mut tcp_read, mut tcp_write) = tcp.into_split();
 
     // Data channel → TCP
     tokio::spawn(async move {

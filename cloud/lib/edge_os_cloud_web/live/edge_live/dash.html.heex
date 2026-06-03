@@ -31,6 +31,27 @@
   </div>
 <% else %>
 
+<%# Windows edge: show RDP connect button instead of camera grid %>
+<%= if @is_windows do %>
+<div class="card shadow mb-4">
+  <div class="card-body py-4 text-center">
+    <i class="fas fa-desktop fa-2x text-primary mb-3 d-block"></i>
+    <h5 class="font-weight-bold text-gray-800 mb-1">Remote Desktop</h5>
+    <p class="text-muted mb-3" style="font-size:0.875rem;">
+      Connect to this Windows machine using native Remote Desktop (RDP).
+      The EdgeOS app on your machine will open the connection automatically.
+    </p>
+    <button id="rdp-connect-btn" phx-hook="RdpWebRTC" class="btn btn-sm btn-primary">
+      <i class="fas fa-plug mr-1"></i>Connect RDP
+    </button>
+    <button id="rdp-disconnect-btn" class="btn btn-sm btn-outline-secondary ml-2" style="display:none;">
+      Disconnect
+    </button>
+    <div id="rdp-status" class="mt-2 text-muted" style="font-size:0.8rem;"></div>
+  </div>
+</div>
+<% else %>
+
 <%# Camera grid — populated by JS %>
 <div id="camera-grid" class="row">
   <div class="col-12 text-center text-muted py-5" id="grid-placeholder">
@@ -329,4 +350,112 @@
 
 <%# Mount the WebRTC hook on a hidden element so it auto-fires on page load %>
 <div id="webrtc-autoconnect" phx-hook="BrowserWebRTC" style="display:none;"></div>
+<% end %>  <%# end if @is_windows else %>
+<% end %>  <%# end if @protocol == "webrtc" %>
+
+<%= if @is_windows do %>
+<script>
+(() => {
+  window.RdpWebRTC = {
+    mounted() {
+      const hook = this;
+      let rdpPc = null;
+
+      const setStatus = (msg) => {
+        const el = document.getElementById('rdp-status');
+        if (el) el.textContent = msg;
+      };
+
+      const stopRdp = () => {
+        if (rdpPc) { rdpPc.close(); rdpPc = null; }
+        hook.pushEvent('browser_stop_rdp', {});
+        if (window.__TAURI__) {
+          window.__TAURI__.core.invoke('stop_rdp_proxy').catch(() => {});
+        }
+        document.getElementById('rdp-connect-btn').style.display = '';
+        document.getElementById('rdp-disconnect-btn').style.display = 'none';
+        setStatus('Disconnected.');
+      };
+
+      document.getElementById('rdp-connect-btn').addEventListener('click', () => {
+        document.getElementById('rdp-connect-btn').style.display = 'none';
+        setStatus('Connecting…');
+
+        const iceServers = <%= raw Jason.encode!(@ice_servers) %>;
+        rdpPc = new RTCPeerConnection({ iceServers });
+
+        // Data channel — opened by edge answerer side
+        rdpPc.ondatachannel = ({ channel }) => {
+          console.log('[rdp] data channel received:', channel.label);
+          channel.binaryType = 'arraybuffer';
+
+          channel.onopen = async () => {
+            setStatus('RDP data channel open — launching RDP client…');
+            document.getElementById('rdp-disconnect-btn').style.display = '';
+
+            if (window.__TAURI__) {
+              // Start TCP listener + launch mstsc.exe
+              window.__TAURI__.core.invoke('start_rdp_proxy')
+                .catch(e => { console.error('[rdp] start_rdp_proxy error:', e); setStatus('Error: ' + e); });
+
+              // mstsc.exe → TCP → Tauri → data channel (to edge)
+              window.__TAURI__.event.listen('rdp_from_edge', ({ payload }) => {
+                if (channel.readyState === 'open') {
+                  channel.send(new Uint8Array(payload));
+                }
+              });
+            }
+          };
+
+          // data channel (from edge) → Tauri → TCP → mstsc.exe
+          channel.onmessage = ({ data }) => {
+            if (window.__TAURI__) {
+              const bytes = Array.from(new Uint8Array(data));
+              window.__TAURI__.core.invoke('send_rdp_data', { data: bytes })
+                .catch(e => console.error('[rdp] send_rdp_data error:', e));
+            }
+          };
+
+          channel.onclose = () => stopRdp();
+        };
+
+        rdpPc.onicecandidate = ({ candidate }) => {
+          if (!candidate) return;
+          hook.pushEvent('browser_rdp_ice_candidate', {
+            candidate:    candidate.candidate,
+            sdpMLineIndex: candidate.sdpMLineIndex,
+            sdpMid:        candidate.sdpMid || '',
+          });
+        };
+
+        rdpPc.oniceconnectionstatechange = () => {
+          setStatus('ICE: ' + rdpPc.iceConnectionState);
+          if (['failed', 'disconnected', 'closed'].includes(rdpPc.iceConnectionState)) stopRdp();
+        };
+
+        rdpPc.createOffer()
+          .then(o => rdpPc.setLocalDescription(o))
+          .then(() => hook.pushEvent('browser_rdp_offer', { sdp: rdpPc.localDescription.sdp }))
+          .catch(e => { console.error('[rdp] offer error:', e); setStatus('Error: ' + e.message); });
+      });
+
+      document.getElementById('rdp-disconnect-btn').addEventListener('click', stopRdp);
+
+      hook.handleEvent('rdp_webrtc_answer', ({ sdp }) => {
+        if (!rdpPc) return;
+        rdpPc.setRemoteDescription({ type: 'answer', sdp })
+          .then(() => setStatus('Connected — waiting for data channel…'))
+          .catch(e => console.error('[rdp] setRemoteDescription error:', e));
+      });
+
+      hook.handleEvent('rdp_ice_candidate', ({ candidate, sdpMLineIndex, sdpMid }) => {
+        if (!rdpPc) return;
+        const init = { candidate, sdpMLineIndex };
+        if (sdpMid) init.sdpMid = sdpMid;
+        rdpPc.addIceCandidate(init).catch(e => console.error('[rdp] addIceCandidate error:', e));
+      });
+    }
+  };
+})();
+</script>
 <% end %>

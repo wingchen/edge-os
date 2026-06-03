@@ -2,14 +2,21 @@ use std::sync::Mutex;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, PhysicalPosition, WebviewWindowBuilder,
+    Emitter, Manager, PhysicalPosition, WebviewWindowBuilder,
 };
+use log::{error, warn};
+
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 struct StatusMenuItem(Mutex<MenuItem<tauri::Wry>>);
 
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .manage(std::sync::Mutex::new(RdpProxy::default()))
         .invoke_handler(tauri::generate_handler![
             save_config,
             get_status,
@@ -20,6 +27,9 @@ pub fn run() {
             add_camera,
             remove_camera,
             preview_camera,
+            start_rdp_proxy,
+            send_rdp_data,
+            stop_rdp_proxy,
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -29,6 +39,8 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             cleanup_old_launch_agent();
             #[cfg(target_os = "macos")]
+            check_and_update_daemon(app.handle());
+            #[cfg(target_os = "windows")]
             check_and_update_daemon(app.handle());
             start_daemon_monitor(app.handle().clone());
 
@@ -187,6 +199,21 @@ fn save_config(
         std::fs::write(config_file_path(), cfg.to_string()).map_err(|e| e.to_string())?;
         let _ = restart_daemon();
     }
+    #[cfg(target_os = "windows")]
+    {
+        match daemon_process_state() {
+            ProcessState::NotInstalled => {
+                install_daemon_windows(&cloud_url, &team_hash, &app)?;
+            }
+            _ => {
+                let existing = read_full_config();
+                let cameras  = existing.get("cameras").cloned().unwrap_or(serde_json::json!([]));
+                let cfg      = serde_json::json!({ "cloud_url": cloud_url, "team_hash": team_hash, "cameras": cameras });
+                std::fs::write(config_file_path(), cfg.to_string()).map_err(|e| e.to_string())?;
+                let _ = restart_daemon();
+            }
+        }
+    }
 
     if let Some(win) = app.get_webview_window("setup") {
         let _ = win.close();
@@ -217,6 +244,11 @@ fn restart_daemon() -> std::io::Result<()> {
         std::process::Command::new("pkexec")
             .args(["systemctl", "restart", "edge-os"])
             .status()?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let script = "sc.exe stop EdgeOS; Start-Sleep -Seconds 2; sc.exe config EdgeOS start= auto; sc.exe start EdgeOS";
+        let _ = run_elevated_powershell(script);
     }
     Ok(())
 }
@@ -435,6 +467,124 @@ fn find_sidecar_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, Strin
     ))
 }
 
+// ── Windows daemon management ─────────────────────────────────────────────────
+
+/// Locate the bundled sidecar next to the running .exe on Windows.
+/// Tauri strips the target triple when bundling, so the file is `edge-os-edge.exe`
+/// in the same directory as the main executable.
+#[cfg(target_os = "windows")]
+fn find_sidecar_path(_app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    let exe_dir = std::env::current_exe()
+        .map_err(|e| format!("current_exe: {e}"))?
+        .parent()
+        .ok_or("no parent dir for exe")?
+        .to_path_buf();
+
+    let exact = exe_dir.join("edge-os-edge.exe");
+    if exact.exists() { return Ok(exact); }
+
+    // Fallback: scan for any name starting with edge-os-edge
+    for entry in std::fs::read_dir(&exe_dir).map_err(|e| e.to_string())?.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with("edge-os-edge") && name.ends_with(".exe") {
+            return Ok(entry.path());
+        }
+    }
+
+    Err(format!("sidecar not found in {}", exe_dir.display()))
+}
+
+/// Run a PowerShell script with UAC elevation (analogous to osascript on macOS).
+/// Writes a temp .ps1, launches it elevated with -Wait, then removes the file.
+#[cfg(target_os = "windows")]
+fn run_elevated_powershell(script: &str) -> Result<(), String> {
+    let tmp = std::env::temp_dir().join("edgeos_admin.ps1");
+    std::fs::write(&tmp, script).map_err(|e| e.to_string())?;
+    let path = tmp.display().to_string();
+    let status = std::process::Command::new("powershell")
+        .args([
+            "-WindowStyle", "Hidden",
+            "-Command",
+            &format!(
+                "Start-Process powershell \
+                 -ArgumentList '-WindowStyle Hidden -ExecutionPolicy Bypass -File \"{path}\"' \
+                 -Verb RunAs -Wait"
+            ),
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .status()
+        .map_err(|e| e.to_string())?;
+    let _ = std::fs::remove_file(&tmp);
+    if status.success() { Ok(()) } else { Err("Elevated script failed".into()) }
+}
+
+/// First-time installation on Windows: copies the bundled sidecar to
+/// C:\ProgramData\EdgeOS\, writes config.json, and registers + starts the
+/// Windows Service via an elevated PowerShell script.
+#[cfg(target_os = "windows")]
+fn install_daemon_windows(cloud_url: &str, team_hash: &str, app: &tauri::AppHandle) -> Result<(), String> {
+    let sidecar     = find_sidecar_path(app)?;
+    let data_dir    = "C:\\ProgramData\\EdgeOS";
+    let sidecar_path = sidecar.display().to_string();
+
+    let config_json = serde_json::json!({
+        "cloud_url": cloud_url,
+        "team_hash": team_hash,
+        "cameras":   [],
+    }).to_string();
+
+    let tmp_config = std::env::temp_dir().join("edgeos-config.json");
+    std::fs::write(&tmp_config, &config_json).map_err(|e| format!("write tmp config: {e}"))?;
+    let tmp_config_path = tmp_config.display().to_string();
+
+    // The NSIS installer copies the binary to data_dir and registers the service.
+    // This script only needs to write config.json and start it. The sc create
+    // guard handles the rare case where this is called without a prior NSIS install.
+    let service_bin = format!("{data_dir}\\edge-os-edge.exe");
+    let script = format!(
+        r#"
+New-Item -ItemType Directory -Force -Path '{data_dir}' | Out-Null
+Copy-Item -Force '{tmp_config_path}' '{data_dir}\config.json'
+sc.exe query EdgeOS 2>&1 | Out-Null
+if ($LASTEXITCODE -ne 0) {{
+    Copy-Item -Force '{sidecar_path}' '{service_bin}'
+    sc.exe create EdgeOS binPath= '"{service_bin}"' start= demand DisplayName= 'EdgeOS Edge' | Out-Null
+    sc.exe description EdgeOS 'EdgeOS edge daemon' | Out-Null
+}}
+sc.exe config EdgeOS start= auto | Out-Null
+sc.exe start EdgeOS | Out-Null
+"#,
+    );
+
+    run_elevated_powershell(&script)?;
+    let _ = std::fs::remove_file(&tmp_config);
+
+    Ok(())
+}
+
+/// On every launch, check whether the installed service binary matches the
+/// current app version. If not, stop the service, replace the binary, restart.
+#[cfg(target_os = "windows")]
+fn check_and_update_daemon(app: &tauri::AppHandle) {
+    if !matches!(daemon_process_state(), ProcessState::Running | ProcessState::Stopped) {
+        return; // not installed yet — nothing to update
+    }
+
+    let current_version = env!("CARGO_PKG_VERSION");
+    let version_file  = "C:\\ProgramData\\EdgeOS\\version";
+    let installed_ver = std::fs::read_to_string(version_file).unwrap_or_default();
+
+    if installed_ver.trim() == current_version {
+        return; // already up to date
+    }
+
+    // Version mismatch — the NSIS installer updates the binary in $INSTDIR and
+    // rewrites the version file. Nothing to copy here; just log so the user
+    // knows to run the installer wizard to get the latest daemon.
+    warn!("daemon version mismatch: installed={} current={} — run the installer to update",
+        installed_ver.trim(), current_version);
+}
+
 // ── Config helpers ────────────────────────────────────────────────────────────
 
 fn config_file_path() -> &'static str {
@@ -442,7 +592,9 @@ fn config_file_path() -> &'static str {
     { "/Library/Application Support/EdgeOS/config.json" }
     #[cfg(target_os = "linux")]
     { "/opt/edge-os-edge/config.json" }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(target_os = "windows")]
+    { "C:\\ProgramData\\EdgeOS\\config.json" }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     { "" }
 }
 
@@ -646,7 +798,23 @@ fn daemon_process_state() -> ProcessState {
             .unwrap_or(false);
         if running { ProcessState::Running } else { ProcessState::Stopped }
     }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(target_os = "windows")]
+    {
+        let out = std::process::Command::new("sc")
+            .args(["query", "EdgeOS"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+        match out {
+            Err(_) => ProcessState::NotInstalled,
+            Ok(o) if !o.status.success() => ProcessState::NotInstalled,
+            Ok(o) => {
+                let s = String::from_utf8_lossy(&o.stdout);
+                if s.contains("RUNNING") { ProcessState::Running }
+                else { ProcessState::Stopped }
+            }
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     ProcessState::NotInstalled
 }
 
@@ -657,7 +825,9 @@ fn status_file_path() -> &'static str {
     { "/Library/Application Support/EdgeOS/status.json" }
     #[cfg(target_os = "linux")]
     { "/opt/edge-os-edge/status.json" }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(target_os = "windows")]
+    { "C:\\ProgramData\\EdgeOS\\status.json" }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     { "" }
 }
 
@@ -672,4 +842,89 @@ pub fn set_tray_status(app: &tauri::AppHandle, text: &str) -> tauri::Result<()> 
         state.0.lock().unwrap().set_text(text)?;
     }
     Ok(())
+}
+
+// ── RDP proxy ─────────────────────────────────────────────────────────────────
+// Bridges the WebRTC data channel (browser JS) to mstsc.exe via a local TCP
+// listener on 127.0.0.1:13389.
+//
+// Flow:
+//   data channel msg  →  invoke("send_rdp_data")  →  TCP write  →  mstsc.exe
+//   mstsc.exe         →  TCP read  →  emit("rdp_from_edge")  →  data channel send
+
+pub struct RdpProxy {
+    to_tcp_tx: Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>,
+}
+
+impl Default for RdpProxy {
+    fn default() -> Self { Self { to_tcp_tx: None } }
+}
+
+#[tauri::command]
+async fn start_rdp_proxy(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, std::sync::Mutex<RdpProxy>>,
+) -> Result<(), String> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:13389")
+        .await
+        .map_err(|e| format!("failed to bind RDP proxy: {e}"))?;
+
+    let (to_tcp_tx, mut to_tcp_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+    state.lock().unwrap().to_tcp_tx = Some(to_tcp_tx);
+
+    // Launch mstsc.exe — it will connect to the listener we just bound
+    #[cfg(target_os = "windows")]
+    std::process::Command::new("mstsc")
+        .arg("/v:127.0.0.1:13389")
+        .spawn()
+        .map_err(|e| format!("failed to launch mstsc: {e}"))?;
+
+    tokio::spawn(async move {
+        match listener.accept().await {
+            Ok((tcp, _)) => {
+                let (mut tcp_read, mut tcp_write) = tcp.into_split();
+
+                // Incoming data channel bytes → TCP (mstsc.exe reads these as RDP)
+                tokio::spawn(async move {
+                    while let Some(data) = to_tcp_rx.recv().await {
+                        if tcp_write.write_all(&data).await.is_err() { break; }
+                    }
+                });
+
+                // TCP bytes from mstsc.exe → emit to webview → JS sends over data channel
+                let mut buf = vec![0u8; 4096];
+                loop {
+                    match tcp_read.read(&mut buf).await {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => {
+                            let _ = app.emit("rdp_from_edge", buf[..n].to_vec());
+                        }
+                    }
+                }
+            }
+            Err(e) => log::error!("RDP proxy accept error: {e}"),
+        }
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+fn send_rdp_data(
+    data: Vec<u8>,
+    state: tauri::State<'_, std::sync::Mutex<RdpProxy>>,
+) -> Result<(), String> {
+    let proxy = state.lock().unwrap();
+    match &proxy.to_tcp_tx {
+        Some(tx) => tx.send(data).map_err(|e| format!("send_rdp_data error: {e}")),
+        None => Err("RDP proxy not started".to_string()),
+    }
+}
+
+#[tauri::command]
+fn stop_rdp_proxy(state: tauri::State<'_, std::sync::Mutex<RdpProxy>>) {
+    state.lock().unwrap().to_tcp_tx = None;
 }

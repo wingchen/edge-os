@@ -34,10 +34,6 @@
     "externalBin": [
       "../../edge/target/release/edge-os-edge"
     ],
-    "resources": {
-      "gstreamer/lib/**/*":     "gstreamer/lib/",
-      "gstreamer/plugins/**/*": "gstreamer/plugins/"
-    },
     "macOS": {
       "infoPlist": "./Info.plist",
       "minimumSystemVersion": "12.0",
@@ -45,6 +41,11 @@
         "appPosition":               { "x": 180, "y": 170 },
         "applicationFolderPosition": { "x": 480, "y": 170 },
         "windowSize":                { "width": 660, "height": 400 }
+      }
+    },
+    "windows": {
+      "nsis": {
+        "installerHooks": "nsis/install-hook.nsh"
       }
     },
     "linux": {

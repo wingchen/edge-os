@@ -69,6 +69,18 @@ struct EdgeInfo {
 	os_version: String,
 	host_name: String,
 	protocol: String,
+	os_type: String,
+	rdp_enabled: bool,
+}
+
+// Check whether RDP is accepting connections on this machine.
+// Uses a short-timeout TCP connect to 127.0.0.1:3389 — works on any OS,
+// needs no extra crates, and reflects the actual runtime state.
+fn check_rdp_enabled() -> bool {
+	use std::net::{SocketAddr, TcpStream};
+	use std::time::Duration;
+	let addr: SocketAddr = "127.0.0.1:3389".parse().unwrap();
+	TcpStream::connect_timeout(&addr, Duration::from_secs(1)).is_ok()
 }
 
 fn run_command(command: &str, args: &[&str]) -> Vec<String> {
@@ -186,6 +198,7 @@ fn get_cpu_status(cpus: &[sysinfo::Cpu]) -> Vec<EdgeCpu> {
 	return cpu_status;
 }
 
+#[cfg(target_os = "linux")]
 fn is_tegra_system() -> bool {
    let output = Command::new("uname")
                   .arg("-a")
@@ -196,6 +209,7 @@ fn is_tegra_system() -> bool {
    re.is_match(&stdout)
 }
 
+#[cfg(target_os = "linux")]
 fn get_tegra_gpu_status(input: &str) -> Option<(f64, f64)> {
    let mut usage_num = -1.0;
    let mut temp_num = -1.0;
@@ -226,6 +240,7 @@ fn get_tegra_gpu_status(input: &str) -> Option<(f64, f64)> {
 }
 
 fn get_gpu_status() -> Option<EdgeGpu> {
+	#[cfg(target_os = "linux")]
 	if is_tegra_system() {
 		let command = "tegrastats --interval 1000 | head -n 3";
 		let gpu_status_lines = run_command("/bin/sh", vec!["-c", command].as_slice());
@@ -233,8 +248,6 @@ fn get_gpu_status() -> Option<EdgeGpu> {
 		let mut gpu_tmps: Vec<f64> = Vec::new();
 
 		for line in gpu_status_lines {
-			// debug!("gpu_status_lines: {line}");
-
       	match get_tegra_gpu_status(&line) {
 	         Some((usage, degree)) => {
 	            gpu_usages.push(usage);
@@ -254,7 +267,7 @@ fn get_gpu_status() -> Option<EdgeGpu> {
 	   return Some(gpu);
 	}
 
-	return None;
+	None
 }
 
 pub fn get_edge_status() -> String {
@@ -300,6 +313,14 @@ pub fn get_edge_info() -> String {
    	os_version: sys.os_version().unwrap_or_default(),
    	host_name: sys.host_name().unwrap_or_default(),
    	protocol: "webrtc".to_string(),
+   	os_type: if cfg!(target_os = "windows") {
+   		"windows"
+   	} else if cfg!(target_os = "macos") {
+   		"macos"
+   	} else {
+   		"linux"
+   	}.to_string(),
+   	rdp_enabled: check_rdp_enabled(),
    };
 
    let json_edge_info = serde_json::to_string(&edge_info).unwrap();

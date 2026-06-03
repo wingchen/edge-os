@@ -6,7 +6,6 @@ on:
       - 'v*'
     branches:
       - main
-      - macos-installer
   workflow_dispatch:
 
 jobs:

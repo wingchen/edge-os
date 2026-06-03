@@ -11,31 +11,168 @@ use futures_util::{future, pin_mut, StreamExt};
 use tokio::io::{AsyncReadExt};
 use tokio::sync::{Mutex, mpsc as tokio_mpsc};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
-use tokio::net::UnixListener;
 use tokio::time::{sleep};
-use std::os::unix::fs::PermissionsExt;
 
-mod camera_pipeline;
-mod camera_manager;
-mod clip_stream;
+#[cfg(windows)]
+use windows_service::{
+    define_windows_service,
+    service::{
+        ServiceControl, ServiceControlAccept, ServiceExitCode,
+        ServiceState, ServiceStatus, ServiceType,
+    },
+    service_control_handler::{self, ServiceControlHandlerResult},
+    service_dispatcher,
+};
+
+#[cfg(windows)]
+define_windows_service!(ffi_service_main, win_service_main);
+
+#[cfg(windows)]
+fn win_service_main(_args: Vec<std::ffi::OsString>) {
+    // Channel carries a bool: true = SCM-requested stop (clean, exit 0),
+    // false = run() exited on its own (WebSocket dropped, exit 1).
+    // With failureflag=1 set by the installer, a non-zero exit code tells
+    // SCM to apply the configured restart actions automatically.
+    let (stop_tx, stop_rx) = std::sync::mpsc::sync_channel::<bool>(1);
+
+    let stop_tx_scm = stop_tx.clone();
+    let status_handle = match service_control_handler::register("EdgeOS", move |ctrl| {
+        match ctrl {
+            ServiceControl::Stop | ServiceControl::Shutdown => {
+                let _ = stop_tx_scm.try_send(true); // clean stop
+                ServiceControlHandlerResult::NoError
+            }
+            ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
+            _ => ServiceControlHandlerResult::NotImplemented,
+        }
+    }) {
+        Ok(h) => h,
+        Err(e) => { error!("service_control_handler::register failed: {e}"); return; }
+    };
+
+    let _ = status_handle.set_service_status(ServiceStatus {
+        service_type:      ServiceType::OWN_PROCESS,
+        current_state:     ServiceState::Running,
+        controls_accepted: ServiceControlAccept::STOP | ServiceControlAccept::SHUTDOWN,
+        exit_code:         ServiceExitCode::Win32(0),
+        checkpoint:        0,
+        wait_hint:         std::time::Duration::default(),
+        process_id:        None,
+    });
+
+    let stop_tx_run = stop_tx.clone();
+    std::thread::spawn(move || {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("tokio runtime")
+            .block_on(run());
+        // run() returned unexpectedly (WebSocket dropped) — signal abnormal exit
+        warn!("run() returned — WebSocket dropped, signalling abnormal exit (code 1)");
+        let _ = stop_tx_run.try_send(false);
+    });
+
+    let clean_stop = stop_rx.recv().unwrap_or(false);
+
+    let exit_code: u32 = if clean_stop { 0 } else { 1 };
+    info!("service stopping — reason: {}, exit code: {}",
+        if clean_stop { "SCM stop request" } else { "run() exited unexpectedly" },
+        exit_code);
+
+    let _ = status_handle.set_service_status(ServiceStatus {
+        service_type:      ServiceType::OWN_PROCESS,
+        current_state:     ServiceState::Stopped,
+        controls_accepted: ServiceControlAccept::empty(),
+        // Non-zero exit code + failureflag=1 triggers SCM restart actions.
+        // Zero on a clean SCM-requested stop so no unwanted restart fires.
+        exit_code:         ServiceExitCode::Win32(exit_code),
+        checkpoint:        0,
+        wait_hint:         std::time::Duration::default(),
+        process_id:        None,
+    });
+}
+
 mod config;
 mod edge_system;
-mod event_store;
-mod rtsp_camera;
 mod tcp_to_websocket;
 mod webrtc_session;
+
+#[cfg(not(target_os = "windows"))]
+mod camera_pipeline;
+#[cfg(not(target_os = "windows"))]
+mod camera_manager;
+#[cfg(not(target_os = "windows"))]
+mod clip_stream;
+#[cfg(not(target_os = "windows"))]
+mod event_store;
+#[cfg(not(target_os = "windows"))]
+mod rtsp_camera;
+#[cfg(not(target_os = "windows"))]
 mod yolo;
 
-#[tokio::main]
-async fn main() {
-    env_logger::init();
-    log::set_max_level(LevelFilter::Debug);
+#[cfg(unix)]
+use tokio::net::UnixListener;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
+fn init_logging() {
+    #[cfg(target_os = "windows")]
+    {
+        // Use PROGRAMDATA (C:\ProgramData) — available to SYSTEM service account, unlike APPDATA
+        let log_dir = std::env::var("PROGRAMDATA")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| std::path::PathBuf::from("C:\\ProgramData"))
+            .join("EdgeOS");
+        std::fs::create_dir_all(&log_dir).ok();
+        let log_file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_dir.join("edge.log"))
+            .expect("cannot open log file");
+        env_logger::Builder::from_env(
+            env_logger::Env::default().default_filter_or("info"),
+        )
+        .target(env_logger::Target::Pipe(Box::new(log_file)))
+        .init();
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        env_logger::init();
+        log::set_max_level(LevelFilter::Debug);
+    }
+}
+
+fn main() {
+    init_logging();
+
+    #[cfg(windows)]
+    if service_dispatcher::start("EdgeOS", ffi_service_main).is_ok() {
+        return; // ran to completion as a Windows Service
+    }
+
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime")
+        .block_on(run());
+
+    // WebSocket disconnected — exit non-zero so systemd Restart=on-failure triggers a restart.
+    // (Windows returns above via service_dispatcher so this only runs on Linux/macOS.)
+    std::process::exit(1);
+}
+
+async fn run() {
+    #[cfg(not(target_os = "windows"))]
     gstreamer::init().expect("GStreamer init failed");
 
     let local_working_dir = match env::var("EDGE_OS_EDGE_DIR") {
         Ok(val) => val,
-        Err(_e) => "/opt/edge-os-edge".to_string(),
+        #[cfg(target_os = "windows")]
+        Err(_) => std::env::var("PROGRAMDATA")
+            .map(|p| format!("{p}\\EdgeOS"))
+            .unwrap_or_else(|_| "C:\\ProgramData\\EdgeOS".to_string()),
+        #[cfg(not(target_os = "windows"))]
+        Err(_) => "/opt/edge-os-edge".to_string(),
     };
 
     let uuid = config::get_device_id(local_working_dir.clone());
@@ -47,14 +184,20 @@ async fn main() {
     let cloud_server_url = format!("{}/et/{}/{}/{}/websocket", cloud, team_hash, uuid, password);
     info!("Connecting to: {cloud_server_url}");
 
-    // Start camera manager — loads cameras from config.json, begins RTSP streams,
-    // serves last-frame JPEG on localhost:4001
+    // Start camera manager on non-Windows platforms
+    #[cfg(not(target_os = "windows"))]
     let cam_dir = local_working_dir.clone();
+    #[cfg(not(target_os = "windows"))]
     let (frame_map, event_store) = camera_manager::start(&cam_dir).await;
-    let frame_map_http    = Arc::clone(&frame_map);
-    let frame_map_webrtc  = Arc::clone(&frame_map);
+    #[cfg(not(target_os = "windows"))]
+    let frame_map_http   = Arc::clone(&frame_map);
+    #[cfg(not(target_os = "windows"))]
+    let frame_map_webrtc = Arc::clone(&frame_map);
+    #[cfg(not(target_os = "windows"))]
     let event_store_http  = Arc::clone(&event_store);
+    #[cfg(not(target_os = "windows"))]
     let event_store_webrtc = Arc::clone(&event_store);
+    #[cfg(not(target_os = "windows"))]
     tokio::spawn(async move {
         camera_manager::serve(frame_map_http, &cam_dir, event_store_http, 4001).await;
     });
@@ -66,7 +209,13 @@ async fn main() {
     tokio::spawn(custom_metrics(ping_tx.clone()));
 
     let url = url::Url::parse(&cloud_server_url).unwrap();
-    let (ws_stream, _) = connect_async(url).await.expect("WebSocket failed to connect");
+    let (ws_stream, _) = match connect_async(url).await {
+        Ok(result) => result,
+        Err(e) => {
+            error!("WebSocket connection failed: {e}");
+            return;
+        }
+    };
     debug!("WebSocket handshake has been successfully completed");
 
     write_status(&local_working_dir, "connected", &cloud);
@@ -81,8 +230,10 @@ async fn main() {
     let signaling_tx = ping_tx.clone();
     let cloud_ref = cloud.clone();
     let uuid_ref = uuid.clone();
-    let frame_map_ref      = frame_map_webrtc;
-    let event_store_ref    = event_store_webrtc;
+    #[cfg(not(target_os = "windows"))]
+    let frame_map_ref   = frame_map_webrtc;
+    #[cfg(not(target_os = "windows"))]
+    let event_store_ref = event_store_webrtc;
 
     let ws_to_edge = {
         read.for_each(move |message| {
@@ -90,13 +241,20 @@ async fn main() {
             let signaling_tx = signaling_tx.clone();
             let cloud        = cloud_ref.clone();
             let uuid         = uuid_ref.clone();
+            #[cfg(not(target_os = "windows"))]
             let frame_map    = Arc::clone(&frame_map_ref);
+            #[cfg(not(target_os = "windows"))]
             let event_store  = Arc::clone(&event_store_ref);
             async move {
-                let command_str = message.unwrap().to_string();
+                let command_str = match message {
+                    Ok(m) => m.to_string(),
+                    Err(e) => {
+                        error!("WebSocket error: {e}");
+                        return;
+                    }
+                };
 
                 if command_str.is_empty() {
-                    // debug!("ignoring the empty message");
                     return;
                 }
 
@@ -130,11 +288,15 @@ async fn main() {
                         sessions.lock().await.insert(session_id.clone(), ice_tx);
                         let tx = signaling_tx.clone();
                         match connection_type.as_str() {
+                            "rdp" => {
+                                tokio::spawn(webrtc_session::handle_rdp_offer(json, tx, ice_rx));
+                            }
+                            #[cfg(not(target_os = "windows"))]
                             "camera" => {
                                 tokio::spawn(webrtc_session::handle_camera_offer(json, tx, ice_rx, frame_map, event_store));
                             }
+                            #[cfg(not(target_os = "windows"))]
                             "camera_video" => {
-                                // Route to the always-on GStreamer pipeline for this camera
                                 let offer: webrtc_session::OfferPayload =
                                     match serde_json::from_str(&json) {
                                         Ok(p) => p,
@@ -180,14 +342,17 @@ async fn main() {
                         let json = payload.to_string();
                         let session_id = webrtc_session::extract_session_id(&json).unwrap_or_default();
                         sessions.lock().await.remove(&session_id);
-                        let map = frame_map.lock().await;
-                        for state in map.values() {
-                            if let Some(pipe) = &state.pipeline {
-                                let _ = pipe.cmd_tx.send(
-                                    camera_pipeline::PipelineCmd::RemoveViewer {
-                                        session_id: session_id.clone(),
-                                    }
-                                ).await;
+                        #[cfg(not(target_os = "windows"))]
+                        {
+                            let map = frame_map.lock().await;
+                            for state in map.values() {
+                                if let Some(pipe) = &state.pipeline {
+                                    let _ = pipe.cmd_tx.send(
+                                        camera_pipeline::PipelineCmd::RemoveViewer {
+                                            session_id: session_id.clone(),
+                                        }
+                                    ).await;
+                                }
                             }
                         }
                         info!("WEBRTC_CLOSE: session {} removed", session_id);
@@ -216,7 +381,6 @@ fn read_config(dir: &str) -> (String, String) {
             }
         }
     }
-    // Fall back to env vars, then built-in defaults
     let cloud = env::var("EDGE_OS_CLOUD_URL")
         .unwrap_or_else(|_| "ws://127.0.0.1:4000".to_string());
     let hash = env::var("EDGE_OS_CLOUD_TEAM_HASH")
@@ -240,14 +404,10 @@ fn write_status(dir: &str, status: &str, cloud_url: &str) {
     }
 }
 
-// send ping from time to time so that the cloud server knows
-// that we are alive
 async fn start_pinging(tx: futures_channel::mpsc::UnboundedSender<Message>) {
     let twenty = 20;
     let twenty_secs = time::Duration::from_secs(twenty);
 
-    // sends the latest system info over
-    // TODO: do this asycn with a random wait time to prevent a huge amount of traffic hitting server after each server update
     thread::sleep(time::Duration::from_secs(3));
     let system_info = edge_system::get_edge_info();
     let system_info_payload = format!("EDGE_INFO {}", system_info);
@@ -265,7 +425,6 @@ async fn start_pinging(tx: futures_channel::mpsc::UnboundedSender<Message>) {
         time_counter += 1;
 
         if time_counter % fifteen_count == 0 {
-            // sends system status every 15 mins
             let system_status = edge_system::get_edge_status();
             let system_status_payload = format!("EDGE_STATUS {}", system_status);
             tx.unbounded_send(Message::Text(system_status_payload)).unwrap();
@@ -274,12 +433,12 @@ async fn start_pinging(tx: futures_channel::mpsc::UnboundedSender<Message>) {
     }
 }
 
-// listen to local file socket for custom metrics uploads
+// Unix: listen on a Unix domain socket
+#[cfg(unix)]
 async fn handle_custom_metrics(stream: tokio::net::UnixStream, tx: futures_channel::mpsc::UnboundedSender<Message>) {
     match stream.readable().await {
         Ok(()) => {
             let mut buf = [0; 4096];
-
             loop {
                 match stream.try_read(&mut buf) {
                     Ok(0) => {
@@ -288,7 +447,6 @@ async fn handle_custom_metrics(stream: tokio::net::UnixStream, tx: futures_chann
                     }
                     Ok(n) => {
                         debug!("read {} bytes for custom_metrics", n);
-                            
                         match str::from_utf8(&buf[..n]) {
                             Ok(message) => {
                                 info!("got custom message {}", message);
@@ -302,7 +460,6 @@ async fn handle_custom_metrics(stream: tokio::net::UnixStream, tx: futures_chann
                         };
                     }
                     Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                        // got a WouldBlock error from custom_metrics, ignoring it 
                         sleep(time::Duration::from_millis(300)).await;
                     }
                     Err(e) => {
@@ -318,15 +475,47 @@ async fn handle_custom_metrics(stream: tokio::net::UnixStream, tx: futures_chann
     }
 }
 
+// Windows: listen on a TCP loopback port instead of a Unix socket
+#[cfg(windows)]
+async fn handle_custom_metrics(mut stream: tokio::net::TcpStream, tx: futures_channel::mpsc::UnboundedSender<Message>) {
+    let mut buf = [0u8; 4096];
+    loop {
+        match stream.read(&mut buf).await {
+            Ok(0) => {
+                warn!("custom_metrics client disconnected");
+                break;
+            }
+            Ok(n) => {
+                debug!("read {} bytes for custom_metrics", n);
+                match str::from_utf8(&buf[..n]) {
+                    Ok(message) => {
+                        info!("got custom message {}", message);
+                        let custom_metrics_payload = format!("EDGE_CUSTOM {}", message);
+                        tx.unbounded_send(Message::Text(custom_metrics_payload)).unwrap();
+                    }
+                    Err(e) => {
+                        error!("Invalid UTF-8 sequence: {}", e);
+                        break;
+                    }
+                }
+            }
+            Err(e) => {
+                error!("custom_metrics read error: {}", e);
+                break;
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
 async fn custom_metrics(tx: futures_channel::mpsc::UnboundedSender<Message>) {
     let file_socket = "/tmp/edge-os-custom.sock";
     fs::remove_file(file_socket).unwrap_or(());
     let listener = UnixListener::bind(file_socket).unwrap();
 
-    // change the file socket permission here
-    let mut file_socket_permissions = fs::metadata(file_socket).unwrap().permissions();
-    file_socket_permissions.set_mode(0o666);
-    fs::set_permissions(file_socket, file_socket_permissions).unwrap();
+    let mut perms = fs::metadata(file_socket).unwrap().permissions();
+    perms.set_mode(0o666);
+    fs::set_permissions(file_socket, perms).unwrap();
 
     info!("custom_metrics thread started");
 
@@ -343,8 +532,24 @@ async fn custom_metrics(tx: futures_channel::mpsc::UnboundedSender<Message>) {
     }
 }
 
-// Helper method which will read data from stdin and send it along the
-// sender provided. This function is used for test only.
+#[cfg(windows)]
+async fn custom_metrics(tx: futures_channel::mpsc::UnboundedSender<Message>) {
+    use tokio::net::TcpListener;
+    let listener = TcpListener::bind("127.0.0.1:9393").await.unwrap();
+    info!("custom_metrics thread started on 127.0.0.1:9393");
+    loop {
+        match listener.accept().await {
+            Ok((stream, _addr)) => {
+                debug!("new custom_metrics client connected");
+                tokio::spawn(handle_custom_metrics(stream, tx.clone()));
+            }
+            Err(e) => {
+                error!("Error with custom metrics: {}", e);
+            }
+        }
+    }
+}
+
 async fn _read_stdin(tx: futures_channel::mpsc::UnboundedSender<Message>) {
     let mut stdin = tokio::io::stdin();
     loop {
