@@ -687,7 +687,6 @@
     </nav>
 
     <div class="sidebar-footer">
-      <!-- TODO(windows): hide the Add Camera button on Windows (not supported) -->
       <button class="add-btn" id="open-add-modal">+ Add Camera</button>
       <div class="edge-status">
         <span class="status-dot offline" id="edge-dot"></span>
@@ -1398,6 +1397,13 @@
   document.querySelector('.settings-link').addEventListener('click', () => {
     invoke('open_setup');
   });
+
+  // ── Windows: hide camera management UI (not supported on Windows) ────────────
+  // navigator.platform is 'Win32' on Windows inside WebView2; no plugin needed.
+  if (navigator.platform.startsWith('Win')) {
+    document.getElementById('open-add-modal').style.display  = 'none';
+    document.getElementById('open-add-modal-2').style.display = 'none';
+  }
 
   // ── Init ─────────────────────────────────────────────────────────────────────
   loadCameras();
