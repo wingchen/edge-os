@@ -3,8 +3,7 @@
 ; and NSIS_HOOK_POSTINSTALL after. The installer already runs elevated.
 ;
 ;   PREINSTALL  — silently disables and stops the service (best-effort, no dialog).
-;   POSTINSTALL — copies binary; if locked (service still running), opens Services
-;                 immediately and shows one OK/Cancel retry dialog.
+;   POSTINSTALL — copies binary silently; if still locked, skips copy and continues.
 ;                 Starts service silently on upgrades/reinstalls; only shows a
 ;                 dialog if start fails, offering to open Services.
 ;
@@ -46,28 +45,13 @@
     "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" \
     "EDGE_OS_EDGE_DIR" "C:\ProgramData\EdgeOS"
 
-  ; ── Copy sidecar binary — retry loop ──────────────────────────────────────
-  ; If edge-os-edge.exe is still running it holds a file lock on the copy in
-  ; ProgramData. Ask the user to stop it and click Retry.
-  postinstall_copy_retry:
-    ClearErrors
-    CopyFiles /SILENT "$INSTDIR\edge-os-edge.exe" "C:\ProgramData\EdgeOS\edge-os-edge.exe"
-    IfErrors postinstall_copy_failed postinstall_copy_ok
-
-  postinstall_copy_failed:
-    ; Open Services immediately — no need to ask first, it's clearly needed.
-    ExecShell "" "services.msc"
-    MessageBox MB_OKCANCEL \
-      "Could not copy the EdgeOS binary — the service is still running.$\n$\n\
-Stop the $\"EdgeOS Edge$\" service in the Services window that just opened,$\n\
-then click OK to retry, or Cancel to abort." \
-      IDCANCEL postinstall_copy_cancel
-    Goto postinstall_copy_retry
-
-  postinstall_copy_cancel:
-    Abort "Installation cancelled."
-
-  postinstall_copy_ok:
+  ; ── Copy sidecar binary ───────────────────────────────────────────────────
+  ; PREINSTALL already stopped the service. If the binary is still locked for
+  ; any reason, skip the copy silently and move on — the rest of the install
+  ; (config, service registration, failure recovery) still completes normally.
+  ClearErrors
+  CopyFiles /SILENT "$INSTDIR\edge-os-edge.exe" "C:\ProgramData\EdgeOS\edge-os-edge.exe"
+  ClearErrors
 
   ; ── Version file ───────────────────────────────────────────────────────────
   FileOpen $R0 "C:\ProgramData\EdgeOS\version" w
