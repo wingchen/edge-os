@@ -70,7 +70,7 @@
     nsExec::Exec '"$R9" config EdgeOS start= auto'
     Pop $R0
   ${Else}
-    nsExec::Exec '"$R9" create EdgeOS binPath= "C:\ProgramData\EdgeOS\edge-os-edge.exe" start= demand DisplayName= "EdgeOS Edge"'
+    nsExec::Exec '"$R9" create EdgeOS binPath= "C:\ProgramData\EdgeOS\edge-os-edge.exe" start= auto DisplayName= "EdgeOS Edge"'
     Pop $R0
     nsExec::Exec '"$R9" description EdgeOS "EdgeOS edge daemon"'
     Pop $R0
